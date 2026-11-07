@@ -1,0 +1,1717 @@
+# TCOS Database Documentation
+
+Copyright 2026 Dag Danky Holdings LLC. All rights reserved.
+
+Authored by David Bakanas.
+
+Software ownership: Dag Danky Holdings LLC.
+
+Last updated: 2026-07-01
+
+This document records the database shape TCOS expects.
+
+Totally Collectibles OS (TCOS) software ownership belongs to Dag Danky Holdings LLC. Truely Collectables is Store #1 inside TCOS.
+
+Operator workflow lives in:
+
+- [TCOS Operator Manual](TCOS_OPERATOR_MANUAL.md)
+
+## Database Ownership Rules
+
+Normal admin changes should go through the app, not raw SQL.
+
+Use raw SQL only for:
+
+- migrations
+- emergency cleanup
+- one-time repair
+- confirmed fake-data removal
+
+## Security Data Rules
+
+Do not store raw bank account numbers, routing numbers, payment card numbers, SSNs, tax IDs, or seller payout credentials in TCOS.
+
+Future seller payout and bank verification must use an approved third-party provider. Store only provider IDs, verification status, timestamps, payout state, and non-sensitive metadata needed for operations.
+
+## Security Audit Tables
+
+### `admin_login_attempts`
+
+Admin login audit and lockout table.
+
+Created by migration:
+
+```text
+supabase/migrations/20260628180000_create_admin_login_attempts.sql
+```
+
+Fields:
+
+| Field | Purpose |
+| --- | --- |
+| `id` | Attempt ID |
+| `store_id` | TCOS store context, defaults to Store #1 |
+| `ip_address` | Server-observed client IP or development marker |
+| `user_agent` | Browser user agent |
+| `success` | Whether login succeeded |
+| `failure_reason` | Reason for failed/blocked attempt |
+| `lockout_until` | Timestamp when IP lockout expires |
+| `identity_risk` | Client identity risk status |
+| `identity_evidence` | Request header evidence JSON |
+| `created_at` | Attempt timestamp |
+
+Runtime behavior:
+
+- login security helper lives in `src/lib/admin-login-security.ts`
+- admin review screen lives in `src/app/admin/security/page.tsx`
+- five failed attempts from the same IP inside 15 minutes triggers a 15-minute lockout
+- successful logins are also audited
+- if the table is missing, login still works but audit/lockout storage is unavailable
+
+## Legacy Compatibility Tables
+
+## TCOS Account Tables
+
+### `account_profiles`
+
+Customer/account profile table linked to Supabase Auth users.
+
+Created by migration:
+
+```text
+supabase/migrations/20260628190000_create_tcos_accounts.sql
+```
+
+Fields:
+
+| Field | Purpose |
+| --- | --- |
+| `id` | Supabase Auth user ID |
+| `display_name` | Public or account display name |
+| `email` | Account email |
+| `account_status` | Current account status |
+| `default_account_type` | Baseline account type, such as buyer |
+| `tos_accepted` | Whether customer TOS was accepted at signup |
+| `tos_version` | Accepted TOS version |
+| `tos_accepted_at` | Accepted timestamp |
+| `card_verified` | Whether Stripe card/billing verification completed |
+| `card_verified_at` | Card verification completion timestamp |
+| `stripe_customer_id` | Stripe customer ID from verification |
+| `stripe_setup_intent_id` | Stripe setup intent ID from verification |
+| `stripe_payment_method_id` | Stripe payment method ID from verification |
+| `card_brand` | Stripe-safe card brand label |
+| `card_last4` | Stripe-safe card last 4 digits |
+| `card_exp_month` | Stripe-safe card expiration month |
+| `card_exp_year` | Stripe-safe card expiration year |
+| `card_funding` | Stripe-safe funding type |
+| `billing_name` | Billing name returned by Stripe |
+| `billing_line1` | Stripe-safe billing address line 1 returned by Stripe |
+| `billing_line2` | Stripe-safe billing address line 2 returned by Stripe |
+| `billing_city` | Billing city returned by Stripe |
+| `billing_state` | Billing state returned by Stripe |
+| `billing_country` | Billing country returned by Stripe |
+| `billing_postal_code` | Billing postal code returned by Stripe |
+| `card_verification_failure_reason` | TCOS policy reason if verification did not activate the account |
+| `card_verification_checked_at` | Latest Stripe setup verification evaluation timestamp |
+| `created_at` | Created timestamp |
+| `updated_at` | Updated timestamp |
+
+### `account_store_memberships`
+
+Separates buyer, seller, store-operator, and platform roles by store.
+
+Fields:
+
+| Field | Purpose |
+| --- | --- |
+| `id` | Membership ID |
+| `account_id` | Account profile ID |
+| `store_id` | Store context |
+| `role` | Role such as buyer, seller, store_operator, or platform_admin |
+| `status` | Membership status |
+| `created_at` | Created timestamp |
+| `updated_at` | Updated timestamp |
+
+### `seller_payout_accounts`
+
+Stores seller payout verification status from an approved third-party provider.
+
+Created by migration:
+
+```text
+supabase/migrations/20260630103000_create_seller_payout_accounts.sql
+```
+
+Important:
+
+- TCOS does not store raw bank account numbers, routing numbers, SSNs, tax IDs, or payout credentials.
+- Stripe-hosted onboarding collects and verifies bank/payout details.
+- TCOS stores only provider IDs, status fields, requirements, TOS evidence, and non-sensitive metadata.
+- Seller payout holds, reserves, instant payouts, bank debits, chargeback recovery, and dispute recovery must follow the approved payment processor's rules.
+- Future dispute automation should hold related seller funds when a return, dispute, chargeback, authenticity case, or item-not-as-described claim opens, then release or recover funds only after the case and all available appeals are finally decided.
+- If a case is decided against the seller, recovery should support held funds, future payout offsets, or the seller's verified payout/bank method according to provider rules, including recovery within three business days when supported and legally allowed.
+
+Fields include account/store IDs, provider, provider account ID, onboarding status, charges/payouts/details flags, current and past-due provider requirements, disabled reason, seller TOS acceptance fields, TOS acceptance event ID, metadata, and timestamps.
+
+### `seller_payout_ledger_entries`
+
+Seller payable ledger for TCOS website checkout orders that include outside seller-owned inventory.
+
+Created by migration:
+
+```text
+supabase/migrations/20260701210000_create_seller_payout_ledger.sql
+```
+
+Important:
+
+- Dag Danky Holdings LLC takes an 8% platform rake from TCOS website checkout sales only.
+- The ledger basis includes item gross amount plus allocated buyer-paid shipping.
+- Seller payable amount is the total basis minus the Dag Danky Holdings LLC platform fee.
+- Payout statuses include fulfillment hold, dispute/review hold, eligible, paid, reversed, and cancelled.
+- Admin order review cases can move related rows into `hold_dispute_or_review`.
+- Rows tied to active or paid cash-out requests must not be destructively changed until the cash-out is resolved.
+
+### `platform_fee_ledger_entries`
+
+Dag Danky Holdings LLC platform fee ledger for TCOS website checkout order items.
+
+Created by migration:
+
+```text
+supabase/migrations/20260701211500_create_platform_fee_ledger.sql
+```
+
+Important:
+
+- The fee owner defaults to `Dag Danky Holdings LLC`.
+- The default source type is `tcos_website_checkout`.
+- Outside marketplace sales, including eBay sales of items exported from TCOS, do not create the TCOS 8% website rake.
+- Fee statuses include recognized pending settlement, settled, reversed, and cancelled.
+
+### `seller_payout_requests`
+
+Seller cash-out request ledger for eligible seller payout rows.
+
+Created by migrations:
+
+```text
+supabase/migrations/20260701213000_create_seller_payout_requests.sql
+supabase/migrations/20260701214500_add_final_fields_to_seller_payout_requests.sql
+```
+
+Important:
+
+- Requests allocate specific eligible seller payout ledger rows through `seller_payout_request_entries`.
+- Request statuses include requested, approved, processing, paid, rejected, and cancelled.
+- Approve, processing, and paid transitions should be blocked whenever the request touches held/cancelled payout rows or active `order_review_cases`.
+- Marking a request paid records TCOS reconciliation only; actual money movement must happen through the approved payout processor until automated transfers are built.
+- Paid requests must record provider payout reference, final processor fee, and final seller net amount.
+- Seller cash-out or payout processor fees are separate from the Dag Danky Holdings LLC 8% platform rake.
+
+### `seller_payout_admin_events`
+
+Append-only admin audit events for seller payout ledger and cash-out request actions.
+
+Created by migration:
+
+```text
+supabase/migrations/20260701214000_create_seller_payout_admin_events.sql
+```
+
+Important:
+
+- Stores target type, target ID, seller account ID, event type, previous status, new status, admin note, actor type, IP address, user agent, identity risk, identity evidence JSON, metadata, and timestamp.
+- Used by `/admin/seller-payouts` and admin order payout controls.
+
+### `order_review_cases`
+
+Admin case files for chargebacks, returns, authenticity issues, item-not-as-described claims, payment risk, shipping issues, seller disputes, and other order problems.
+
+Created by migrations:
+
+```text
+supabase/migrations/20260701215000_create_order_review_cases.sql
+supabase/migrations/20260701220000_create_order_review_case_packets.sql
+```
+
+Important:
+
+- Cases are scoped by store and order.
+- A case may be scoped to one seller account or all seller-owned rows on the order.
+- Opening a case can hold related seller payout ledger rows by moving them to `hold_dispute_or_review`.
+- Opening a case can optionally move an unshipped order into `shipping_review`.
+- Statuses include open, evidence gathering, waiting on buyer, waiting on seller, under review, decided for buyer, decided for seller, appealed, and closed.
+- Final case outcomes are recorded in `outcome_summary`; payout release or recovery still happens through the payout ledger and payment processor rules.
+- `order_review_case_events` stores append-only event history with admin notes, previous/new status, IP evidence, user agent evidence, and metadata.
+- Admin screens are `/admin/order-review-cases` for the global queue and `/admin/orders/[id]` for order-specific case creation and updates.
+- `/api/admin/order-review-cases/[id]/packet` generates a case packet PDF from order records, case records, case events, seller payout rows, platform fee rows, TOS/IP evidence, and transaction evidence report references.
+- `/api/admin/order-review-cases/[id]/payout-resolution` updates related `seller_payout_ledger_entries` in one admin action and writes both case and payout audit events.
+- `order_review_case_packets` stores the latest generated case packet text/html plus status, email-delivery fields, and admin file lookup metadata.
+
+### `seller_marketplace_connections`
+
+Stores seller-scoped marketplace connection records for eBay and future provider connectors.
+
+Created by migration:
+
+```text
+supabase/migrations/20260701180000_create_seller_marketplace_connections.sql
+```
+
+Important:
+
+- The table is scoped by `account_id` and `store_id` so each seller can have separate marketplace connections.
+- Store #1 global eBay sync remains separate in `ebay_tokens`; this table is the seller-safe connection foundation.
+- This first foundation slice stores token reference and expiry metadata only. It does not store raw OAuth access tokens or refresh tokens.
+- Future OAuth work should store secrets in a server-only encrypted/vaulted layer and reference them from `token_storage_key`.
+
+Fields include account/store IDs, provider, provider account ID/label, connection status, sync status, OAuth scope names, token reference/expiry metadata, last sync timing, last sync error, import cursor, provider metadata, and timestamps.
+
+### `seller_marketplace_connection_tokens`
+
+Stores encrypted seller marketplace OAuth tokens separately from connection status rows.
+
+Created by migration:
+
+```text
+supabase/migrations/20260701183000_create_seller_marketplace_connection_tokens.sql
+```
+
+Important:
+
+- This table is keyed by seller account, store, provider, and connection ID.
+- It stores encrypted token payloads only. Raw refresh/access tokens should not be exposed through account APIs or UI responses.
+- Seller eBay OAuth uses this table so third-party seller tokens stay separate from Store #1 `ebay_tokens`.
+
+Fields include connection/account/store IDs, provider, encrypted refresh token, optional encrypted access token, and timestamps.
+
+### `account_auth_events`
+
+Account signup/login audit trail.
+
+Fields:
+
+| Field | Purpose |
+| --- | --- |
+| `id` | Event ID |
+| `account_id` | Account profile ID when known |
+| `store_id` | Store context |
+| `email` | Login/signup email |
+| `event_type` | signup or login |
+| `success` | Whether auth event succeeded |
+| `failure_reason` | Failure or block reason when auth did not succeed |
+| `lockout_until` | Timestamp when a temporary account auth lockout expires |
+| `ip_address` | Client IP |
+| `user_agent` | User agent |
+| `identity_risk` | Identity risk value |
+| `identity_evidence` | Request header evidence JSON |
+| `created_at` | Event timestamp |
+
+Runtime behavior:
+
+- account helpers live in `src/lib/account-auth.ts`
+- buyer signup route is `/api/account/signup`
+- buyer login route is `/api/account/login`
+- signup/login security helper lives in `src/lib/account-login-security.ts`
+- card verification is required by default unless `ACCOUNT_CARD_VERIFICATION_REQUIRED=false`
+- pending card-verification accounts use `account_status = payment_verification_required`
+- Stripe webhook completion activates the account and stores Stripe-safe card/billing proof
+- TCOS does not store raw card numbers, CVV, or full payment credentials
+- logged-in order history route is `/api/account/orders`
+- public account pages live under `/account`
+- current account session storage is browser-local and separate from admin auth
+- admin login remains separate from customer/buyer account login
+- logged-in checkout and offer flows pass the account token as a bearer token
+- checkout and accepted/countered offer Stripe sessions include `account_id` metadata when available
+- Stripe webhooks persist `orders.account_id` when account metadata is present
+- guest checkout and guest offers remain supported with a null account link
+- admin account lookup lives at `/admin/accounts`
+- `/admin/accounts` reads account profiles and summarizes linked order/offer activity for the active store
+- admin order and offer screens show whether each record is linked to a TCOS account or was created as a guest
+- account profile summaries are loaded through `src/lib/account-profiles.ts`
+- account signup/login rejects masked identity when identity intelligence blocks the request
+- six failed signup or login attempts inside 15 minutes triggers a 15-minute account auth lockout
+- account auth lockout checks use recent attempts by IP address and email address
+- account dashboard preferences route is `/api/account/dashboard/preferences`
+- account dashboard preferences store favorite teams/sports and market watchlist items
+- collector dashboard route is `/api/account/collector/items`
+- collector dashboard stores owned collection items, wish list items, want ads, set needs, trade targets, and future match records
+
+### `public_endpoint_rate_limit_events`
+
+Audit and rate-limit table for public money-path endpoints.
+
+Created by migration:
+
+```text
+supabase/migrations/20260630113000_create_public_endpoint_rate_limit_events.sql
+```
+
+Protected endpoints:
+
+- `/api/checkout`
+- `/api/offers/create`
+- `/api/account/collector/binding-offers`
+- `/api/account/seller/payout-onboarding`
+
+Runtime behavior:
+
+- helper lives in `src/lib/public-endpoint-rate-limit.ts`
+- checkout is limited to 12 attempts per 10 minutes per IP/account subject
+- public offer creation is limited to 8 attempts per 15 minutes per IP/customer/product subject
+- collector binding-offer payment setup is limited to 6 attempts per hour per IP/account subject
+- seller payout onboarding is limited to 5 attempts per hour per IP/account subject
+- blocked identity requests are logged when the table is available
+- `/admin/security` reads this table for public money-path security review
+- `/admin/security/ip/[ip]` joins this table with login attempts, TOS acceptance events, orders, offers, and transaction evidence reports for a suspicious-IP dossier
+- `/admin/launch-readiness` checks this table as Public Endpoint Rate Limits
+- if the table is not migrated yet, routes fail open so production does not hard-stop before the migration is applied
+
+Fields:
+
+| Field | Purpose |
+| --- | --- |
+| `id` | Event ID |
+| `store_id` | Store context |
+| `endpoint_key` | Protected endpoint key |
+| `subject_key` | Optional account/email/product subject key |
+| `ip_address` | Server-observed client IP |
+| `user_agent` | User agent |
+| `blocked` | Whether the request was blocked |
+| `block_reason` | Reason such as `too_many_attempts` or masked identity |
+| `window_seconds` | Policy window used for the decision |
+| `max_attempts` | Policy max used for the decision |
+| `identity_risk` | Identity risk value |
+| `identity_evidence` | Request header evidence JSON |
+| `created_at` | Event timestamp |
+
+### `security_ip_investigations`
+
+Operator workflow table for suspicious IP cases.
+
+Created by migration:
+
+```text
+supabase/migrations/20260630120000_create_security_ip_investigations.sql
+```
+
+Runtime behavior:
+
+- `/admin/security` lists saved IP investigations with status, severity, review timestamps, and notes
+- `/admin/security/ip/[ip]` can create or update the case for one IP
+- valid statuses are `watch`, `review`, and `resolved`
+- valid severities are `low`, `medium`, `high`, and `critical`
+- resolving a case stores `resolved_at`; later moving it back to watch or review clears `resolved_at`
+- `last_reviewed_at` updates every time the case form is saved
+- notes are internal admin notes and should not be exposed publicly
+
+Fields:
+
+| Field | Purpose |
+| --- | --- |
+| `id` | Investigation ID |
+| `store_id` | Store context |
+| `ip_address` | Server-observed IP under review |
+| `status` | watch, review, or resolved |
+| `severity` | low, medium, high, or critical |
+| `notes` | Internal admin notes |
+| `created_at` | Created timestamp |
+| `updated_at` | Updated timestamp |
+| `last_reviewed_at` | Last admin review timestamp |
+| `resolved_at` | Resolution timestamp |
+
+## Account Dashboard Intelligence Tables
+
+Created by migration:
+
+```text
+supabase/migrations/20260628213000_create_sports_dashboard_tables.sql
+```
+
+### `account_sports_favorites`
+
+Stores account-level favorite teams, leagues, sports, or athletes.
+
+Fields:
+
+| Field | Purpose |
+| --- | --- |
+| `id` | Favorite ID |
+| `account_id` | Account profile ID |
+| `store_id` | Store context |
+| `favorite_type` | team, league, sport, or athlete |
+| `sport_key` | Sport key such as football or basketball |
+| `league_key` | League key such as nfl, nba, mlb, nhl, ncaa, or other provider key |
+| `team_name` | Team or favorite display name |
+| `team_abbreviation` | Optional abbreviation |
+| `external_team_id` | Optional provider team ID |
+| `data_provider` | Provider key when known |
+| `display_order` | Dashboard ordering |
+| `is_active` | Soft-delete/display flag |
+| `include_news` | Whether news should be shown when providers exist |
+| `include_scores` | Whether scores should be shown when providers exist |
+| `include_schedule` | Whether schedules should be shown when providers exist |
+| `include_odds` | Whether odds should be shown when legal/provider rules allow |
+| `metadata` | Provider/category metadata |
+
+### `sports_data_sources`
+
+Stores approved or candidate sports data providers.
+
+Fields include provider key, source type, display name, sport/league scope, base URL, usage policy notes, enabled flag, supported capabilities, and metadata.
+
+### `sports_event_snapshots`
+
+Stores provider-fetched games, scores, schedules, status, venue, broadcast, and raw payload data.
+
+### `sports_news_snapshots`
+
+Stores provider-fetched team or league news headlines, summaries, URLs, timestamps, and raw payload data.
+
+### `sports_odds_snapshots`
+
+Stores provider-fetched odds snapshots for display-only sports intelligence.
+
+Important rules:
+
+- odds data must come from an approved provider
+- odds display must follow jurisdiction, age, attribution, and provider policy rules
+- TCOS must not add a betting flow without legal/compliance review
+
+### `account_market_watchlist_items`
+
+Stores account-level market watchlist preferences.
+
+Fields:
+
+| Field | Purpose |
+| --- | --- |
+| `id` | Watchlist item ID |
+| `account_id` | Account profile ID |
+| `store_id` | Store context |
+| `asset_type` | stock, etf, index, crypto, nft, commodity, collectable_index, other |
+| `symbol` | Ticker/symbol/slug |
+| `display_name` | Optional display name |
+| `exchange_key` | Exchange or venue key |
+| `data_provider` | Provider key when known |
+| `external_asset_id` | Optional provider asset ID |
+| `display_order` | Dashboard ordering |
+| `is_active` | Soft-delete/display flag |
+| `include_price` | Whether price should be shown when providers exist |
+| `include_news` | Whether news should be shown when providers exist |
+| `include_alerts` | Future alert preference |
+| `metadata` | Provider/category metadata |
+
+### `market_data_sources`
+
+Stores approved or candidate market data providers for quotes, news, history, NFT floor pricing, crypto pricing, and collectable indexes.
+
+### `market_price_snapshots`
+
+Stores provider-fetched stock, ETF, index, crypto, NFT, commodity, or collectable index prices.
+
+### `market_news_snapshots`
+
+Stores provider-fetched market news by asset type and symbol.
+
+Important rules:
+
+- market data is informational only
+- TCOS should not present saved market watchlists as financial advice
+- provider licensing, freshness, attribution, and redistribution rules must be reviewed before public launch
+
+## Collector Dashboard Tables
+
+Created by migration:
+
+```text
+supabase/migrations/20260628220000_create_collector_dashboard_tables.sql
+```
+
+### `account_collection_items`
+
+Stores account-owned collection items.
+
+Fields:
+
+| Field | Purpose |
+| --- | --- |
+| `id` | Collection item ID |
+| `account_id` | Account profile ID |
+| `store_id` | Store context |
+| `linked_product_id` | Optional TCOS product ID |
+| `inventory_item_id` | Optional TCOS V2 inventory ID |
+| `source_order_id` | Optional originating order ID |
+| `source_order_item_id` | Optional originating order item ID |
+| `title` | Collection item title |
+| `category` | Category such as cards, shoes, comics, memorabilia |
+| `item_type` | Collectable type |
+| `image_url` | Future/manual image URL |
+| `acquisition_source` | Where the user acquired it |
+| `acquisition_price` | What the user paid |
+| `estimated_value` | User/provider estimated value |
+| `value_confidence` | Future confidence label |
+| `grade_company` | PSA, BGS, CGC, SGC, etc. |
+| `grade_value` | Grade value |
+| `certification_number` | Grading/cert number |
+| `condition` | User-entered condition |
+| `ownership_status` | owned, incoming, sold, traded, archived |
+| `visibility` | private, community, public, admin_review |
+| `is_favorite` | Favorite flag |
+| `is_active` | Soft-delete flag |
+| `notes` | Collector notes |
+| `metadata` | Future structured metadata |
+
+### `account_wish_list_items`
+
+Stores wish list items, want ads, set needs, and trade targets.
+
+Fields:
+
+| Field | Purpose |
+| --- | --- |
+| `id` | Wish list item ID |
+| `account_id` | Account profile ID |
+| `store_id` | Store context |
+| `wish_type` | wish_list, want_ad, set_need, trade_target |
+| `title` | Desired item title |
+| `category` | Category |
+| `item_type` | Collectable type |
+| `search_query` | Future matching query |
+| `player_name` | Player/person/character |
+| `team_name` | Team/franchise |
+| `brand` | Brand/manufacturer |
+| `set_name` | Set/release |
+| `release_year` | Year |
+| `card_number` | Card/catalog number |
+| `variant` | Parallel, variant, refractor, color, size, etc. |
+| `desired_condition` | Desired condition |
+| `desired_grade` | Desired grade |
+| `budget_min` | Minimum budget |
+| `budget_max` | Maximum budget |
+| `priority` | low, normal, high, grail |
+| `status` | active, matched, fulfilled, expired, canceled, renewed |
+| `visibility` | private, community, public, admin_review |
+| `expires_at` | Expiration timestamp, especially for want ads |
+| `auto_renew` | Renewal preference |
+| `matched_product_id` | Future matched TCOS product |
+| `matched_at` | Future match timestamp |
+| `notes` | Collector notes |
+| `metadata` | Future structured metadata |
+
+Want ads default to a 30-day expiration in the API when created with `wish_type = want_ad`.
+
+### `account_wish_list_matches`
+
+Stores future inventory or external matches against wish list items.
+
+Fields include wish list item ID, account ID, store ID, product/inventory references, match source, match score, status, notes, metadata, and timestamps.
+
+## Collector Profile, Messaging, Binding Offer, And Export Tables
+
+Created by migration:
+
+```text
+supabase/migrations/20260628223000_create_collector_profiles_messaging_exports.sql
+```
+
+### `account_collector_profiles`
+
+Stores the account's collector-facing bio and social profile.
+
+Fields:
+
+| Field | Purpose |
+| --- | --- |
+| `id` | Collector profile row ID |
+| `account_id` | Account profile ID |
+| `store_id` | Store context |
+| `collector_handle` | Public/community handle |
+| `bio` | Collector bio |
+| `collecting_focus` | What the collector focuses on |
+| `location_label` | User-entered region/city label |
+| `website_url` | Personal/site URL |
+| `instagram_url` | Instagram URL |
+| `facebook_url` | Facebook URL |
+| `x_url` | X URL |
+| `tiktok_url` | TikTok URL |
+| `youtube_url` | YouTube URL |
+| `whatnot_url` | Whatnot URL |
+| `ebay_url` | eBay URL |
+| `visibility` | private, community, public, admin_review |
+| `allow_messages` | Whether community messaging can target this profile |
+| `metadata` | Future structured profile metadata |
+
+### `account_social_connections`
+
+Stores collector follows and friend requests.
+
+Created by migration:
+
+```text
+supabase/migrations/20260629150000_create_collector_social_tables.sql
+```
+
+Fields:
+
+| Field | Purpose |
+| --- | --- |
+| `id` | Connection ID |
+| `store_id` | Store context |
+| `requester_account_id` | Account that started the follow or friend request |
+| `target_account_id` | Account being followed or friended |
+| `connection_type` | follow or friend |
+| `status` | active, pending, accepted, declined, or blocked |
+| `requested_at` | Request timestamp |
+| `responded_at` | Friend response timestamp |
+| `metadata` | Future moderation or source metadata |
+
+### `account_brag_posts`
+
+Stores collector brag posts tied to orders, collection items, or future social activity.
+
+Fields:
+
+| Field | Purpose |
+| --- | --- |
+| `id` | Brag post ID |
+| `store_id` | Store context |
+| `account_id` | Posting account |
+| `order_id` | Optional source order |
+| `collection_item_id` | Optional collection item |
+| `product_id` | Optional product |
+| `title` | Brag headline |
+| `body` | Brag text |
+| `image_url` | Future image URL |
+| `share_slug` | Public tracked share slug |
+| `share_url` | Public tracked share URL |
+| `visibility` | private, friends, followers, community, or public |
+| `reaction_count` | Future reactions |
+| `comment_count` | Future comments |
+| `click_count` | Tracked share-link visits |
+| `last_click_at` | Latest share-link visit |
+| `metadata` | Order snapshot and future social metadata |
+
+### `account_brag_post_clicks`
+
+Stores tracked visits from brag share links.
+
+Fields include brag post ID, store ID, share slug, referrer, user agent, observed IP/header value, and timestamp.
+
+`source` stores the explicit share channel when present, such as `feed`, `x`, `facebook`, `copy`, `direct`, or a future campaign/source key.
+
+### `account_brag_weekly_reports`
+
+Stores weekly brag-link performance reports.
+
+Fields include store ID, report period, email recipient, post count, click count, report JSON, email timestamp, email error, and creation timestamp.
+
+`report_json` includes top brag posts, top referrers, and top sources so weekly emails can show how many visitors each brag/social link brought into TCOS.
+
+### `account_conversations`
+
+Stores account-to-account collector message threads.
+
+Fields include store ID, creator account, optional recipient account, related product/collection/wish list references, subject, status, last message timestamp, metadata, and timestamps.
+
+### `account_conversation_messages`
+
+Stores messages inside collector conversations.
+
+Message types:
+
+- `message`
+- `binding_offer`
+- `system`
+
+### `account_binding_offers`
+
+Stores future binding offers created from collector messaging.
+
+Important behavior:
+
+- binding offer rows start as `payment_required`
+- the buyer must pass TOS and identity checks before a row is created
+- Stripe Checkout setup mode collects payment info before the offer is submitted
+- Stripe webhook confirmation updates the row to `submitted` and saves the setup/payment method IDs
+- seller acceptance and off-session charging are a later payment slice
+
+Fields include buyer/seller account IDs, conversation ID, related product/collection/wish list references, offer/shipping/tax/total amounts, Stripe customer/session/setup/payment method IDs, TOS/IP evidence, status, expiration, notes, metadata, and timestamps.
+
+### `account_collection_export_jobs`
+
+Stores export audit rows for CSV and catalog backups.
+
+Export types:
+
+- `csv`
+- `catalog_json`
+- `media_archive`
+
+Current exports are generated inline by `/api/account/collector/exports`; future media archives can use queued jobs and object storage.
+
+### `account_collection_import_jobs`
+
+Stores collector collection import audit rows.
+
+Import types:
+
+- `csv`
+- `catalog_json`
+- `provider`
+
+Current imports are generated inline by `/api/account/collector/imports`. CSV uploads import into `account_collection_items` only. They do not create storefront products, sellable inventory, eBay listings, orders, offers, or checkout rows.
+
+Fields include account/store IDs, source marketplace, file name, row/import/skip/error counts, status, metadata, creation time, and completion time.
+
+## Multi-Store Platform Tables
+
+### `stores`
+
+Platform storefront table.
+
+Created by migration:
+
+```text
+supabase/migrations/20260628110000_create_tcos_stores.sql
+```
+
+Store #1 is fixed as:
+
+| Field | Value |
+| --- | --- |
+| `id` | `00000000-0000-4000-8000-000000000001` |
+| `slug` | `truely-collectables` |
+| `display_name` | `Truely Collectables` |
+| `legal_name` | `Truely Collectables LLC` |
+| `store_type` | `collectables` |
+| `platform_owner` | `Dag Danky Holdings LLC` |
+
+The same migration adds `store_id` to current core tables and defaults existing/current inserts to Store #1.
+
+Tables with `store_id` foundation:
+
+- `products`
+- `inventory_items`
+- `orders`
+- `order_items`
+- `offers`
+- `ebay_tokens`
+- `sales_comp_snapshots`
+- `tos_acceptance_events`
+- `transaction_evidence_reports`
+
+Current Store #1 constants and active-store helpers live in `src/lib/stores.ts`. Store operational settings resolve through `src/lib/store-settings.ts`. Current create/upsert paths pass the active store ID for products, inventory items, orders, order items, offers, eBay tokens, sales comp snapshots, TOS acceptance events, and transaction evidence reports. Current inventory, eBay token, sales comp, fulfillment, offer, evidence, admin, and success-page read/update paths are also scoped to the active store. The inventory repository and inventory engine carry store context internally. Future multi-store work should replace the current Store #1 resolver with request/account/domain-selected store context for all customer, product, inventory, order, offer, integration, and evidence queries.
+
+### `store_settings`
+
+Per-store operational settings table.
+
+Created by migration:
+
+```text
+supabase/migrations/20260628113000_create_store_settings.sql
+```
+
+Fields:
+
+| Field | Purpose |
+| --- | --- |
+| `store_id` | Store ID and primary key |
+| `support_email` | Store support inbox |
+| `sales_email` | Store sales/admin inbox |
+| `offers_email` | Sender email for offer notifications |
+| `evidence_email` | Destination for transaction evidence PDFs |
+| `evidence_from_email` | Sender for evidence emails |
+| `order_from_email` | Sender for order/shipping/customer emails |
+| `stripe_mode` | Current store payment mode hint, such as env, test, or live |
+| `stripe_account_id` | Future connected Stripe account ID |
+| `ebay_environment` | eBay environment for the store |
+| `ebay_account_label` | Human-readable eBay account label |
+| `seller_commission_rate` | Platform commission rate for seller transactions |
+| `metadata` | Future settings JSON |
+| `created_at` | Created timestamp |
+| `updated_at` | Updated timestamp |
+
+Runtime behavior:
+
+- TCOS reads settings through `src/lib/store-settings.ts`.
+- If settings are missing or the table is not migrated yet, TCOS falls back to Store #1 defaults and current environment variables.
+- Transaction evidence, shipping emails, offer notifications, launch readiness, and support/email display should use resolved store settings instead of hardcoded Store #1 values.
+
+### `products`
+
+Legacy product table. Still required.
+
+Used by:
+
+- shop display compatibility
+- product relationships in offers/order items
+- eBay import compatibility
+- V2 bridge through `legacy_product_id`
+
+Fields expected by current code:
+
+| Field | Purpose |
+| --- | --- |
+| `id` | Legacy product ID |
+| `store_id` | TCOS store ID, defaults to Store #1 |
+| `sku` | eBay/local SKU when available |
+| `title` | Product title |
+| `description` | Product description |
+| `player` | Player name |
+| `sport` | Sport/category search value |
+| `price` | Storefront price |
+| `quantity` | Legacy mirrored quantity |
+| `image_url` | Primary storefront image |
+| `ebay_item_id` | eBay listing ID |
+| `last_seen_at` | Last eBay import timestamp |
+| `created_at` | Product creation timestamp |
+
+### `orders`
+
+Stores order headers.
+
+Current fulfillment policy:
+
+- checkout and offer payment links collect United States shipping addresses only
+- Stripe Checkout is configured with `shipping_address_collection.allowed_countries = ["US"]`
+- orders should store `shipping_country` as `US` for normal checkout-created shipments while this policy is active
+
+Fields used by current code:
+
+| Field | Purpose |
+| --- | --- |
+| `id` | Order ID |
+| `store_id` | TCOS store ID, defaults to Store #1 |
+| `account_id` | Optional linked customer account |
+| `created_at` | Order creation timestamp |
+| `customer_email` | Customer email |
+| `customer_name` | Customer name |
+| `total` | Total paid |
+| `status` | Payment status |
+| `stripe_session_id` | Stripe checkout session ID |
+| `shipping_method` | Internal shipping method |
+| `shipping_name` | Display shipping name |
+| `shipping_amount` | Shipping paid |
+| `subtotal` | Item subtotal |
+| `item_count` | Total item count |
+| `fulfillment_status` | Fulfillment status |
+| `tracking_number` | Tracking number |
+| `carrier` | Shipping carrier |
+| `shipped_at` | Shipment timestamp |
+| `customer_notes` | Optional notes |
+| `discount_amount` | Optional discount amount |
+| `discount_code` | Optional discount code |
+| `shipping_address_line1` | Address line 1 |
+| `shipping_address_line2` | Address line 2 |
+| `shipping_city` | City |
+| `shipping_state` | State |
+| `shipping_postal_code` | Postal code |
+| `shipping_country` | Country |
+| `tos_accepted` | Whether customer accepted Terms of Service |
+| `tos_version` | Terms of Service version accepted |
+| `tos_accepted_at` | TOS acceptance timestamp |
+| `tos_acceptance_event_id` | Linked TOS/IP audit event |
+| `tos_ip_address` | Server-observed client IP at acceptance |
+| `tos_user_agent` | User agent at acceptance |
+| `tos_ip_risk` | IP intelligence status |
+| `tos_ip_block_reason` | Block reason if applicable |
+| `tos_ip_evidence` | Request header evidence JSON |
+
+### `order_items`
+
+Stores order line items.
+
+Fields used by current code:
+
+| Field | Purpose |
+| --- | --- |
+| `id` | Order item ID |
+| `store_id` | TCOS store ID, defaults to Store #1 |
+| `order_id` | Parent order |
+| `product_id` | Legacy product ID |
+| `title` | Purchased item title snapshot |
+| `price` | Purchased item price snapshot |
+| `quantity` | Quantity purchased |
+
+### `offers`
+
+Stores customer offers.
+
+Fields used by current code:
+
+| Field | Purpose |
+| --- | --- |
+| `id` | Offer ID |
+| `store_id` | TCOS store ID, defaults to Store #1 |
+| `account_id` | Optional linked customer account |
+| `product_id` | Legacy product ID |
+| `customer_name` | Customer name |
+| `customer_email` | Customer email |
+| `offer_amount` | Original offer |
+| `counter_amount` | Counter amount if any |
+| `status` | Offer status |
+| `stripe_checkout_url` | Payment URL |
+| `stripe_session_id` | Stripe session |
+| `tos_accepted` | Whether customer accepted Terms of Service |
+| `tos_version` | Terms of Service version accepted |
+| `tos_accepted_at` | TOS acceptance timestamp |
+| `tos_acceptance_event_id` | Linked TOS/IP audit event |
+| `tos_ip_address` | Server-observed client IP at acceptance |
+| `tos_user_agent` | User agent at acceptance |
+| `tos_ip_risk` | IP intelligence status |
+| `tos_ip_block_reason` | Block reason if applicable |
+| `tos_ip_evidence` | Request header evidence JSON |
+| `created_at` | Created timestamp |
+| `updated_at` | Updated timestamp |
+
+Known statuses in current flows:
+
+- `pending`
+- `accepted`
+- `declined`
+- `countered`
+- `paid`
+
+### `ebay_tokens`
+
+Stores eBay refresh tokens.
+
+Fields used:
+
+| Field | Purpose |
+| --- | --- |
+| `id` | Token row ID |
+| `store_id` | TCOS store ID, defaults to Store #1 |
+| `refresh_token` | eBay OAuth refresh token |
+| `created_at` | Token creation timestamp |
+
+Do not delete unless intentionally reconnecting eBay.
+
+## TCOS V2 Inventory Tables
+
+### `inventory_items`
+
+Main V2 inventory table.
+
+Fields expected by current code:
+
+| Field | Purpose |
+| --- | --- |
+| `id` | V2 inventory item ID |
+| `store_id` | TCOS store ID, defaults to Store #1 |
+| `legacy_product_id` | Bridge to `products.id` |
+| `sku` | SKU |
+| `title` | Inventory title |
+| `description` | Inventory description |
+| `category` | Category/sport |
+| `condition` | Condition text |
+| `status` | Inventory status |
+| `quantity` | Authoritative V2 quantity |
+| `cost` | Optional cost basis |
+| `price` | Authoritative V2 price |
+| `currency` | Currency, usually USD |
+| `location` | Optional storage location |
+| `notes` | Internal notes |
+| `metadata` | Structured listing metadata, including authenticity/provenance disclosure JSON |
+| `created_at` | Created timestamp |
+| `updated_at` | Updated timestamp |
+
+Allowed statuses:
+
+- `draft`
+- `active`
+- `reserved`
+- `sold`
+- `archived`
+
+### `inventory_images`
+
+Image table for V2 inventory.
+
+Fields expected:
+
+| Field | Purpose |
+| --- | --- |
+| `id` | Image ID |
+| `inventory_item_id` | Parent V2 inventory item |
+| `image_url` | Image URL |
+| `alt_text` | Alt text |
+| `sort_order` | Sort order |
+| `is_primary` | Primary image flag |
+| `created_at` | Created timestamp |
+
+### `inventory_attributes`
+
+Structured inventory attributes.
+
+Current eBay import writes generated attributes for category confidence, review flags, and selected eBay aspects.
+
+Current `inventory_items.metadata` usage:
+
+- `authenticity.status`
+- `authenticity.autographSource`
+- `authenticity.certProvider`
+- `authenticity.certNumber`
+- `authenticity.guaranteedAuthenticators`
+- `authenticity.provenanceEvidence`
+- `authenticity.authenticityNotes`
+
+This data powers seller listing disclosure, admin review, storefront trust badges, and buyer-facing authenticity notes without changing the legacy `products` table.
+
+Current seller-activation logic also reads this metadata before a draft can go live. Autograph-sensitive listings must carry a valid disclosure state or activation returns blockers instead of publishing the item.
+
+Seller marketplace staging also seeds `inventory_items.metadata.authenticity` from eBay title/aspect signals when a staged row is promoted into a seller draft, so imported autograph-sensitive listings start with a reviewable disclosure baseline.
+
+Fields expected:
+
+| Field | Purpose |
+| --- | --- |
+| `id` | Attribute ID |
+| `inventory_item_id` | Parent V2 inventory item |
+| `attribute_name` | Attribute name |
+| `attribute_value` | Attribute value |
+| `created_at` | Created timestamp |
+
+Generated attribute naming:
+
+- `tcos_category`
+- `tcos_category_confidence`
+- `tcos_review_required`
+- `tcos_category_evidence`
+- `ebay_aspect_*`
+
+When eBay imports rerun, TCOS replaces generated `tcos_` and `ebay_` attributes for that item and leaves other future/manual attribute names alone.
+
+## Inventory Bridge Operations
+
+Inventory bridge logic lives in:
+
+```text
+src/modules/inventory/engine.ts
+```
+
+Current bridge methods:
+
+| Method | Purpose |
+| --- | --- |
+| `getBridgeStatus()` | Compares Store #1 `products` against `inventory_items` and returns reconciliation rows |
+| `backfillInventoryItemsFromProducts()` | Creates or updates V2 inventory rows from legacy products |
+| `getEbayReconciliationStatus()` | Builds the local eBay listing health view from Store #1 product sync fields |
+
+Admin screen:
+
+```text
+src/app/admin/inventory/page.tsx
+```
+
+Backfill behavior:
+
+- scans active-store `products`
+- matches an existing V2 item by `legacy_product_id`
+- falls back to active-store SKU match when no legacy bridge exists
+- creates missing V2 rows
+- updates existing V2 rows with product title, description, category, status, quantity, price, SKU, and legacy product ID
+- copies missing product images into `inventory_images`
+- records per-row failures instead of stopping the whole run
+
+Checkout availability behavior:
+
+- `inventoryEngine.requireAvailableCartItems()` requires the product to exist
+- cart rows are normalized before checkout and webhook processing
+- duplicate product rows are combined before quantity checks
+- product IDs and quantities must be positive whole numbers
+- item status must be `active`
+- requested quantity must be available
+- checkout price must be greater than zero
+- offer accept/counter checkout creation uses this same gate
+
+Sale decrement behavior:
+
+- `inventoryEngine.decrementAfterSale()` calls the Supabase RPC `tcos_decrement_inventory_after_sale`
+- the RPC locks the active-store product row before decrementing quantity
+- insufficient stock raises an error instead of clamping quantity to zero
+- successful decrements update `products.quantity` and mirror the result into `inventory_items`
+- Stripe webhooks mark paid orders as `paid_inventory_review` / `inventory_review` if inventory disappears before webhook completion
+
+Bridge labels returned by the engine:
+
+- `ok`
+- `missing_inventory_item`
+- `sku_link_only`
+- `quantity_mismatch`
+- `price_mismatch`
+- `sold_out`
+
+eBay import now avoids global SKU upserts. The import updates by active-store eBay listing ID first, then by active-store SKU, then inserts only when no store-scoped product exists.
+
+The shared eBay importer maps active listings into TCOS categories before upserting V2 inventory. Current categories include `sports_cards`, `trading_cards`, `shoes`, `comics`, `memorabilia`, `toys`, `sealed_wax`, `autographs`, `coins`, and `other_collectable`. Low-confidence mappings write `tcos_review_required = true` to `inventory_attributes` for admin review.
+
+## eBay Reconciliation Operations
+
+Admin screen:
+
+```text
+src/app/admin/ebay/page.tsx
+```
+
+This screen reads local TCOS data only. It does not call eBay on page load. It uses `products.sku`, `products.ebay_item_id`, `products.quantity`, `products.price`, and `products.last_seen_at` to show local sync readiness.
+
+Current local eBay labels:
+
+- `ok`
+- `missing_sku`
+- `not_linked`
+- `never_synced`
+- `stale_sync`
+- `sold_out`
+
+Current stale-sync threshold:
+
+```text
+12 hours
+```
+
+The eBay page links to the existing protected routes:
+
+- `/api/ebay/test`
+- `/api/ebay/import-listings?offset=0&limit=50`
+- `/api/ebay/full-sync`
+- `/api/ebay/auth`
+
+Shared eBay sync service:
+
+```text
+src/lib/ebay-sync.ts
+```
+
+Both `/api/ebay/import-listings` and `/api/ebay/full-sync` use this service. Full sync calls the importer directly instead of calling the protected import route through HTTP, so it does not require admin cookies or a correct public site URL to continue batch syncing.
+
+Store-level eBay sync toggle:
+
+```text
+store_settings.metadata.ebay_sync_enabled
+```
+
+Resolved through:
+
+```text
+src/lib/store-settings.ts
+```
+
+Default value:
+
+```text
+true
+```
+
+Admin screen:
+
+```text
+src/app/admin/settings/page.tsx
+```
+
+When the toggle is false, TCOS blocks or skips:
+
+- `/api/ebay/import-listings`
+- `/api/ebay/full-sync`
+- `/api/ebay/auth`
+- `/api/ebay/callback`
+- post-sale `syncEbayQuantityAfterSale()`
+
+### `ebay_sync_decision_events`
+
+Stores the TCOS policy decision made for each eBay sync candidate.
+
+Created by migration:
+
+```text
+supabase/migrations/20260630123000_create_ebay_sync_decision_events.sql
+```
+
+Runtime source:
+
+```text
+src/lib/ebay-sync.ts
+```
+
+Admin summary:
+
+```text
+src/app/admin/ebay/sync-control/page.tsx
+```
+
+Fields:
+
+| Field | Purpose |
+| --- | --- |
+| `id` | Decision event ID |
+| `store_id` | TCOS store ID, defaults to Store #1 |
+| `run_id` | Sync run identifier |
+| `source` | Source process, currently eBay inventory import |
+| `action` | `import_listing`, `mark_inactive`, or `skip` |
+| `decision` | `allowed`, `needs_review`, or `blocked_by_tcos_policy` |
+| `reason` | Machine-readable policy reason |
+| `sku` | eBay inventory SKU |
+| `ebay_item_id` | eBay listing ID when available |
+| `product_title` | Listing title snapshot |
+| `quantity` | Listing quantity snapshot |
+| `price` | Listing price snapshot |
+| `category` | TCOS category mapping |
+| `category_confidence` | Category mapper confidence |
+| `review_required` | Whether admin review is required |
+| `policy_metadata` | Structured policy evidence |
+| `created_at` | Event timestamp |
+
+Current policy behavior:
+
+- missing SKU is blocked before import
+- missing eBay listing ID is blocked before import
+- invalid listing price is blocked before import
+- invalid listing quantity is blocked before import
+- missing title imports as `needs_review`
+- category review or low confidence imports as `needs_review`
+- inactive or unavailable eBay offers are allowed to mark the local TCOS item inactive
+- blocked decisions skip local upsert but do not delete or modify eBay-side inventory
+
+Summary views:
+
+| View | Purpose |
+| --- | --- |
+| `tcos_ebay_snapshot_import_decision_summary` | Groups decision counts by store, run, decision, action, and reason |
+| `tcos_ebay_missing_sync_decision_summary` | Shows blocked policy reasons needing operator review |
+| `tcos_public_inventory_stats` | Shows public product totals, in-stock count, sold-out count, eBay-linked count, missing SKU count, and latest import timestamp |
+
+### `sales_comp_snapshots`
+
+Stores pricing comp history.
+
+Created by migration:
+
+```text
+supabase/migrations/20260627160000_create_sales_comp_snapshots.sql
+```
+
+Fields:
+
+| Field | Purpose |
+| --- | --- |
+| `id` | Snapshot ID |
+| `store_id` | TCOS store ID, defaults to Store #1 |
+| `legacy_product_id` | Product ID |
+| `query` | Search query used |
+| `suggested_price` | TCOS suggested price |
+| `suggested_price_method` | Method explanation |
+| `average_price` | Average comp price |
+| `median_price` | Median comp price |
+| `low_price` | Lowest comp |
+| `high_price` | Highest comp |
+| `comp_count` | Total comps found |
+| `recent_comp_count` | Recent comps used |
+| `source_status` | eBay status |
+| `source_message` | eBay message |
+| `google_status` | Google status |
+| `google_message` | Google message |
+| `price_guide_status` | Price guide status |
+| `price_guide_message` | Price guide message |
+| `comps` | Raw comp JSON |
+| `google_results` | Google result JSON |
+| `research_links` | Research link JSON |
+| `created_at` | Snapshot timestamp |
+
+### `tos_acceptance_events`
+
+Stores TOS acceptance evidence for chargeback, fraud, and account-security review.
+
+Created by migration:
+
+```text
+supabase/migrations/20260627173000_add_tos_identity_evidence.sql
+```
+
+Fields:
+
+| Field | Purpose |
+| --- | --- |
+| `id` | Audit event ID |
+| `store_id` | TCOS store ID, defaults to Store #1 |
+| `context_type` | Flow, such as checkout or offer |
+| `context_id` | Optional related record ID |
+| `tos_kind` | Buyer or seller TOS |
+| `tos_version` | Accepted TOS version |
+| `ip_address` | Server-observed public client IP |
+| `user_agent` | Browser user agent |
+| `ip_risk` | verified, unchecked, or blocked |
+| `ip_block_reason` | Provider or validation block reason |
+| `ip_evidence` | Request header evidence JSON |
+| `created_at` | Acceptance timestamp |
+
+### `transaction_evidence_reports`
+
+Stores transaction evidence packets for chargeback defense, fraud review, and legal dispute support.
+
+Created by migration:
+
+```text
+supabase/migrations/20260627180000_create_transaction_evidence_reports.sql
+```
+
+Fields:
+
+| Field | Purpose |
+| --- | --- |
+| `id` | Evidence report ID |
+| `store_id` | TCOS store ID, defaults to Store #1 |
+| `order_id` | Related order ID |
+| `stripe_session_id` | Stripe checkout session ID |
+| `stripe_event_id` | Stripe webhook event ID |
+| `customer_email` | Customer email snapshot |
+| `total` | Order total snapshot |
+| `status` | Report status |
+| `report_json` | Structured report data |
+| `report_text` | Plain text evidence packet |
+| `report_html` | HTML evidence packet |
+| `emailed_to` | Evidence email recipient |
+| `email_sent_at` | Evidence email sent timestamp |
+| `email_error` | Evidence email failure detail |
+| `created_at` | Report creation timestamp |
+| `updated_at` | Report update timestamp |
+
+## Current Migrations
+
+### `20260628110000_create_tcos_stores.sql`
+
+Creates:
+
+- `stores`
+- Store #1 = Truely Collectables
+- `store_id` columns/defaults on current core tables
+- store indexes for future multi-store filtering
+
+### `20260628113000_create_store_settings.sql`
+
+Creates:
+
+- `store_settings`
+- Store #1 operational email/settings defaults
+- eBay environment/account label
+- seller commission rate foundation
+
+### `20260628114000_create_inventory_tables.sql`
+
+Creates:
+
+- `inventory_items`
+- `inventory_images`
+- `inventory_attributes`
+- indexes for SKU, status, image ordering, and attributes
+
+### `20260703113000_add_inventory_item_metadata.sql`
+
+Adds:
+
+- `inventory_items.metadata`
+
+This JSON field stores structured listing disclosure data such as certification provider, cert number, seller pass-guarantee authenticators, provenance evidence, and unverified autograph disclosure notes.
+
+### `20260629080000_grant_inventory_v2_table_access.sql`
+
+Grants active application roles access to:
+
+- `inventory_items`
+- `inventory_images`
+- `inventory_attributes`
+
+This is required for the server-side eBay importer to upsert V2 inventory rows and generated category/aspect attributes when the deployed environment uses the public Supabase anon key.
+
+### `20260629083000_create_inventory_v2_app_policies.sql`
+
+Creates RLS policies for active application roles on:
+
+- `inventory_items`
+- `inventory_images`
+- `inventory_attributes`
+
+The grant migration gives table privileges, but Row Level Security can still block reads and writes. This migration adds the matching policies required by the current server-side Supabase anon-key architecture.
+
+### `20260630110000_create_inventory_sale_decrement_rpc.sql`
+
+Creates:
+
+- `tcos_decrement_inventory_after_sale(store_id, legacy_product_id, quantity)`
+- execute grants for `anon` and `authenticated`
+
+The function locks the Store #1 product row, refuses invalid or insufficient sale quantities, decrements `products.quantity`, mirrors the quantity/status into `inventory_items`, and returns the previous/new quantity for webhook eBay sync and inventory event publishing.
+
+### `20260627160000_create_sales_comp_snapshots.sql`
+
+Creates:
+
+- `sales_comp_snapshots`
+- index on `(legacy_product_id, created_at desc)`
+
+### `20260627170000_add_tos_acceptance_to_orders_offers.sql`
+
+Creates TOS acceptance columns on:
+
+- `orders`
+- `offers`
+
+### `20260627173000_add_tos_identity_evidence.sql`
+
+Creates:
+
+- `tos_acceptance_events`
+- TOS IP evidence columns on `orders`
+- TOS IP evidence columns on `offers`
+- indexes for IP and context lookup
+
+### `20260627180000_create_transaction_evidence_reports.sql`
+
+Creates:
+
+- `transaction_evidence_reports`
+- unique index through `stripe_session_id`
+- indexes for order and report date lookup
+
+### `20260628180000_create_admin_login_attempts.sql`
+
+Creates:
+
+- `admin_login_attempts`
+- indexes for store, IP, lockout, and recent attempt review
+
+### `20260628190000_create_tcos_accounts.sql`
+
+Creates:
+
+- `account_profiles`
+- `account_store_memberships`
+- `account_auth_events`
+- buyer account signup/login audit indexes
+
+### `20260628193000_link_accounts_to_orders_offers.sql`
+
+Adds:
+
+- `orders.account_id`
+- `offers.account_id`
+- indexes for account-scoped Store #1 order and offer history
+
+### `20260628201500_add_account_auth_lockouts.sql`
+
+Adds:
+
+- `account_auth_events.failure_reason`
+- `account_auth_events.lockout_until`
+- indexes for account auth review and lockout checks by store, IP, email, and lockout timestamp
+
+### `20260630100000_add_account_card_verification.sql`
+
+Adds:
+
+- card-verification status fields to `account_profiles`
+- Stripe-safe customer, setup intent, and payment method references
+- Stripe-safe card brand, last 4, expiration, funding, and billing address proof
+- indexes for account status/card verification review and Stripe customer lookup
+
+### `20260701074500_add_account_billing_address_evidence.sql`
+
+Adds:
+
+- Stripe-safe billing line, city, state, and verification check fields to `account_profiles`
+- index for account card-verification failure review
+
+This migration lets TCOS keep buyer signup pending unless Stripe returns a card payment method with complete United States billing address evidence.
+
+### `20260630103000_create_seller_payout_accounts.sql`
+
+Creates:
+
+- `seller_payout_accounts`
+- Stripe Connect payout verification status tracking
+- indexes for account/store payout lookup and seller verification review
+
+### `20260701210000_create_seller_payout_ledger.sql`
+
+Creates:
+
+- `seller_payout_ledger_entries`
+- seller payable calculations for TCOS website checkout seller items
+- Dag Danky Holdings LLC 8% platform fee split on seller rows
+- fulfillment, dispute/review, eligible, paid, reversed, and cancelled payout statuses
+
+### `20260701211500_create_platform_fee_ledger.sql`
+
+Creates:
+
+- `platform_fee_ledger_entries`
+- Dag Danky Holdings LLC 8% platform fee recognition for TCOS website checkout order items
+- fee status tracking for settlement, reversal, and cancellation
+
+### `20260701213000_create_seller_payout_requests.sql`
+
+Creates:
+
+- `seller_payout_requests`
+- `seller_payout_request_entries`
+- seller cash-out request allocation against eligible payout ledger rows
+
+### `20260701214000_create_seller_payout_admin_events.sql`
+
+Creates:
+
+- `seller_payout_admin_events`
+- append-only admin audit events for seller payout ledger and cash-out request status changes
+- previous/new status, admin note, IP, user agent, identity risk, and evidence metadata
+
+### `20260701214500_add_final_fields_to_seller_payout_requests.sql`
+
+Adds:
+
+- final processor fee amount
+- final seller net amount
+- provider payout reference
+- provider payout status
+
+This migration lets TCOS reconcile paid seller cash-out requests against the approved payout processor.
+
+### `20260701215000_create_order_review_cases.sql`
+
+Creates:
+
+- `order_review_cases`
+- `order_review_case_events`
+- admin case files for chargebacks, returns, authenticity, payment risk, shipping issues, seller disputes, and related payout holds
+- indexes for store/order, store/status, seller/status, and case event review
+
+### `20260701220000_create_order_review_case_packets.sql`
+
+Creates:
+
+- `order_review_case_packets`
+- saved order review case packet records for Admin Files
+- packet status, email-delivery tracking fields, report text/html, and metadata
+- indexes for store/order, status, and created-date review
+
+### `20260701180000_create_seller_marketplace_connections.sql`
+
+Creates:
+
+- `seller_marketplace_connections`
+- seller-scoped marketplace connection status tracking
+- token reference/expiry metadata without raw OAuth secret storage
+- indexes for account/store connection lookup, store/provider review, and sync status review
+
+### `20260701183000_create_seller_marketplace_connection_tokens.sql`
+
+Creates:
+
+- `seller_marketplace_connection_tokens`
+- encrypted seller marketplace token storage
+- index for seller/store/provider token lookup
+
+### `20260701193000_create_seller_marketplace_staging_tables.sql`
+
+Creates:
+
+- `seller_marketplace_import_jobs`
+- `seller_marketplace_staged_items`
+- seller-side eBay staging records and import-run audit history
+- JSON metadata for request source, fetched timestamp, skip-reason summaries, quality-signal counts, and returned eBay totals
+- staged-item review can also be reloaded by `import_job_id` so seller cleanup can inspect a specific import run without relying on the default row window
+- seller import job responses can now be enriched with current per-run outcome summaries built from staged rows tied to each `import_job_id`
+- indexes for seller/store/provider job review and staged-row review
+
+### `20260630113000_create_public_endpoint_rate_limit_events.sql`
+
+Creates:
+
+- `public_endpoint_rate_limit_events`
+- indexes for store/endpoint/IP recent-attempt checks
+- indexes for optional subject-specific rate-limit checks
+
+This table backs public money-path throttling for checkout, public offer creation, collector binding offers, and seller payout onboarding.
+
+### `20260630120000_create_security_ip_investigations.sql`
+
+Creates:
+
+- `security_ip_investigations`
+- unique index on `(store_id, ip_address)`
+- index for store/status/updated review queues
+
+This table turns suspicious IP dossiers into persistent admin case files with status, severity, internal notes, review timestamp, and resolution timestamp.
+
+### `20260630123000_create_ebay_sync_decision_events.sql`
+
+Creates:
+
+- `ebay_sync_decision_events`
+- policy indexes for store/run/decision review
+- `tcos_ebay_snapshot_import_decision_summary`
+- `tcos_ebay_missing_sync_decision_summary`
+- `tcos_public_inventory_stats`
+
+This table and its views back `/admin/ebay/sync-control` policy reporting for allowed imports, needs-review imports, and imports blocked by TCOS safety policy.
+
+### `20260628213000_create_sports_dashboard_tables.sql`
+
+Creates:
+
+- `account_sports_favorites`
+- `sports_data_sources`
+- `sports_event_snapshots`
+- `sports_news_snapshots`
+- `sports_odds_snapshots`
+- `account_market_watchlist_items`
+- `market_data_sources`
+- `market_price_snapshots`
+- `market_news_snapshots`
+- indexes for account dashboards, provider snapshots, odds snapshots, and market pricing/news lookup
+
+### `20260628220000_create_collector_dashboard_tables.sql`
+
+Creates:
+
+- `account_collection_items`
+- `account_wish_list_items`
+- `account_wish_list_matches`
+- indexes for account collection shelves, wish list expiry, wish list search, and future match lookup
+
+### `20260628223000_create_collector_profiles_messaging_exports.sql`
+
+Creates:
+
+- `account_collector_profiles`
+- `account_conversations`
+- `account_conversation_messages`
+- `account_binding_offers`
+- `account_collection_export_jobs`
+- indexes for collector profiles, conversations, binding offers, and export audit lookup
+
+### `20260629162000_create_collector_import_jobs.sql`
+
+Creates:
+
+- `account_collection_import_jobs`
+- indexes for account/store import history and source marketplace lookup
+
+## Operational SQL
+
+### Clear fake orders
+
+```sql
+truncate table order_items, orders restart identity cascade;
+```
+
+This does not touch inventory or eBay.
+
+## Safety Notes
+
+- Clearing `orders` and `order_items` does not restore inventory quantity.
+- eBay sync can restore local stock from active eBay listings.
+- Product deletion is not implemented. Use `archived` or `sold`.
+- `products.quantity` and `inventory_items.quantity` should stay synchronized through `inventoryEngine`.

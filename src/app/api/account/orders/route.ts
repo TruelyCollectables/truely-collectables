@@ -1,0 +1,126 @@
+import { NextResponse } from "next/server";
+import { getAuthenticatedAccountFromRequest } from "../../../../lib/account-auth";
+import { isDryRunShippingReference } from "../../../../lib/shipping-dry-run";
+import { getActiveStoreId } from "../../../../lib/stores";
+import { createSupabaseServerClient } from "../../../../lib/supabase-server";
+
+export const dynamic = "force-dynamic";
+
+type AccountOrderItemRow = {
+  order_id: number | string;
+  product_id: number | null;
+  title: string | null;
+  price: number | null;
+  quantity: number | null;
+};
+
+function getSupabaseClient() {
+  return createSupabaseServerClient({ admin: true });
+}
+
+function accountOrdersHeaders(params: {
+  orderCount: number;
+  dryRunShippingBlockedCount: number;
+  sellerItemOrderCount: number;
+}) {
+  return {
+    "X-TCOS-Account-Orders": String(params.orderCount),
+    "X-TCOS-Account-Orders-Dry-Run-Shipping-Blocked": String(
+      params.dryRunShippingBlockedCount,
+    ),
+    "X-TCOS-Account-Orders-Seller-Item": String(params.sellerItemOrderCount),
+  };
+}
+
+export async function GET(request: Request) {
+  try {
+    const account = await getAuthenticatedAccountFromRequest(request);
+
+    if (!account) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const supabase = getSupabaseClient();
+    const storeId = getActiveStoreId();
+    const { data, error } = await supabase
+      .from("orders")
+      .select(
+        "id,created_at,total,status,payment_status,fulfillment_status,shipping_name,tracking_number,carrier,item_count,contains_seller_items,seller_item_count,store_item_count",
+      )
+      .eq("store_id", storeId)
+      .eq("account_id", account.id)
+      .order("created_at", { ascending: false })
+      .limit(50);
+
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    const orderIds = (data || [])
+      .map((order) => Number(order.id))
+      .filter((orderId) => Number.isFinite(orderId) && orderId > 0);
+    const orderItemsResult =
+      orderIds.length === 0
+        ? { data: [] as AccountOrderItemRow[], error: null }
+        : await supabase
+            .from("order_items")
+            .select("order_id,product_id,title,price,quantity")
+            .eq("store_id", storeId)
+            .in("order_id", orderIds)
+            .order("id", { ascending: true });
+
+    if (orderItemsResult.error) {
+      return NextResponse.json(
+        { error: orderItemsResult.error.message },
+        { status: 500 },
+      );
+    }
+
+    const itemRows = (orderItemsResult.data || []) as AccountOrderItemRow[];
+    const itemsByOrderId = new Map<number, AccountOrderItemRow[]>();
+    for (const item of itemRows) {
+      const orderId = Number(item.order_id);
+      const current = itemsByOrderId.get(orderId) || [];
+      current.push(item);
+      itemsByOrderId.set(orderId, current);
+    }
+
+    const orders = (data ?? []).map((order) => {
+      const dryRunShipping = isDryRunShippingReference(order.tracking_number);
+
+      return {
+        ...order,
+        tracking_number: dryRunShipping ? null : order.tracking_number,
+        carrier: dryRunShipping ? null : order.carrier,
+        dry_run_shipping_blocked: dryRunShipping,
+        items: itemsByOrderId.get(Number(order.id)) || [],
+      };
+    });
+    const dryRunShippingBlockedCount = orders.filter(
+      (order) => order.dry_run_shipping_blocked,
+    ).length;
+    const sellerItemOrderCount = orders.filter(
+      (order) =>
+        order.contains_seller_items || Number(order.seller_item_count || 0) > 0,
+    ).length;
+
+    return NextResponse.json(
+      {
+        success: true,
+        orders,
+      },
+      {
+        headers: accountOrdersHeaders({
+          orderCount: orders.length,
+          dryRunShippingBlockedCount,
+          sellerItemOrderCount,
+        }),
+      },
+    );
+  } catch (error: any) {
+    return NextResponse.json(
+      { error: error.message || "Could not load account orders" },
+      { status: 500 },
+    );
+  }
+}

@@ -1,0 +1,36 @@
+name: InstaComp Latest Truth Pattern Memory
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-latest-truth-pattern-memory.yml"
+      - "services/instacomp-ai/app/__init__.py"
+      - "services/instacomp-ai/app/pattern_memory.py"
+      - "services/instacomp-ai/app/training.py"
+      - "services/instacomp-ai/tests/test_pattern_memory.py"
+      - "services/instacomp-ai/tests/test_training_latest_truth.py"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: services/instacomp-ai
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: services/instacomp-ai/requirements.txt
+      - name: Install exact service dependencies
+        run: pip install -r requirements.txt
+      - name: Compile service
+        run: python -m compileall -q app
+      - name: Test latest teacher truth and one-shot style memory
+        run: pytest -q tests/test_training_latest_truth.py tests/test_pattern_memory.py

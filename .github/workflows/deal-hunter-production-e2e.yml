@@ -1,0 +1,45 @@
+name: Deal Hunter Production E2E
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/deal-hunter-production-e2e.yml"
+      - ".github/workflows/deal-hunter-cloudflare-production-release.yml"
+      - "scripts/deal-hunter-production-e2e.mjs"
+      - "scripts/run-wrangler-deploy-redacted.mjs"
+      - "connectors/tcos-market-intel-mcp/src/public-search.mjs"
+      - "src/app/api/tcos/deal-hunter-native-ebay/**"
+      - "src/app/api/tcos/deal-hunter-michkov-opc-platinum/**"
+      - "src/app/api/tcos/deal-hunter-production-delivery/**"
+      - "src/lib/deal-hunter-production-email.ts"
+      - "src/lib/market-intel-delivery.ts"
+      - "cloudflare-native-fetch.ts"
+      - "cloudflare-worker.ts"
+      - "wrangler.jsonc"
+      - "wrangler.production-route.jsonc"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deal-hunter-production-e2e
+  cancel-in-progress: false
+
+jobs:
+  live-e2e:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run every live Deal Hunter scope and require production Worker email proof
+        env:
+          TCOS_CRON_SECRET: ${{ secrets.TCOS_CRON_SECRET }}
+        run: node scripts/deal-hunter-production-e2e.mjs
+
+      - name: Remove Deal Hunter production E2E result material
+        if: always()
+        shell: bash
+        run: shred -u /tmp/deal-hunter-production-e2e-result.json 2>/dev/null || true

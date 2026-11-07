@@ -1,0 +1,65 @@
+name: InstaComp 203 Trusted Readback Limit
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-203-trusted-readback-limit.yml"
+      - "scripts/patch-instacomp-203-trusted-readback-limit.py"
+      - "services/instacomp-ai/app/training_routes.py"
+      - "services/instacomp-ai/scripts/import_supervised_203_trusted.py"
+      - "services/instacomp-ai/tests/test_training_examples_importer_limit.py"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: instacomp-203-trusted-readback-limit-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  EXPECTED_BRANCH: fix/instacomp-203-trusted-readback-limit-20260809
+
+jobs:
+  repair-and-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Apply exact importer/API contract repair
+        run: |
+          set -euo pipefail
+          python3 scripts/patch-instacomp-203-trusted-readback-limit.py
+          git diff --check
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: services/instacomp-ai/requirements.txt
+
+      - name: Run exact limit=5000 regression and full InstaComp suite
+        run: |
+          set -euo pipefail
+          pip install -r services/instacomp-ai/requirements.txt
+          python -m compileall -q services/instacomp-ai/app services/instacomp-ai/scripts/import_supervised_203_trusted.py services/instacomp-ai/tests
+          PYTHONPATH=services/instacomp-ai pytest -q services/instacomp-ai/tests/test_training_examples_importer_limit.py
+          PYTHONPATH=services/instacomp-ai pytest -q services/instacomp-ai/tests
+
+      - name: Persist tested runtime repair
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            services/instacomp-ai/app/training_routes.py \
+            services/instacomp-ai/scripts/import_supervised_203_trusted.py
+          if ! git diff --cached --quiet; then
+            git commit -m "Fix supervised 203 trusted readback verification [skip ci]"
+            git push origin "HEAD:$EXPECTED_BRANCH"
+          fi

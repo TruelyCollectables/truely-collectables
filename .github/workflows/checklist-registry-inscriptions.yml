@@ -1,0 +1,54 @@
+name: Checklist Registry Inscriptions
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/checklist-registry-inscriptions.yml"
+      - "src/lib/checklist-registry/identity.ts"
+      - "src/lib/checklist-registry/inscriptions.ts"
+      - "src/lib/checklist-registry/upper-deck-2025-26-chicago-html.ts"
+      - "scripts/run-checklist-registry-inscription-regressions.ts"
+      - "scripts/run-upper-deck-2025-26-chicago-regressions.ts"
+  push:
+    branches:
+      - main
+    paths:
+      - "src/lib/checklist-registry/identity.ts"
+      - "src/lib/checklist-registry/inscriptions.ts"
+      - "src/lib/checklist-registry/upper-deck-2025-26-chicago-html.ts"
+      - "scripts/run-checklist-registry-inscription-regressions.ts"
+
+permissions:
+  contents: read
+
+jobs:
+  certify-inscriptions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run cross-manufacturer inscription regressions
+        run: npx tsx scripts/run-checklist-registry-inscription-regressions.ts
+
+      - name: Run live Chicago inscription regressions
+        run: npx tsx scripts/run-upper-deck-2025-26-chicago-regressions.ts
+
+      - name: Lint inscription identity slice
+        run: |
+          npx eslint \
+            src/lib/checklist-registry/identity.ts \
+            src/lib/checklist-registry/inscriptions.ts \
+            src/lib/checklist-registry/upper-deck-2025-26-chicago-html.ts \
+            scripts/run-checklist-registry-inscription-regressions.ts \
+            scripts/run-upper-deck-2025-26-chicago-regressions.ts

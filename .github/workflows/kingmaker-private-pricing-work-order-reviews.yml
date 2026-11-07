@@ -1,0 +1,111 @@
+name: KINGMAKER Private Pricing Work Order Reviews
+
+on:
+  pull_request:
+    paths:
+      - "supabase/migrations/20260804083000_private_pricing_work_order_reviews.sql"
+      - "src/lib/kingmaker-private-pricing-work-order-reviews-server.ts"
+      - "src/lib/kingmaker-private-pricing-work-order-activity-server.ts"
+      - "src/app/api/instacomp/pricing/coverage/work-orders/reviews/route.ts"
+      - "src/app/admin/instacomp/pricing/_components/private-pricing-work-order-reviews.tsx"
+      - "src/app/admin/instacomp/pricing/coverage/work-orders/page.tsx"
+      - ".github/workflows/kingmaker-private-pricing-work-order-reviews.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-work-order-reviews:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: kingmaker_work_order_reviews_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres -d kingmaker_work_order_reviews_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: kingmaker_work_order_reviews_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client
+      - name: Create Supabase-compatible roles and storage contract
+        run: |
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          do $$ begin create role anon nologin; exception when duplicate_object then null; end $$;
+          do $$ begin create role authenticated nologin; exception when duplicate_object then null; end $$;
+          do $$ begin create role service_role nologin bypassrls; exception when duplicate_object then null; end $$;
+          create schema if not exists storage;
+          create table if not exists storage.buckets (id text primary key, name text not null unique, public boolean not null default false, file_size_limit bigint, allowed_mime_types text[]);
+          SQL
+      - name: Apply complete private pricing work-order migration chain
+        run: |
+          PRIVATE_PRICING_MIGRATION="$(find supabase/migrations -maxdepth 1 -name '20260803043000_kingmaker_*_price_guides.sql' -print -quit)"
+          test -n "$PRIVATE_PRICING_MIGRATION"
+          for migration in \
+            supabase/migrations/20260725200000_tcos_checklist_registry_core.sql \
+            supabase/migrations/20260803030000_kingmaker_intelligence_fusion.sql \
+            "$PRIVATE_PRICING_MIGRATION" \
+            supabase/migrations/20260804034500_kingmaker_private_pricing_coverage.sql \
+            supabase/migrations/20260804043000_cache_kingmaker_private_pricing_coverage.sql \
+            supabase/migrations/20260804043100_fix_private_pricing_coverage_refresh_temp_table.sql \
+            supabase/migrations/20260804050000_private_pricing_coverage_quality_firewall.sql \
+            supabase/migrations/20260804050100_fix_private_pricing_quality_periods.sql \
+            supabase/migrations/20260804062000_private_pricing_coverage_work_orders.sql \
+            supabase/migrations/20260804070000_private_pricing_work_order_reconciliation.sql \
+            supabase/migrations/20260804074500_private_pricing_work_order_activity.sql \
+            supabase/migrations/20260804083000_private_pricing_work_order_reviews.sql; do
+            psql -v ON_ERROR_STOP=1 --file "$migration"
+          done
+      - name: Reapply review migration to prove idempotence
+        run: psql -v ON_ERROR_STOP=1 --file supabase/migrations/20260804083000_private_pricing_work_order_reviews.sql
+      - name: Verify review RPC privileges and no pricing mutation contract
+        run: |
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          select to_regprocedure('public.tcos_schedule_kingmaker_private_pricing_work_order_review(text,timestamp with time zone,integer)') is not null as schedule_rpc_exists \gset
+          select to_regprocedure('public.tcos_kingmaker_private_pricing_work_order_review_report(integer,integer,text)') is not null as report_rpc_exists \gset
+          \if :schedule_rpc_exists
+          \else
+            \quit 1
+          \endif
+          \if :report_rpc_exists
+          \else
+            \quit 1
+          \endif
+          select not has_function_privilege('anon', 'public.tcos_kingmaker_private_pricing_work_order_review_report(integer,integer,text)', 'EXECUTE') as anon_blocked \gset
+          \if :anon_blocked
+          \else
+            \quit 1
+          \endif
+          SQL
+      - name: Install application dependencies
+        run: npm ci
+      - name: Lint review scheduling files
+        run: >-
+          npx eslint
+          src/lib/kingmaker-private-pricing-work-order-reviews-server.ts
+          src/lib/kingmaker-private-pricing-work-order-activity-server.ts
+          src/app/api/instacomp/pricing/coverage/work-orders/reviews/route.ts
+          src/app/admin/instacomp/pricing/_components/private-pricing-work-order-reviews.tsx
+          src/app/admin/instacomp/pricing/coverage/work-orders/page.tsx
+      - name: Type-check application
+        run: npx tsc --noEmit

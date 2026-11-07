@@ -1,0 +1,70 @@
+name: Build Automation Runtime Shortlist
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/automation-runtime-shortlist.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build balanced fail-closed shortlist
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,hashlib,re,math
+          RUN='dh-20260730T170046Z-7d4c2a91';SEQ=4
+          with open('tmp/automation-runtime-results.json') as f:raw=json.load(f)
+          obs=raw.get('fetchedAt') or '2026-07-30T17:05:44Z'
+          lab={'wnba':'WNBA','ivan_demidov':'IVAN','matvei_michkov_young_guns':'MICHKOV YG','matvei_michkov_opc_platinum':'MICHKOV OPCP','baseball_prospects':'MLB PROSPECT','signed_baseballs':'SIGNED BALL'}
+          def clean(v):
+            if v is None:return ''
+            if isinstance(v,bool):return 'TRUE' if v else 'FALSE'
+            s=str(v).replace('\t',' ').replace('\r',' ').replace('\n',' ').strip()
+            if s and s[0] in '=+-@':s="'"+s
+            return s
+          groups={}
+          for ep,o in raw.get('endpoints',{}).items():
+            for c in (o.get('data') or {}).get('results') or []:
+              g=(ep,str(c.get('watchedPerson') or ''),str(c.get('lane') or ''))
+              p=c.get('itemPrice');s=c.get('inboundShipping');cost=(float(p) if p is not None else math.inf)+(float(s) if s is not None else 0)
+              rank=(1 if c.get('manualReviewRequired') else 0,cost,str(c.get('listingItemId') or c.get('listingUrl') or ''))
+              if g not in groups or rank<groups[g][0]:groups[g]=(rank,c)
+          picks=[]
+          for (ep,person,lane),(rank,c) in groups.items():picks.append((ep,person,lane,c))
+          picks.sort(key=lambda x:(x[0],x[1],x[2]))
+          core=[];price=[];confidence=[];tail=[];ids=[]
+          for ep,person,lane,c in picks:
+            rawid=str(c.get('listingItemId') or '');k=rawid or str(c.get('listingUrl') or '');dig=hashlib.sha1((ep+'|'+k).encode()).hexdigest()[:18];cid='cand-s4-ebay-'+dig;ids.append(cid);nums=re.findall(r'\d{9,15}',rawid);num=nums[0] if nums else '';url='https://www.ebay.com/itm/'+num if num else str(c.get('listingUrl') or '').split('?')[0]
+            core.append([cid,RUN,SEQ,obs,lab.get(ep,ep)+'/'+lane,person,c.get('itemType') or '','eBay',c.get('sellerName') or '', '',rawid,url,'LIVE',str(c.get('title') or '')[:160]])
+            price.append([c.get('itemPrice'),c.get('inboundShipping')])
+            confidence.append(['INSUFFICIENT'])
+            tail.append(['MANUAL REVIEW / UNPRICED',False,False,'["pending_exact_identity_comps_costs_and_owned_copy_checks"]','{}'])
+          for name,rows in [('core',core),('price',price),('confidence',confidence),('tail',tail)]:
+            with open('tmp/automation-runtime-shortlist-'+name+'.tsv','w') as f:
+              for row in rows:f.write('\t'.join(clean(v) for v in row)+'\n')
+          covkeys=[]
+          with open('tmp/automation-runtime-coverage-micro.tsv') as f:
+            for line in f:covkeys.append(line.split('\t')[2]+'|'+line.split('\t')[3])
+          checksum=hashlib.sha256((RUN+'|'+str(SEQ)+'|'+str(len(picks))+'|52|'+'|'.join(ids)+'|'+'|'.join(covkeys)+'|CollX Public Indexed|all card lanes').encode()).hexdigest()
+          with open('tmp/automation-runtime-shortlist-summary.json','w') as f:json.dump({'runId':RUN,'sequence':SEQ,'retainedCandidates':len(picks),'sourceRows':52,'manualReview':len(picks),'suppressed':len(picks),'actionable':0,'checksum':checksum,'candidateIds':ids},f,indent=2)
+          PY
+      - name: Commit shortlist files
+        shell: bash
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tmp/automation-runtime-shortlist-*.tsv tmp/automation-runtime-shortlist-summary.json
+          git commit -m 'Build balanced automation runtime shortlist' || exit 0
+          git push origin HEAD:main

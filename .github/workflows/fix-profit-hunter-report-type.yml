@@ -1,0 +1,68 @@
+name: Fix Profit Hunter Report Type
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/fix-profit-hunter-report-type.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fix-profit-hunter-report-type
+  cancel-in-progress: true
+
+jobs:
+  patch-main:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out newest main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Replace unsupported report type
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --prune origin main
+          git reset --hard origin/main
+
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("src/lib/profit-hunter-server-run.js")
+          source = path.read_text()
+          old_type = 'const reportType = `profit_hunter_cycle_${schedule.slot}`;'
+          old_query = '.like("report_type", "profit_hunter_cycle_%")'
+          new_type = 'const reportType = "hourly_deals";'
+          new_query = '.eq("report_type", "hourly_deals")'
+
+          if old_type not in source:
+              raise SystemExit("Unsupported Profit Hunter report type assignment was not found.")
+          if old_query not in source:
+              raise SystemExit("Legacy Profit Hunter report query was not found.")
+
+          source = source.replace(old_type, new_type, 1)
+          source = source.replace(old_query, new_query, 1)
+          path.write_text(source)
+          PY
+
+          node --check src/lib/profit-hunter-server-run.js
+          grep -Fq 'const reportType = "hourly_deals";' src/lib/profit-hunter-server-run.js
+          grep -Fq '.eq("report_type", "hourly_deals")' src/lib/profit-hunter-server-run.js
+          ! grep -Fq 'profit_hunter_cycle_' src/lib/profit-hunter-server-run.js
+
+      - name: Commit approved report type
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/lib/profit-hunter-server-run.js
+          git commit -m "Use approved hourly deals report type for Profit Hunter"
+          git pull --rebase origin main
+          git push origin HEAD:main

@@ -1,0 +1,65 @@
+name: Fix Profit Hunter Hot Watch Listing Status
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/fix-profit-hunter-hot-watch-listing-status.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fix-profit-hunter-hot-watch-listing-status
+  cancel-in-progress: true
+
+jobs:
+  patch-main:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out newest main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Replace stale listing status column
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --prune origin main
+          git reset --hard origin/main
+
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path("src/lib/market-intel-hot-watch.ts")
+          source = path.read_text()
+          old = '.from("tcos_mi_listings")\n        .select("collectible_identity_id,suspected_mislisting")\n        .eq("status", "active")'
+          new = '.from("tcos_mi_listings")\n        .select("collectible_identity_id,suspected_mislisting")\n        .eq("listing_status", "active")'
+
+          count = source.count(old)
+          if count != 1:
+              raise SystemExit(f"Expected exactly one stale Hot Watch listing-status query; found {count}.")
+
+          path.write_text(source.replace(old, new, 1))
+          PY
+
+          grep -Fq '.eq("listing_status", "active")' src/lib/market-intel-hot-watch.ts
+          ! grep -A3 -F '.from("tcos_mi_listings")' src/lib/market-intel-hot-watch.ts | grep -Fq '.eq("status", "active")'
+          npx eslint src/lib/market-intel-hot-watch.ts
+          npx tsc --noEmit --pretty false
+          git diff --check
+
+      - name: Commit Hot Watch database-column repair
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/lib/market-intel-hot-watch.ts
+          git commit -m "Use listing_status in Market Intel Hot Watch"
+          git pull --rebase origin main
+          git push origin HEAD:main

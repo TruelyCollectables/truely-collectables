@@ -1,0 +1,149 @@
+name: KINGMAKER Checklist Auto Rematch
+
+on:
+  pull_request:
+    paths:
+      - "supabase/migrations/20260804011500_kingmaker_auto_rematch_after_checklists.sql"
+      - "supabase/migrations/20260804011600_fix_kingmaker_auto_rematch_trigger.sql"
+      - "scripts/run-kingmaker-checklist-auto-rematch-regressions.sql"
+      - ".github/workflows/kingmaker-checklist-auto-rematch.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-auto-rematch:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: kingmaker_auto_rematch_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d kingmaker_auto_rematch_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: kingmaker_auto_rematch_test
+      CHECKLIST_MIGRATION: supabase/migrations/20260725200000_tcos_checklist_registry_core.sql
+      KINGMAKER_MIGRATION: supabase/migrations/20260803030000_kingmaker_intelligence_fusion.sql
+      BECKETT_MIGRATION: supabase/migrations/20260803043000_kingmaker_beckett_price_guides.sql
+      AUTO_REMATCH_MIGRATION: supabase/migrations/20260804011500_kingmaker_auto_rematch_after_checklists.sql
+      AUTO_REMATCH_TRIGGER_FIX: supabase/migrations/20260804011600_fix_kingmaker_auto_rematch_trigger.sql
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client
+
+      - name: Create Supabase-compatible roles and storage contract
+        run: |
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          do $$ begin create role anon nologin; exception when duplicate_object then null; end $$;
+          do $$ begin create role authenticated nologin; exception when duplicate_object then null; end $$;
+          do $$ begin create role service_role nologin bypassrls; exception when duplicate_object then null; end $$;
+          create schema if not exists storage;
+          create table if not exists storage.buckets (
+            id text primary key,
+            name text not null unique,
+            public boolean not null default false,
+            file_size_limit bigint,
+            allowed_mime_types text[]
+          );
+          SQL
+
+      - name: Apply KINGMAKER and Checklist Registry foundations
+        run: |
+          psql -v ON_ERROR_STOP=1 --file "$CHECKLIST_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$KINGMAKER_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$BECKETT_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$AUTO_REMATCH_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$AUTO_REMATCH_TRIGGER_FIX"
+
+      - name: Reapply auto-rematch migrations to prove idempotence
+        run: |
+          psql -v ON_ERROR_STOP=1 --file "$AUTO_REMATCH_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$AUTO_REMATCH_TRIGGER_FIX"
+
+      - name: Verify private trigger and RPC contracts
+        run: |
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          do $$
+          declare
+            trigger_present boolean;
+            rpc_present boolean;
+            rls_enabled boolean;
+            public_grants integer;
+            service_access boolean;
+          begin
+            select exists (
+              select 1
+              from pg_trigger trigger_row
+              join pg_class relation on relation.oid = trigger_row.tgrelid
+              join pg_namespace namespace on namespace.oid = relation.relnamespace
+              where namespace.nspname = 'public'
+                and relation.relname = 'checklist_versions'
+                and trigger_row.tgname = 'checklist_versions_kingmaker_beckett_rematch'
+                and not trigger_row.tgisinternal
+            ) into trigger_present;
+            if not trigger_present then
+              raise exception 'Checklist activation rematch trigger is missing.';
+            end if;
+
+            select to_regprocedure(
+              'public.tcos_rematch_kingmaker_price_entries_for_release(uuid,uuid,text)'
+            ) is not null into rpc_present;
+            if not rpc_present then
+              raise exception 'KINGMAKER release rematch RPC is missing.';
+            end if;
+
+            select relation.relrowsecurity
+            into rls_enabled
+            from pg_class relation
+            join pg_namespace namespace on namespace.oid = relation.relnamespace
+            where namespace.nspname = 'public'
+              and relation.relname = 'tcos_kingmaker_beckett_rematch_runs';
+            if rls_enabled is distinct from true then
+              raise exception 'Rematch audit table must have RLS enabled.';
+            end if;
+
+            select count(*)
+            into public_grants
+            from information_schema.role_table_grants
+            where table_schema = 'public'
+              and table_name = 'tcos_kingmaker_beckett_rematch_runs'
+              and grantee in ('anon','authenticated');
+            if public_grants <> 0 then
+              raise exception 'Public roles unexpectedly have rematch audit grants.';
+            end if;
+
+            select has_function_privilege(
+              'service_role',
+              'public.tcos_rematch_kingmaker_price_entries_for_release(uuid,uuid,text)',
+              'execute'
+            ) into service_access;
+            if not service_access then
+              raise exception 'Service role cannot execute the rematch RPC.';
+            end if;
+          end;
+          $$;
+          SQL
+
+      - name: Run automatic rematch regression
+        run: psql -v ON_ERROR_STOP=1 --file scripts/run-kingmaker-checklist-auto-rematch-regressions.sql

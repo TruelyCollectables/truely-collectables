@@ -1,0 +1,43 @@
+name: InstaComp Local Learning Authority Gate
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/instacomp-inventory-training-snapshot-20260812.yml'
+      - 'services/instacomp-ai/scripts/sync_all_inventory_training_truth*.py'
+      - 'services/instacomp-ai/scripts/export_inventory_training_snapshot*.py'
+      - 'services/instacomp-ai/scripts/train_lora_*inventory.py'
+      - 'services/instacomp-ai/scripts/run-unseen-learning-cycle-from-main.sh'
+      - 'services/instacomp-ai/scripts/finish_deal_hunter_ai_learning.py'
+      - 'services/instacomp-ai/tests/test_learning_local_authority.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  authority-gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install InstaComp dependencies
+        working-directory: services/instacomp-ai
+        run: python -m pip install -r requirements.txt
+      - name: Prove retired Supabase training entrypoints remain fail-closed
+        working-directory: services/instacomp-ai
+        run: python -m pytest -q tests/test_learning_local_authority.py
+      - name: Prove active unseen cycle has no Supabase inventory-training launcher
+        shell: bash
+        run: |
+          set -euo pipefail
+          cycle=services/instacomp-ai/scripts/run-unseen-learning-cycle-from-main.sh
+          ! grep -q 'sync_all_inventory_training_truth' "$cycle"
+          ! grep -q 'allow-vercel-env-pull' services/instacomp-ai/scripts/finish_deal_hunter_ai_learning.py
+          grep -q 'Mac-local trusted lesson SQLite' "$cycle"
+          grep -q 'validation-only' "$cycle"
+          echo 'PASS Supabase inventory training is retired; CI performs architecture checks only.'

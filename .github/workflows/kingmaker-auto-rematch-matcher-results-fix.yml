@@ -1,0 +1,122 @@
+name: KINGMAKER Auto Rematch Matcher Results Fix
+
+on:
+  pull_request:
+    paths:
+      - "supabase/migrations/20260804014500_fix_kingmaker_auto_rematch_matcher_results.sql"
+      - ".github/workflows/kingmaker-auto-rematch-matcher-results-fix.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-matcher-results-fix:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: kingmaker_rematch_fix_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d kingmaker_rematch_fix_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: kingmaker_rematch_fix_test
+      CHECKLIST_MIGRATION: supabase/migrations/20260725200000_tcos_checklist_registry_core.sql
+      KINGMAKER_MIGRATION: supabase/migrations/20260803030000_kingmaker_intelligence_fusion.sql
+      BECKETT_MIGRATION: supabase/migrations/20260803043000_kingmaker_beckett_price_guides.sql
+      AUTO_REMATCH_MIGRATION: supabase/migrations/20260804011500_kingmaker_auto_rematch_after_checklists.sql
+      AUTO_REMATCH_TRIGGER_FIX: supabase/migrations/20260804011600_fix_kingmaker_auto_rematch_trigger.sql
+      MATCHER_RESULTS_FIX: supabase/migrations/20260804014500_fix_kingmaker_auto_rematch_matcher_results.sql
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client
+
+      - name: Create Supabase-compatible roles and storage contract
+        run: |
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          do $$ begin create role anon nologin; exception when duplicate_object then null; end $$;
+          do $$ begin create role authenticated nologin; exception when duplicate_object then null; end $$;
+          do $$ begin create role service_role nologin bypassrls; exception when duplicate_object then null; end $$;
+          create schema if not exists storage;
+          create table if not exists storage.buckets (
+            id text primary key,
+            name text not null unique,
+            public boolean not null default false,
+            file_size_limit bigint,
+            allowed_mime_types text[]
+          );
+          SQL
+
+      - name: Apply foundations and rematch migrations
+        run: |
+          psql -v ON_ERROR_STOP=1 --file "$CHECKLIST_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$KINGMAKER_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$BECKETT_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$AUTO_REMATCH_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$AUTO_REMATCH_TRIGGER_FIX"
+          psql -v ON_ERROR_STOP=1 --file "$MATCHER_RESULTS_FIX"
+
+      - name: Reapply hotfix to prove idempotence
+        run: psql -v ON_ERROR_STOP=1 --file "$MATCHER_RESULTS_FIX"
+
+      - name: Verify function definition and privileges
+        run: |
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          do $$
+          declare
+            definition text;
+          begin
+            select pg_get_functiondef(
+              'public.tcos_rematch_kingmaker_price_entries_for_release(uuid,uuid,text)'::regprocedure
+            ) into definition;
+
+            if position('matcher_results = matcher_results,' in definition) > 0 then
+              raise exception 'Ambiguous matcher_results assignment remains.';
+            end if;
+            if position('matcher_results_payload jsonb := ''[]''::jsonb;' in definition) = 0 then
+              raise exception 'Renamed matcher-results accumulator is missing.';
+            end if;
+            if not has_function_privilege(
+              'service_role',
+              'public.tcos_rematch_kingmaker_price_entries_for_release(uuid,uuid,text)',
+              'execute'
+            ) then
+              raise exception 'Service role cannot execute rematch RPC.';
+            end if;
+            if has_function_privilege(
+              'anon',
+              'public.tcos_rematch_kingmaker_price_entries_for_release(uuid,uuid,text)',
+              'execute'
+            ) or has_function_privilege(
+              'authenticated',
+              'public.tcos_rematch_kingmaker_price_entries_for_release(uuid,uuid,text)',
+              'execute'
+            ) then
+              raise exception 'Public roles can execute rematch RPC.';
+            end if;
+          end;
+          $$;
+          SQL
+
+      - name: Run unmatched-to-exact regression
+        run: psql -v ON_ERROR_STOP=1 --file scripts/run-kingmaker-checklist-auto-rematch-regressions.sql

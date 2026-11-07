@@ -1,0 +1,344 @@
+name: InstaComp 2.0 Adversarial Hardening
+
+on:
+  pull_request:
+    paths:
+      - "src/lib/instacomp-market-evidence.ts"
+      - "src/lib/instacomp-v2.ts"
+      - "src/lib/instacomp-scan-review.ts"
+      - "src/lib/instacomp-listing-gate.ts"
+      - "src/lib/instacomp-learning-server.ts"
+      - "src/lib/checklist-registry/server.ts"
+      - "src/lib/public-endpoint-rate-limit.ts"
+      - "src/app/api/instacomp/scan/route.ts"
+      - "src/app/api/instacomp/scan-fast/route.ts"
+      - "src/app/admin/instacomp/mobile/MobileInstaCompScanner.tsx"
+      - "scripts/run-instacomp-v2-hardening-simulations.ts"
+      - "scripts/run-instacomp-scan-review-simulations.ts"
+      - "scripts/run-checklist-complexity-simulations.ts"
+      - "scripts/verify-instacomp-cache-knowledge-hardening.sql"
+      - "scripts/verify-instacomp-atomic-rate-limit.sql"
+      - "supabase/migrations/20260801143000_instacomp_cache_and_knowledge_hardening.sql"
+      - "supabase/migrations/20260801144500_instacomp_future_collision_guard.sql"
+      - "supabase/migrations/20260801145000_instacomp_trust_promotion_guard.sql"
+      - "supabase/migrations/20260801150000_atomic_public_endpoint_rate_limit.sql"
+      - ".github/workflows/instacomp-v2-hardening.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: instacomp-v2-hardening-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  adversarial-hardening:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+      ADMIN_PASSWORD: build-only-placeholder-password
+      ADMIN_SESSION_SECRET: build-only-placeholder-session-secret
+      IP_INTELLIGENCE_REQUIRED: "false"
+      STRIPE_SECRET_KEY: sk_test_build_only_placeholder
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only_placeholder
+      STRIPE_WEBHOOK_SECRET: whsec_build_only_placeholder
+      STRIPE_LIVE_SECRET_KEY: sk_live_build_only_placeholder
+      NEXT_PUBLIC_STRIPE_LIVE_PUBLISHABLE_KEY: pk_live_build_only_placeholder
+      STRIPE_LIVE_WEBHOOK_SECRET: whsec_live_build_only_placeholder
+      EBAY_CLIENT_ID: build-only-placeholder-client-id
+      EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
+      EBAY_ENVIRONMENT: production
+      TCOS_LIVE_PAYMENTS_ENABLED: "false"
+      TCOS_SHIPPING_PURCHASE_MODE: dry_run
+      TCOS_LIVE_SHIPPING_ENABLED: "false"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint hardening boundary
+        run: >-
+          npx eslint
+          src/lib/instacomp-market-evidence.ts
+          src/lib/instacomp-v2.ts
+          src/lib/instacomp-scan-review.ts
+          src/lib/instacomp-listing-gate.ts
+          src/lib/instacomp-learning-server.ts
+          src/lib/checklist-registry/server.ts
+          src/lib/public-endpoint-rate-limit.ts
+          src/app/api/instacomp/scan/route.ts
+          src/app/api/instacomp/scan-fast/route.ts
+          src/app/admin/instacomp/mobile/MobileInstaCompScanner.tsx
+          scripts/run-instacomp-v2-hardening-simulations.ts
+          scripts/run-instacomp-scan-review-simulations.ts
+          scripts/run-checklist-complexity-simulations.ts
+
+      - name: Run existing scan-review regressions
+        run: node --import tsx scripts/run-instacomp-scan-review-simulations.ts
+
+      - name: Run adversarial V2 hardening simulations
+        run: node --import tsx scripts/run-instacomp-v2-hardening-simulations.ts
+
+      - name: Run Checklist Registry complexity simulations
+        run: node --import tsx scripts/run-checklist-complexity-simulations.ts
+
+      - name: Verify hardened core scan boundary
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const source = fs.readFileSync(
+            'src/app/api/instacomp/scan/route.ts',
+            'utf8',
+          );
+          for (const marker of [
+            'INSTACOMP_CORE_HARDENING_V1',
+            'providerFetch(',
+            'verifiedInstaCompCompletedSales(',
+            'hardenInstaCompMarketPayload(',
+            'SECURITY BOUNDARY:',
+            'preNormalizeInputBytes',
+            'confidence: ai.confidence',
+            'INSTACOMP_INVENTORY_SCOPE_V2',
+            '.from("inventory_items")',
+            '.eq("store_id", actor.storeId)',
+            '.eq("status", "active")',
+            '"not used for pricing"',
+          ]) {
+            if (!source.includes(marker)) {
+              throw new Error(`Missing core hardening marker: ${marker}`);
+            }
+          }
+          if (source.includes('await fetch(')) {
+            throw new Error('An unbounded provider fetch remains in the InstaComp core route.');
+          }
+          const start = source.indexOf('async function getTcosInventoryProvider(');
+          const end = source.indexOf('async function saveScanToSupabase(', start);
+          const inventorySection = source.slice(start, end);
+          if (inventorySection.includes('.from("products")')) {
+            throw new Error('The actor-scoped provider still queries legacy products.');
+          }
+          NODE
+
+      - name: Verify protected mobile handoff
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const source = fs.readFileSync(
+            'src/app/admin/instacomp/mobile/MobileInstaCompScanner.tsx',
+            'utf8',
+          );
+          for (const marker of [
+            '/api/admin/pending-card-import',
+            'Create Protected Card Intake Draft',
+            'No scan price is auto-applied',
+            'price stays',
+            'inventoryItemId=',
+          ]) {
+            if (!source.includes(marker)) throw new Error(`Missing mobile handoff marker: ${marker}`);
+          }
+          if (source.includes('href={`/list?')) {
+            throw new Error('Unsafe query-only /list handoff is still present.');
+          }
+          NODE
+
+      - name: Verify atomic InstaComp quota contract
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const source = fs.readFileSync(
+            'src/lib/public-endpoint-rate-limit.ts',
+            'utf8',
+          );
+          for (const marker of [
+            'tcos_take_public_endpoint_rate_limit',
+            'INSTACOMP_SCAN_DAILY_LIMIT',
+            '250',
+            'INSTACOMP_SCAN_BURST_LIMIT',
+            '12',
+            'burst_limit',
+          ]) {
+            if (!source.includes(marker)) throw new Error(`Missing rate-limit marker: ${marker}`);
+          }
+          NODE
+
+      - name: Verify migration safety contracts
+        run: |
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const files = [
+            'supabase/migrations/20260801143000_instacomp_cache_and_knowledge_hardening.sql',
+            'supabase/migrations/20260801144500_instacomp_future_collision_guard.sql',
+            'supabase/migrations/20260801145000_instacomp_trust_promotion_guard.sql',
+            'supabase/migrations/20260801150000_atomic_public_endpoint_rate_limit.sql',
+          ];
+          const sql = files.map((file) => fs.readFileSync(file, 'utf8')).join('\n');
+          for (const marker of [
+            'instacomp_scan_cache_actor_scope_idx',
+            "'v2'",
+            'tcos_card_knowledge_collision_audit',
+            'tcos_card_knowledge_canonical_versions',
+            'tcos_instacomp_protect_trusted_canonical',
+            'tcos_instacomp_promote_confirmed_observation',
+            'tcos_instacomp_flag_v2_collision',
+            'v_operator_count < 3',
+            'pg_advisory_xact_lock',
+            'burst_limit',
+            'append-only',
+          ]) {
+            if (!sql.includes(marker)) throw new Error(`Missing migration marker: ${marker}`);
+          }
+          NODE
+
+      - name: TypeScript
+        run: npx tsc --noEmit
+
+      - name: Production build
+        run: npm run build
+
+  postgres-hardening:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: instacomp_hardening_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d instacomp_hardening_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: instacomp_hardening_test
+      KNOWLEDGE_MIGRATION: supabase/migrations/20260716170000_create_tcos_card_knowledge_base.sql
+      LEARNING_MIGRATION: supabase/migrations/20260731160500_instacomp_automatic_learning.sql
+      RATE_TABLE_MIGRATION: supabase/migrations/20260630113000_create_public_endpoint_rate_limit_events.sql
+      HARDENING_MIGRATION: supabase/migrations/20260801143000_instacomp_cache_and_knowledge_hardening.sql
+      COLLISION_MIGRATION: supabase/migrations/20260801144500_instacomp_future_collision_guard.sql
+      TRUST_MIGRATION: supabase/migrations/20260801145000_instacomp_trust_promotion_guard.sql
+      ATOMIC_RATE_MIGRATION: supabase/migrations/20260801150000_atomic_public_endpoint_rate_limit.sql
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create Supabase-compatible prerequisite schema
+        run: |
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          create extension if not exists pgcrypto;
+
+          do $$
+          begin
+            create role anon nologin;
+          exception when duplicate_object then null;
+          end;
+          $$;
+
+          do $$
+          begin
+            create role authenticated nologin;
+          exception when duplicate_object then null;
+          end;
+          $$;
+
+          do $$
+          begin
+            create role service_role nologin bypassrls;
+          exception when duplicate_object then null;
+          end;
+          $$;
+
+          create table if not exists public.stores (
+            id uuid primary key,
+            name text
+          );
+          insert into public.stores(id, name)
+          values ('00000000-0000-4000-8000-000000000001', 'Hardening Store')
+          on conflict(id) do nothing;
+
+          create or replace function public.tcos_touch_instacomp_scan_updated_at()
+          returns trigger
+          language plpgsql
+          as $$
+          begin
+            new.updated_at = now();
+            return new;
+          end;
+          $$;
+
+          create table if not exists public.instacomp_scan_jobs (
+            id uuid primary key default gen_random_uuid(),
+            created_at timestamptz not null default now()
+          );
+
+          create table if not exists public.instacomp_scan_items (
+            id uuid primary key default gen_random_uuid(),
+            job_id uuid references public.instacomp_scan_jobs(id) on delete cascade,
+            created_at timestamptz not null default now(),
+            updated_at timestamptz not null default now()
+          );
+
+          create table if not exists public.instacomp_scans (
+            id uuid primary key default gen_random_uuid(),
+            created_at timestamptz not null default now(),
+            image_filename text,
+            player text,
+            year text,
+            brand text,
+            set_name text,
+            card_number text,
+            parallel text,
+            confidence numeric,
+            search_query text,
+            suggested_price numeric,
+            ebay_sold_url text,
+            raw_ai_result jsonb not null default '{}'::jsonb,
+            raw_comp_results jsonb not null default '{}'::jsonb
+          );
+          SQL
+
+      - name: Apply knowledge, rate-limit, and hardening migrations
+        run: |
+          psql -v ON_ERROR_STOP=1 --file "$KNOWLEDGE_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$LEARNING_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$RATE_TABLE_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$HARDENING_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$COLLISION_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$TRUST_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$ATOMIC_RATE_MIGRATION"
+
+      - name: Reapply additive hardening migrations
+        run: |
+          psql -v ON_ERROR_STOP=1 --file "$HARDENING_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$COLLISION_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$TRUST_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$ATOMIC_RATE_MIGRATION"
+
+      - name: Verify collisions, promotion threshold, and canonical protection
+        run: >-
+          psql -v ON_ERROR_STOP=1
+          --file scripts/verify-instacomp-cache-knowledge-hardening.sql
+
+      - name: Verify atomic quota and burst limits
+        run: >-
+          psql -v ON_ERROR_STOP=1
+          --file scripts/verify-instacomp-atomic-rate-limit.sql

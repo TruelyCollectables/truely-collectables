@@ -1,0 +1,181 @@
+name: InstaComp Unseen 100 Learning Cycle
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-unseen-learning-cycle.yml"
+      - "services/instacomp-ai/scripts/benchmark_lora_unseen_holdout.py"
+      - "services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v1.py"
+      - "services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v10.py"
+      - "services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v11.py"
+      - "services/instacomp-ai/scripts/train_lora_from_unseen_benchmarks.py"
+      - "services/instacomp-ai/scripts/train_lora_from_unseen_benchmarks_v2.py"
+      - "services/instacomp-ai/scripts/train_lora_from_unseen_benchmarks_v3.py"
+      - "services/instacomp-ai/scripts/train_lora_from_unseen_benchmarks_v4.py"
+      - "services/instacomp-ai/scripts/test_unseen_curriculum_v3_regressions.py"
+      - "services/instacomp-ai/scripts/test_unseen_curriculum_v4_regressions.py"
+      - "services/instacomp-ai/scripts/find_resumable_unseen_benchmark.py"
+      - "services/instacomp-ai/scripts/run-unseen-holdout-benchmark-from-main.sh"
+      - "services/instacomp-ai/scripts/run-unseen-learning-cycle-from-main.sh"
+      - "services/instacomp-ai/scripts/run_lora_training.py"
+      - "services/instacomp-ai/scripts/run_lora_training_checkpoint_safe.py"
+      - "services/instacomp-ai/scripts/finish_deal_hunter_ai_learning.py"
+      - "services/instacomp-ai/scripts/run-staged-learning-from-main.sh"
+      - "services/instacomp-ai/scripts/promote_lora_candidate_frozen_25_v20.py"
+      - "services/instacomp-ai/app/**"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-unseen-learning-cycle.yml"
+      - "services/instacomp-ai/scripts/benchmark_lora_unseen_holdout.py"
+      - "services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v10.py"
+      - "services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v11.py"
+      - "services/instacomp-ai/scripts/train_lora_from_unseen_benchmarks.py"
+      - "services/instacomp-ai/scripts/train_lora_from_unseen_benchmarks_v2.py"
+      - "services/instacomp-ai/scripts/train_lora_from_unseen_benchmarks_v3.py"
+      - "services/instacomp-ai/scripts/train_lora_from_unseen_benchmarks_v4.py"
+      - "services/instacomp-ai/scripts/test_unseen_curriculum_v3_regressions.py"
+      - "services/instacomp-ai/scripts/test_unseen_curriculum_v4_regressions.py"
+      - "services/instacomp-ai/scripts/find_resumable_unseen_benchmark.py"
+      - "services/instacomp-ai/scripts/run-unseen-holdout-benchmark-from-main.sh"
+      - "services/instacomp-ai/scripts/run-unseen-learning-cycle-from-main.sh"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract-linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install service requirements
+        run: pip install -r services/instacomp-ai/requirements.txt
+      - name: Compile V11 benchmark, V4 curriculum, exact regressions, and resume gate
+        run: |
+          python -m py_compile \
+            services/instacomp-ai/scripts/benchmark_lora_unseen_holdout.py \
+            services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v1.py \
+            services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v10.py \
+            services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v11.py \
+            services/instacomp-ai/scripts/train_lora_from_unseen_benchmarks.py \
+            services/instacomp-ai/scripts/train_lora_from_unseen_benchmarks_v2.py \
+            services/instacomp-ai/scripts/train_lora_from_unseen_benchmarks_v3.py \
+            services/instacomp-ai/scripts/train_lora_from_unseen_benchmarks_v4.py \
+            services/instacomp-ai/scripts/test_unseen_curriculum_v3_regressions.py \
+            services/instacomp-ai/scripts/test_unseen_curriculum_v4_regressions.py \
+            services/instacomp-ai/scripts/find_resumable_unseen_benchmark.py
+          bash -n services/instacomp-ai/scripts/run-unseen-holdout-benchmark-from-main.sh
+          bash -n services/instacomp-ai/scripts/run-unseen-learning-cycle-from-main.sh
+      - name: Run exact release self-tests five times
+        env:
+          PYTHONPATH: services/instacomp-ai:services/instacomp-ai/scripts
+        run: |
+          set -euo pipefail
+          for pass in 1 2 3 4 5; do
+            echo "===== UNSEEN LEARNING CYCLE LINUX SELF-TEST ${pass}/5 ====="
+            python services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v11.py --self-test
+            python services/instacomp-ai/scripts/train_lora_from_unseen_benchmarks_v4.py --self-test
+            python services/instacomp-ai/scripts/test_unseen_curriculum_v3_regressions.py
+            python services/instacomp-ai/scripts/test_unseen_curriculum_v4_regressions.py
+            python services/instacomp-ai/scripts/find_resumable_unseen_benchmark.py --self-test
+          done
+      - name: Prove fail-closed current truth and no-rescan resume contract
+        run: |
+          benchmark=services/instacomp-ai/scripts/benchmark_lora_unseen_holdout.py
+          v10=services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v10.py
+          v11=services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v11.py
+          launcher=services/instacomp-ai/scripts/run-unseen-holdout-benchmark-from-main.sh
+          curriculum_v3=services/instacomp-ai/scripts/train_lora_from_unseen_benchmarks_v3.py
+          curriculum_v4=services/instacomp-ai/scripts/train_lora_from_unseen_benchmarks_v4.py
+          regression_v4=services/instacomp-ai/scripts/test_unseen_curriculum_v4_regressions.py
+          resume=services/instacomp-ai/scripts/find_resumable_unseen_benchmark.py
+          cycle=services/instacomp-ai/scripts/run-unseen-learning-cycle-from-main.sh
+          grep -q 'MAX_IMAGE_EXAMPLES_PER_REGISTRY_IDENTITY = 5' "$benchmark"
+          grep -q 'duplicate_or_previously_scored_image_pair' "$benchmark"
+          grep -q 'legacy.v20._lock_identity' "$benchmark"
+          grep -q 'LIVE_PREFLIGHT_REQUIRED_HEALTHY = 3' "$v10"
+          grep -q '_systemic_registry_failure' "$v10"
+          grep -q 'expected_identity' "$v11"
+          grep -q 'same_identity_that_passed_current_registry_uuid_fingerprint_and_v20_physical_admission' "$v11"
+          grep -q 'CurriculumUnverifiable' "$curriculum_v3"
+          grep -q 'HistoricalBenchmarkSuperseded' "$curriculum_v4"
+          grep -q 'quarantined_superseded_historical_benchmark_truth' "$curriculum_v4"
+          grep -q 'inconsistent current Registry resolution' "$curriculum_v4"
+          grep -q 'b00121db-a36d-4350-aed5-8f6fd5b5b1cf' "$regression_v4"
+          grep -q 'a82860a8-1e28-4599-81ec-5af50e1fac4d' "$regression_v4"
+          grep -q '_receipt_is_resumable' "$resume"
+          grep -q 'adapter_weights_sha256' "$resume"
+          grep -q 'train_lora_from_unseen_benchmarks_v4.py' "$cycle"
+          grep -q 'Historical benchmark UUID/fingerprint drift is quarantined' "$cycle"
+          grep -q 'Contradictions inside one current Registry resolution remain fatal' "$cycle"
+          grep -q 'No initial rescan will run' "$cycle"
+          grep -q 'run-staged-learning-from-main.sh' "$cycle"
+          grep -q -- '--stage-target 25' "$cycle"
+          grep -q -- '--validation-only --required-examples 30' "$cycle"
+          grep -q 'ROLLBACK re-enabled prior certified runtime candidate' "$cycle"
+          ! grep -q -- '--allow-partial' "$cycle"
+
+  contract-macos:
+    runs-on: macos-15
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install service requirements
+        run: pip install -r services/instacomp-ai/requirements.txt
+      - name: Compile and syntax-check exact Mac path
+        run: |
+          python -m py_compile \
+            services/instacomp-ai/scripts/benchmark_lora_unseen_holdout.py \
+            services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v10.py \
+            services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v11.py \
+            services/instacomp-ai/scripts/train_lora_from_unseen_benchmarks.py \
+            services/instacomp-ai/scripts/train_lora_from_unseen_benchmarks_v2.py \
+            services/instacomp-ai/scripts/train_lora_from_unseen_benchmarks_v3.py \
+            services/instacomp-ai/scripts/train_lora_from_unseen_benchmarks_v4.py \
+            services/instacomp-ai/scripts/test_unseen_curriculum_v3_regressions.py \
+            services/instacomp-ai/scripts/test_unseen_curriculum_v4_regressions.py \
+            services/instacomp-ai/scripts/find_resumable_unseen_benchmark.py
+          bash -n services/instacomp-ai/scripts/run-unseen-holdout-benchmark-from-main.sh
+          bash -n services/instacomp-ai/scripts/run-unseen-learning-cycle-from-main.sh
+      - name: Repeat exact release self-tests on macOS
+        env:
+          PYTHONPATH: services/instacomp-ai:services/instacomp-ai/scripts
+        run: |
+          set -euo pipefail
+          for pass in 1 2 3 4 5; do
+            echo "===== UNSEEN LEARNING CYCLE MAC SELF-TEST ${pass}/5 ====="
+            python services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v11.py --self-test
+            python services/instacomp-ai/scripts/train_lora_from_unseen_benchmarks_v4.py --self-test
+            python services/instacomp-ai/scripts/test_unseen_curriculum_v3_regressions.py
+            python services/instacomp-ai/scripts/test_unseen_curriculum_v4_regressions.py
+            python services/instacomp-ai/scripts/find_resumable_unseen_benchmark.py --self-test
+          done
+      - name: Prove one-command Mac path is fail-closed and resumable
+        run: |
+          cycle=services/instacomp-ai/scripts/run-unseen-learning-cycle-from-main.sh
+          launcher=services/instacomp-ai/scripts/run-unseen-holdout-benchmark-from-main.sh
+          v11=services/instacomp-ai/scripts/benchmark_lora_unseen_holdout_v11.py
+          curriculum_v4=services/instacomp-ai/scripts/train_lora_from_unseen_benchmarks_v4.py
+          regression_v4=services/instacomp-ai/scripts/test_unseen_curriculum_v4_regressions.py
+          resume=services/instacomp-ai/scripts/find_resumable_unseen_benchmark.py
+          grep -q 'No training was allowed' "$cycle"
+          grep -q 'different untouched 100-card exam' "$cycle"
+          grep -q 'Historical benchmark UUID/fingerprint drift is quarantined' "$cycle"
+          grep -q 'Contradictions inside one current Registry resolution remain fatal' "$cycle"
+          grep -q 'No initial rescan will run' "$cycle"
+          grep -q 'restore_known_good' "$cycle"
+          grep -q 'benchmark_lora_unseen_holdout_v11.py' "$launcher"
+          grep -q 'expected_identity' "$v11"
+          grep -q 'HistoricalBenchmarkSuperseded' "$curriculum_v4"
+          grep -q 'quarantined_superseded_historical_benchmark_truth' "$curriculum_v4"
+          grep -q 'b00121db-a36d-4350-aed5-8f6fd5b5b1cf' "$regression_v4"
+          grep -q 'complete 100/100 non-graduating receipt' "$resume"

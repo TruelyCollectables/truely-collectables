@@ -1,0 +1,215 @@
+name: CollX Indexed Production Publish V2 20260811
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/collx-indexed-production-publish-v2-20260811.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: collx-indexed-production-publish-v2-20260811
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: Production
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      FLAGSHIP_STORE_ID: "00000000-0000-4000-8000-000000000001"
+      EXPECTED_ELIGIBLE: "6011"
+    steps:
+      - name: Publish eligible CollX rows through bounded indexed batches
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$SUPABASE_ACCESS_TOKEN"
+          python3 - <<'PY'
+          import json, os, subprocess, time
+
+          API='https://api.supabase.com/v1'
+          TOKEN=os.environ['SUPABASE_ACCESS_TOKEN']
+          STORE=os.environ['FLAGSHIP_STORE_ID']
+          EXPECTED=int(os.environ['EXPECTED_ELIGIBLE'])
+          BATCH=50
+
+          def req(method,path,body=None,timeout=60):
+              cmd=['curl','-sS','--max-time',str(timeout),'-X',method,
+                   '-H',f'Authorization: Bearer {TOKEN}','-H','Accept: application/json','-H','Content-Type: application/json',
+                   '-o','/tmp/sb.json','-w','%{http_code}',API+path]
+              if body is not None: cmd += ['--data-binary',json.dumps(body)]
+              p=subprocess.run(cmd,capture_output=True,text=True)
+              raw=''
+              try: raw=open('/tmp/sb.json').read()
+              except Exception: pass
+              try: payload=json.loads(raw) if raw else None
+              except Exception: payload=raw
+              try: status=int((p.stdout or '0').strip()[-3:])
+              except Exception: status=599
+              if p.returncode != 0 and status == 0: status,payload=599,{'error':p.stderr.strip()}
+              return status,payload
+
+          s,projects=req('GET','/projects',timeout=30)
+          if s!=200 or not isinstance(projects,list): print('PROJECT_LIST_FAILURE',s,projects); raise SystemExit(2)
+          c=[p for p in projects if 'truely' in str(p.get('name') or '').lower() or 'collect' in str(p.get('name') or '').lower()]
+          if len(c)!=1: print('PROJECT_CANDIDATES',json.dumps(c,default=str)); raise SystemExit(3)
+          ref=str(c[0].get('id') or c[0].get('ref') or '')
+          print('PROJECT_REF='+ref)
+          print('PROJECT_STATUS='+str(c[0].get('status')))
+
+          def sql_once(query,timeout=60):
+              return req('POST',f'/projects/{ref}/database/query',{'query':query,'parameters':[],'read_only':False},timeout)
+
+          def sql(query,timeout=60,attempts=6):
+              last=(599,{'error':'not attempted'})
+              for n in range(1,attempts+1):
+                  last=sql_once(query,timeout)
+                  if last[0] in (200,201): return last
+                  print('SQL_RETRY',n,'HTTP',last[0],json.dumps(last[1],default=str))
+                  if last[0] not in (500,502,503,504,520,522,524,544,599): return last
+                  time.sleep(min(10,2*n))
+              return last
+
+          product_verify=f"""
+            select
+              count(*) filter (where price>0 and quantity>0 and NULLIF(BTRIM(image_url),'') is not null)::int as sellable,
+              count(*) filter (where price>0 and quantity>0 and (
+                lower(BTRIM(image_url)) ~ '^https?://[^/]*collx' or
+                lower(BTRIM(image_url)) like 'https://storage.googleapis.com/collx-product-images/%' or
+                lower(BTRIM(image_url)) like 'http://storage.googleapis.com/collx-product-images/%'
+              ))::int as external_collx_images
+            from public.products
+            where store_id='{STORE}'::uuid and sku >= 'COLLX-' and sku < 'COLLY';
+          """
+          bs,bbody=sql(product_verify,45)
+          print('BASELINE_PRODUCTS',bs,json.dumps(bbody,default=str))
+          if bs not in (200,201) or not isinstance(bbody,list) or not bbody: raise SystemExit(4)
+          baseline=int(bbody[0].get('sellable') or 0)
+          if baseline>EXPECTED: raise SystemExit(5)
+
+          def batch_sql(limit):
+              return f"""
+              WITH collx_items AS MATERIALIZED (
+                SELECT i.*
+                FROM public.inventory_items i
+                WHERE i.store_id='{STORE}'::uuid
+                  AND i.sku >= 'COLLX-' AND i.sku < 'COLLY'
+                  AND i.quantity>0 AND i.status<>'active'
+                ORDER BY i.store_id,i.sku
+                LIMIT 200
+              ), candidate AS MATERIALIZED (
+                SELECT i.id item_id,i.store_id,i.sku,i.price item_price,i.quantity item_quantity,
+                       p.id product_id,
+                       COALESCE(
+                         CASE WHEN NULLIF(BTRIM(p.image_url),'') IS NOT NULL
+                           AND lower(BTRIM(p.image_url)) !~ '^https?://[^/]*collx'
+                           AND lower(BTRIM(p.image_url)) NOT LIKE 'https://storage.googleapis.com/collx-product-images/%'
+                           AND lower(BTRIM(p.image_url)) NOT LIKE 'http://storage.googleapis.com/collx-product-images/%'
+                         THEN BTRIM(p.image_url) END,
+                         ip.image_url
+                       ) primary_image
+                FROM collx_items i
+                JOIN LATERAL (
+                  SELECT p.* FROM public.products p
+                  WHERE p.store_id=i.store_id
+                    AND p.sku >= 'COLLX-' AND p.sku < 'COLLY'
+                    AND (p.id=i.legacy_product_id OR p.sku=i.sku)
+                  ORDER BY CASE WHEN p.id=i.legacy_product_id THEN 0 ELSE 1 END,p.id
+                  LIMIT 1
+                ) p ON true
+                LEFT JOIN LATERAL (
+                  SELECT BTRIM(ii.image_url) image_url
+                  FROM public.inventory_images ii
+                  WHERE ii.inventory_item_id=i.id
+                    AND NULLIF(BTRIM(ii.image_url),'') IS NOT NULL
+                    AND lower(BTRIM(ii.image_url)) !~ '^https?://[^/]*collx'
+                    AND lower(BTRIM(ii.image_url)) NOT LIKE 'https://storage.googleapis.com/collx-product-images/%'
+                    AND lower(BTRIM(ii.image_url)) NOT LIKE 'http://storage.googleapis.com/collx-product-images/%'
+                  ORDER BY COALESCE(ii.is_primary,false) DESC,COALESCE(ii.sort_order,2147483647) ASC
+                  LIMIT 1
+                ) ip ON true
+                WHERE COALESCE(BTRIM(p.ebay_item_id::text),'')=''
+                  AND COALESCE(i.price,0)>0
+                  AND COALESCE(
+                    CASE WHEN NULLIF(BTRIM(p.image_url),'') IS NOT NULL
+                      AND lower(BTRIM(p.image_url)) !~ '^https?://[^/]*collx'
+                      AND lower(BTRIM(p.image_url)) NOT LIKE 'https://storage.googleapis.com/collx-product-images/%'
+                      AND lower(BTRIM(p.image_url)) NOT LIKE 'http://storage.googleapis.com/collx-product-images/%'
+                    THEN BTRIM(p.image_url) END,
+                    ip.image_url
+                  ) IS NOT NULL
+                ORDER BY i.sku
+                LIMIT {int(limit)}
+              ), updated_items AS (
+                UPDATE public.inventory_items i
+                SET status='active',
+                    description=NULLIF(BTRIM(regexp_replace(COALESCE(i.description,''),E'\\n*Migrated as DRAFT / NOT FOR SALE pending owner review\\.?','','gi')),''),
+                    notes=CASE
+                      WHEN NULLIF(BTRIM(i.notes),'') IS NULL THEN 'Activated for sale 2026-08-11'
+                      WHEN i.notes ILIKE '%Activated for sale 2026-08-11%' THEN BTRIM(regexp_replace(i.notes,'\\s*\\|\\s*DRAFT / NOT FOR SALE','','gi'))
+                      ELSE BTRIM(regexp_replace(i.notes,'\\s*\\|\\s*DRAFT / NOT FOR SALE','','gi')) || ' | Activated for sale 2026-08-11'
+                    END,
+                    metadata=jsonb_build_object(
+                      'sale_activation_20260811',jsonb_build_object('state','active','recorded_at',now()),
+                      'migration_quarantine_released',true
+                    ),
+                    updated_at=now()
+                FROM candidate c
+                WHERE i.id=c.item_id AND i.store_id=c.store_id
+                RETURNING i.id
+              ), updated_products AS (
+                UPDATE public.products p
+                SET image_url=c.primary_image,price=c.item_price,quantity=c.item_quantity,
+                    description=NULLIF(BTRIM(regexp_replace(COALESCE(p.description,''),E'\\n*Migrated as DRAFT / NOT FOR SALE pending owner review\\.?','','gi')),''),
+                    archived_at=NULL
+                FROM candidate c JOIN updated_items u ON u.id=c.item_id
+                WHERE p.id=c.product_id AND p.store_id=c.store_id
+                RETURNING p.id
+              )
+              SELECT (SELECT count(*)::int FROM candidate) candidates,
+                     (SELECT count(*)::int FROM updated_items) updated_items,
+                     (SELECT count(*)::int FROM updated_products) updated_products;
+              """
+
+          acknowledged=0
+          exhausted=False
+          for iteration in range(1,150):
+              limit=1 if iteration==1 else BATCH
+              st,body=sql(batch_sql(limit),60)
+              print('BATCH',iteration,'HTTP',st,json.dumps(body,default=str))
+              if st not in (200,201) or not isinstance(body,list) or not body: raise SystemExit(10)
+              r=body[0]; n=int(r.get('candidates') or 0); ui=int(r.get('updated_items') or 0); up=int(r.get('updated_products') or 0)
+              if n!=ui or n!=up: print('ATOMIC_MISMATCH',r); raise SystemExit(11)
+              if n==0: exhausted=True; break
+              acknowledged += n
+              print('ACKNOWLEDGED_NEW='+str(acknowledged))
+              time.sleep(0.10)
+          if not exhausted: raise SystemExit(12)
+
+          fs,fbody=sql(product_verify,45)
+          print('FINAL_PRODUCTS',fs,json.dumps(fbody,default=str))
+          if fs not in (200,201) or not isinstance(fbody,list) or not fbody: raise SystemExit(13)
+          final_sellable=int(fbody[0].get('sellable') or 0)
+          external=int(fbody[0].get('external_collx_images') or 0)
+          print('BASELINE_SELLABLE='+str(baseline))
+          print('ACKNOWLEDGED_NEW='+str(acknowledged))
+          print('FINAL_SELLABLE='+str(final_sellable))
+          print('EXPECTED_ELIGIBLE='+str(EXPECTED))
+          if final_sellable!=EXPECTED: raise SystemExit(14)
+          if external!=0: raise SystemExit(15)
+
+          sample=f"select sku,status,quantity,price from public.inventory_items where store_id='{STORE}'::uuid and sku >= 'COLLX-' and sku < 'COLLY' and status='active' order by store_id,sku limit 10;"
+          ss,sbody=sql(sample,30)
+          print('ACTIVE_SAMPLE',ss,json.dumps(sbody,default=str))
+          if ss not in (200,201) or not isinstance(sbody,list) or len(sbody)<1: raise SystemExit(16)
+
+          print('SET_ASIDE_NO_IMAGE=17')
+          print('SET_ASIDE_NO_PRICE=127')
+          print('COLLX_INDEXED_PRODUCTION_PUBLISH_V2=SUCCESS')
+          PY

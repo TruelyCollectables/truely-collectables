@@ -1,0 +1,1877 @@
+import { readFileSync, statSync } from "node:fs";
+import {
+  ensureAccountStoreMembership,
+  getAuthenticatedAccountFromRequest,
+} from "../../../../../lib/kingmaker-local-auth";
+import { getInventoryActivationBlockers } from "../../../../../lib/inventory-activation";
+import {
+  buildInstaCompCanonicalTitle,
+  buildInstaCompRegistryExactTitle,
+} from "../../../../../lib/instacomp-canonical-title";
+import {
+  effectiveInstaCompPricingGroupKey,
+  summarizeInstaCompPricingGroup,
+} from "../../../../../lib/instacomp-pricing-group";
+import {
+  classifyWebsiteProductIdentity,
+  isSellableWebsiteProduct,
+  websiteInventoryAnchorKey,
+  websiteProductAnchorKey,
+  type WebsiteInventoryProduct,
+} from "../../../../../lib/instacomp-current-website-inventory";
+import {
+  pendingDuplicateCandidateMatches,
+  pendingDuplicateDecisionResolved,
+  pendingDuplicateProtectionMatchKey,
+} from "../../../../../lib/pending-duplicate-protection";
+import {
+  instaCompPendingQueueFromMetadata,
+  type InstaCompPendingQueue,
+} from "../../../../../lib/instacomp-pending-queue";
+import {
+  getConfiguredInstaCompMacKey,
+  getConfiguredInstaCompMacUrl,
+} from "../../../../../lib/instacomp-mac-credentials";
+import {
+  calculateCustomWebsitePricing,
+  calculateDualMarketplacePricing,
+  normalizeDualMarketplaceFeeProfile,
+} from "../../../../../lib/dual-marketplace-pricing";
+import { buildKingmakerListingReadiness } from "../../../../../lib/kingmaker-listing-readiness";
+import { kingmakerPendingDisplayTitle } from "../../../../../lib/kingmaker-redo-display-title";
+
+export const dynamic = "force-dynamic";
+
+type InstaCompListingFolder =
+  | "pending"
+  | "website"
+  | "ebay"
+  | "mercari"
+  | "both"
+  | "website_mercari"
+  | "ebay_mercari"
+  | "all3"
+  | "investment";
+
+const LOCAL_CERTIFIED_PRICING_PATH =
+  process.env.INSTACOMP_CERTIFIED_PRICING_PATH ||
+  "/Volumes/InstaCompAI/training/audits/km252-instacomp-final-v17-20260907.json";
+
+type LocalCertifiedPricingRow = {
+  n?: number;
+  id?: string;
+  identity?: Record<string, unknown>;
+  status?: string;
+  pricing?: Record<string, unknown>;
+  exactSoldComps?: Array<Record<string, unknown>>;
+  registryBound?: boolean;
+};
+
+function localPricingText(value: unknown) {
+  return String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function localPricingCardNumber(value: unknown) {
+  return localPricingText(value).replace(/\s+/g, "");
+}
+
+function localPricingParallel(value: unknown) {
+  return localPricingText(value)
+    .replace(/\bprizms?\b/g, " ")
+    .replace(/\bparallel\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+let localCertifiedPricingCache:
+  | { mtimeMs: number; size: number; rows: LocalCertifiedPricingRow[] }
+  | null = null;
+
+function loadLocalCertifiedPricingRows(): LocalCertifiedPricingRow[] {
+  try {
+    const stat = statSync(LOCAL_CERTIFIED_PRICING_PATH);
+    if (
+      localCertifiedPricingCache &&
+      localCertifiedPricingCache.mtimeMs === stat.mtimeMs &&
+      localCertifiedPricingCache.size === stat.size
+    ) {
+      return localCertifiedPricingCache.rows;
+    }
+
+    const payload = JSON.parse(
+      readFileSync(LOCAL_CERTIFIED_PRICING_PATH, "utf8"),
+    );
+    const rows = Array.isArray(payload?.rows) ? payload.rows : [];
+    localCertifiedPricingCache = {
+      mtimeMs: stat.mtimeMs,
+      size: stat.size,
+      rows,
+    };
+    return rows;
+  } catch {
+    return localCertifiedPricingCache?.rows || [];
+  }
+}
+
+function localCertifiedPricingForIdentity(
+  rows: LocalCertifiedPricingRow[],
+  identity: Record<string, unknown>,
+) {
+  const year = localPricingText(identity.year);
+  const player = localPricingText(identity.player || identity.playerName);
+  const cardNumber = localPricingCardNumber(
+    identity.cardNumber || identity.card_number,
+  );
+  const parallelRaw = localPricingText(
+    identity.parallel ||
+      identity.checklistParallel ||
+      identity.parallelName ||
+      identity.variation,
+  );
+  const parallel = localPricingParallel(parallelRaw);
+  if (!year || !player || !cardNumber || !parallel) return null;
+
+  const isAuto = identity.isAuto === true;
+  const isRelic = identity.isRelic === true;
+  const brand = localPricingText(identity.brand || identity.manufacturer);
+  const product = localPricingText(
+    identity.product || identity.setName || identity.set_name,
+  );
+
+  const candidates = rows
+    .map((row) => {
+      const candidate = recordValue(row.identity);
+      if (localPricingText(candidate.year) !== year) return null;
+      if (localPricingText(candidate.player || candidate.playerName) !== player)
+        return null;
+      if (
+        localPricingCardNumber(
+          candidate.cardNumber || candidate.card_number,
+        ) !== cardNumber
+      )
+        return null;
+      const candidateParallelRaw = localPricingText(
+        candidate.parallel ||
+          candidate.checklistParallel ||
+          candidate.parallelName ||
+          candidate.variation,
+      );
+      if (localPricingParallel(candidateParallelRaw) !== parallel) return null;
+      if (
+        (candidate.isAuto === true) !== isAuto ||
+        (candidate.isRelic === true) !== isRelic
+      )
+        return null;
+
+      let score = 100;
+      if (candidateParallelRaw === parallelRaw) score += 40;
+      const candidateBrand = localPricingText(
+        candidate.brand || candidate.manufacturer,
+      );
+      const candidateProduct = localPricingText(
+        candidate.product || candidate.setName || candidate.set_name,
+      );
+      if (
+        brand &&
+        candidateBrand &&
+        (brand === candidateBrand ||
+          brand.includes(candidateBrand) ||
+          candidateBrand.includes(brand))
+      )
+        score += 10;
+      if (
+        product &&
+        candidateProduct &&
+        (product === candidateProduct ||
+          product.includes(candidateProduct) ||
+          candidateProduct.includes(product))
+      )
+        score += 8;
+      if (row.registryBound === true) score += 2;
+      score += Math.min(20, Number(recordValue(row.pricing).soldCount || 0));
+      return { row, score };
+    })
+    .filter(
+      (value): value is { row: LocalCertifiedPricingRow; score: number } =>
+        Boolean(value),
+    )
+    .sort((a, b) => b.score - a.score);
+
+  return candidates[0]?.row || null;
+}
+
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function textValue(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function exactStoredText(value: unknown) {
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+type MacPendingTruthItem = {
+  inventoryItemId?: unknown;
+  metadata?: unknown;
+};
+
+type MacMasterProjectionPayload = {
+  ok?: boolean;
+  sourceAuthority?: string;
+  items?: any[];
+  count?: number;
+  folderCounts?: Partial<Record<InstaCompListingFolder, number>>;
+  queueCounts?: Partial<Record<InstaCompPendingQueue, number>>;
+};
+
+async function loadMacMasterListingProjection(params: {
+  folder?: InstaCompListingFolder;
+  pendingQueue?: InstaCompPendingQueue;
+}) {
+  const baseUrl = getConfiguredInstaCompMacUrl();
+  if (!baseUrl) return null;
+  const key = getConfiguredInstaCompMacKey();
+  const headers = new Headers({ "Content-Type": "application/json" });
+  if (key) headers.set("X-InstaComp-AI-Key", key);
+  const options: Record<string, string> = {
+    compact: params.pendingQueue === "missing_picture" ? "0" : "1",
+  };
+  if (params.folder) options.folder = params.folder;
+  if (params.pendingQueue) options.pendingQueue = params.pendingQueue;
+  try {
+    const response = await fetch(
+      baseUrl + "/v1/kingmaker/accounting/commercial-inventory",
+      {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
+          action: "master_list",
+          items: [options],
+        }),
+        cache: "no-store",
+        signal: AbortSignal.timeout(30_000),
+      },
+    );
+    if (!response.ok) return null;
+    return (await response.json()) as MacMasterProjectionPayload;
+  } catch {
+    return null;
+  }
+}
+
+async function loadExactMacPendingTruth() {
+  const baseUrl = getConfiguredInstaCompMacUrl();
+  if (!baseUrl) return new Map<string, MacPendingTruthItem>();
+  const key = getConfiguredInstaCompMacKey();
+  const headers = new Headers({ "Content-Type": "application/json" });
+  if (key) headers.set("X-InstaComp-AI-Key", key);
+
+  const response = await fetch(
+    baseUrl + "/v1/kingmaker/accounting/commercial-inventory",
+    {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ action: "list", items: [] }),
+      cache: "no-store",
+      signal: AbortSignal.timeout(8_000),
+    },
+  );
+  if (!response.ok) return new Map<string, MacPendingTruthItem>();
+
+  const payload = (await response.json().catch(() => null)) as
+    | { items?: MacPendingTruthItem[] }
+    | null;
+  const map = new Map<string, MacPendingTruthItem>();
+  for (const item of payload?.items || []) {
+    const id = textValue(item.inventoryItemId);
+    if (id) map.set(id, item);
+  }
+  return map;
+}
+
+function listingFolderFromMetadata(
+  metadataValue: unknown,
+  legacyEbayLinked = false,
+  legacyWebsiteLinked = false,
+): InstaCompListingFolder {
+  const metadata = recordValue(metadataValue);
+  const lifecycle = recordValue(metadata.inventory_lifecycle);
+  if (
+    textValue(lifecycle.disposition) === "investment_stash" ||
+    textValue(lifecycle.state) === "investment_stash"
+  )
+    return "investment";
+  const dual = recordValue(metadata.dual_marketplace);
+  const projection = recordValue(metadata.master_listing_projection);
+  const websiteActive =
+    projection.websiteActive === true ||
+    textValue(recordValue(dual.website).status) === "active" ||
+    legacyWebsiteLinked;
+  const ebayStatus = textValue(recordValue(dual.ebay).status);
+  const ebayActive =
+    projection.ebayActive === true ||
+    ebayStatus === "active" ||
+    ebayStatus === "linked" ||
+    legacyEbayLinked;
+  const mercariStatus = textValue(recordValue(dual.mercari).status);
+  const mercariActive =
+    projection.mercariActive === true ||
+    mercariStatus === "active" ||
+    mercariStatus === "linked" ||
+    mercariStatus === "live";
+  if (websiteActive && ebayActive && mercariActive) return "all3";
+  if (websiteActive && ebayActive) return "both";
+  if (websiteActive && mercariActive) return "website_mercari";
+  if (ebayActive && mercariActive) return "ebay_mercari";
+  if (websiteActive) return "website";
+  if (ebayActive) return "ebay";
+  if (mercariActive) return "mercari";
+  return "pending";
+}
+
+function environmentNumber(name: string, fallback: number) {
+  const raw = Number(process.env[name]);
+  if (!Number.isFinite(raw)) return fallback;
+  return raw >= 1 && raw <= 100 && name.includes("PERCENT") ? raw / 100 : raw;
+}
+
+function pendingChannelFeeProfile() {
+  return normalizeDualMarketplaceFeeProfile({
+    ebayPercent: environmentNumber("TCOS_EBAY_FEE_PERCENT", 0.1325),
+    ebayFixed: environmentNumber("TCOS_EBAY_FIXED_FEE", 0.4),
+    ebayFixedUnderTen: environmentNumber("TCOS_EBAY_FIXED_FEE_UNDER_10", 0.3),
+    promotedPercent: environmentNumber("TCOS_EBAY_PROMOTED_PERCENT", 0),
+    websitePercent: environmentNumber("TCOS_WEBSITE_PROCESSING_PERCENT", 0.029),
+    websiteFixed: environmentNumber("TCOS_WEBSITE_FIXED_FEE", 0.3),
+    minimumWebsiteDiscountPercent: environmentNumber(
+      "TCOS_MINIMUM_WEBSITE_DISCOUNT_PERCENT",
+      0.03,
+    ),
+    websitePriceEnding: environmentNumber("TCOS_WEBSITE_PRICE_ENDING", 0.99),
+  });
+}
+
+function identityValue(value: unknown) {
+  const text = textValue(value);
+  if (!text) return null;
+  const normalized = text.toLowerCase();
+  if (
+    normalized === "identity review required" ||
+    normalized === "review required" ||
+    normalized === "untitled item" ||
+    normalized === "permanent uuid missing"
+  ) {
+    return null;
+  }
+  if (/^no\.?\s*/i.test(text) && text.split(/\s+/).length <= 3) {
+    return null;
+  }
+  return text;
+}
+
+const GENERIC_PLAYER_PHRASES = new Set([
+  "all american",
+  "all-american",
+  "crunch time",
+  "crunch-time",
+  "base",
+  "chrome",
+  "donruss",
+  "heritage",
+  "league leaders",
+  "prizm",
+  "prizms",
+  "score",
+  "select",
+  "topps",
+  "upper deck",
+  "bowman",
+  "rookie",
+]);
+
+function identityPlayerValue(identity: Record<string, unknown>) {
+  const candidate =
+    identityValue(identity.player) || identityValue(identity.playerName);
+  if (!candidate) return null;
+  const normalized = candidate.toLowerCase();
+  if (GENERIC_PLAYER_PHRASES.has(normalized)) return null;
+  return candidate;
+}
+
+function normalizeSubsetLabel(value: string) {
+  const normalized = value.toLowerCase().replace(/\s+/g, " ").trim();
+  if (normalized === "all american" || normalized === "all-american")
+    return "All American";
+  if (normalized === "crunch time" || normalized === "crunch-time")
+    return "Crunch Time";
+  if (normalized === "future watch") return "Future Watch";
+  if (normalized === "young guns") return "Young Guns";
+  if (normalized === "spectrum fx") return "Spectrum FX";
+  return value;
+}
+
+function identitySubsetValue(identity: Record<string, unknown>) {
+  const candidate =
+    identityValue(identity.subset) ||
+    identityValue(identity.insertName) ||
+    identityValue(identity.insert) ||
+    identityValue(identity.seriesName) ||
+    identityValue(identity.series) ||
+    identityValue(identity.parallelName) ||
+    identityValue(identity.parallel) ||
+    identityValue(identity.player) ||
+    identityValue(identity.playerName) ||
+    identityValue(identity.subject);
+  if (!candidate) return null;
+  const normalized = candidate.toLowerCase();
+  if (normalized === "base") return null;
+  if (GENERIC_PLAYER_PHRASES.has(normalized))
+    return normalizeSubsetLabel(candidate);
+  return normalizeSubsetLabel(candidate);
+}
+
+function buildIdentitySummary(identity: Record<string, unknown>) {
+  const setName = textValue(identity.setName) || textValue(identity.set_name);
+  const product = textValue(identity.product);
+  const subset = identitySubsetValue(identity);
+  const brand = textValue(identity.brand) || textValue(identity.manufacturer);
+  const player = identityPlayerValue(identity);
+  const normalizedSetName = setName && /^base$/i.test(setName) ? null : setName;
+  const pieces = [
+    textValue(identity.year),
+    brand,
+    normalizedSetName || product,
+    subset,
+    textValue(identity.cardNumber) || textValue(identity.card_number)
+      ? `#${textValue(identity.cardNumber) || textValue(identity.card_number)}`
+      : null,
+    player || textValue(identity.playerName),
+    textValue(identity.team) ? `(${textValue(identity.team)})` : null,
+  ].filter(Boolean);
+  const surfaceVariation =
+    textValue(identity.variation) ||
+    textValue(identity.parallel) ||
+    textValue(identity.checklistParallel) ||
+    textValue(identity.parallelName);
+  const summary = pieces.join(" ").replace(/\s+/g, " ").trim();
+  return summary
+    ? [
+        `Card read: ${summary}.`,
+        surfaceVariation ? `Surface variation: ${surfaceVariation}.` : null,
+      ]
+        .filter(Boolean)
+        .join(" ")
+    : null;
+}
+
+function buildIdentityReadout(identity: Record<string, unknown>, exactRegistry = false) {
+  return (
+    exactRegistry
+      ? buildInstaCompRegistryExactTitle(identity)
+      : buildInstaCompCanonicalTitle(identity)
+  ) || null;
+}
+
+function isGenericTitle(value: unknown) {
+  const title = textValue(value)?.toLowerCase() || "";
+  return (
+    !title ||
+    title === "untitled item" ||
+    title === "identity review required" ||
+    title === "review required" ||
+    title.includes("identity review required") ||
+    title.includes("review required") ||
+    title.includes("credits") ||
+    title.includes("permanent uuid missing") ||
+    /^(?:(?:rc|au|mem)(?:\s+|$))+$/.test(title)
+  );
+}
+
+function optionalPrice(value: unknown) {
+  if (value === null || value === undefined || value === "") return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0
+    ? Math.round(parsed * 100) / 100
+    : null;
+}
+
+function evidenceList(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(
+      (entry) => entry && typeof entry === "object" && !Array.isArray(entry),
+    )
+    .map((entry) => {
+      const row = entry as Record<string, unknown>;
+      return {
+        title: textValue(row.title) || "Untitled listing",
+        price: optionalPrice(row.price) || 0,
+        itemPrice: optionalPrice(row.itemPrice),
+        shippingPrice: optionalPrice(row.shippingPrice),
+        priceIncludesShipping: row.priceIncludesShipping === true,
+        currency: textValue(row.currency) || "USD",
+        url: textValue(row.url),
+        imageUrl: textValue(row.imageUrl),
+        source: textValue(row.source),
+        sourceLabel:
+          textValue(row.sourceLabel) || textValue(row.source) || "Source",
+        sourceCategory: textValue(row.sourceCategory),
+        matchScore:
+          Number.isFinite(Number(row.matchScore)) && Number(row.matchScore) >= 0
+            ? Number(row.matchScore)
+            : null,
+        flags: Array.isArray(row.flags)
+          ? row.flags.map((flag) => String(flag)).slice(0, 20)
+          : [],
+        soldAt: textValue(row.soldAt),
+        listedAt: textValue(row.listedAt),
+        observedAt: textValue(row.observedAt),
+      };
+    })
+    .filter((entry) => entry.url && entry.price > 0)
+    .slice(0, 20);
+}
+
+function providerCoverageList(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(
+      (entry) => entry && typeof entry === "object" && !Array.isArray(entry),
+    )
+    .map((entry) => {
+      const row = entry as Record<string, unknown>;
+      return {
+        source: textValue(row.source),
+        label: textValue(row.label),
+        status: textValue(row.status),
+        resultCount: Math.max(0, Number(row.resultCount || 0)),
+        message: textValue(row.message),
+        searchUrl: textValue(row.searchUrl),
+        queryAttempts: Array.isArray(row.queryAttempts)
+          ? row.queryAttempts.map((query) => String(query)).slice(0, 10)
+          : [],
+      };
+    });
+}
+
+function effectiveGraderStatus(metadata: Record<string, unknown>) {
+  const instaComp = recordValue(metadata.instacomp);
+  const collectibleAsset = recordValue(metadata.collectible_asset);
+  const verifiedReference = recordValue(metadata.verified_reference);
+  const stored = textValue(collectibleAsset.grader_verification_status);
+  const company = textValue(collectibleAsset.grading_company);
+  const certNumber = textValue(collectibleAsset.grading_cert_number);
+  const humanVerifiedSlabEvidence =
+    instaComp.humanVerified === true &&
+    Boolean(company) &&
+    Boolean(certNumber) &&
+    Boolean(textValue(verifiedReference.front_sha256));
+
+  if (stored === "conflict") return "conflict";
+  if (stored === "verified" || stored === "manual_verified") return stored;
+  if (humanVerifiedSlabEvidence) return "manual_verified";
+  return stored || "pending";
+}
+
+type StoredImage = {
+  inventory_item_id: string;
+  image_url: string | null;
+  alt_text: string | null;
+  sort_order: number | null;
+  is_primary: boolean | null;
+};
+
+function normalizedImages(rows: StoredImage[]) {
+  return [...rows]
+    .filter((row) => Boolean(textValue(row.image_url)))
+    .sort((left, right) => {
+      if (left.is_primary === true && right.is_primary !== true) return -1;
+      if (right.is_primary === true && left.is_primary !== true) return 1;
+      return Number(left.sort_order || 0) - Number(right.sort_order || 0);
+    })
+    .map((row) => ({
+      url: textValue(row.image_url) as string,
+      altText: textValue(row.alt_text),
+      sortOrder: Number(row.sort_order || 0),
+      isPrimary: row.is_primary === true,
+    }));
+}
+
+function imagePairForItem(rows: StoredImage[]) {
+  const images = normalizedImages(rows);
+  const front =
+    images.find((image) => /\bfront\b/i.test(image.altText || "")) ||
+    images.find((image) => image.isPrimary) ||
+    images[0] ||
+    null;
+  const back =
+    images.find((image) => /\bback\b/i.test(image.altText || "") && image.url !== front?.url) ||
+    images.find((image) => !image.isPrimary && image.url !== front?.url) ||
+    images.find((image) => image.url !== front?.url) ||
+    null;
+
+  return {
+    images,
+    frontImageUrl: front?.url || null,
+    backImageUrl: back?.url || null,
+    hasStoredFrontImage: Boolean(front?.url),
+    hasStoredBackImage: Boolean(back?.url),
+    storedImageCount: images.length,
+  };
+}
+
+export async function GET(request: Request) {
+  try {
+    const account = await getAuthenticatedAccountFromRequest(request);
+    if (!account) {
+      return Response.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const isStoreOwnerAccount =
+      account.email === "sales@truelycollectables.com" ||
+      account.email === "sales@trulycollectables.com";
+    if (!isStoreOwnerAccount) {
+      await ensureAccountStoreMembership({
+        accountId: account.id,
+        role: "seller",
+        status: "active",
+      });
+    }
+
+    const requestUrl = new URL(request.url);
+    const requestedQueue = requestUrl.searchParams.get("queue");
+    const compactKingmaker =
+      requestUrl.searchParams.get("surface") === "kingmaker" ||
+      requestUrl.searchParams.get("compact") === "1";
+    const refreshMac = requestUrl.searchParams.get("refreshMac") === "1";
+    const requestedBatch = String(
+      requestUrl.searchParams.get("batch") || "",
+    ).trim();
+    const requestedFolder = requestUrl.searchParams.get("folder");
+    const requestedFocus = String(requestUrl.searchParams.get("focus") || "").trim();
+    const queue: InstaCompPendingQueue =
+      requestedQueue === "redo_pending_resale" ? "redo_pending_resale" : requestedQueue === "missing_picture" ? "missing_picture" : requestedQueue === "verification" ? "verification" : "listings";
+    const folder: InstaCompListingFolder =
+      requestedFolder === "website" ||
+      requestedFolder === "ebay" ||
+      requestedFolder === "mercari" ||
+      requestedFolder === "both" ||
+      requestedFolder === "website_mercari" ||
+      requestedFolder === "ebay_mercari" ||
+      requestedFolder === "all3" ||
+      requestedFolder === "investment"
+        ? requestedFolder
+        : "pending";
+    const macProjection = await loadMacMasterListingProjection({
+      folder: queue !== "listings" ? "pending" : folder,
+      pendingQueue:
+        queue !== "listings"
+          ? queue
+          : folder === "pending"
+            ? "listings"
+            : undefined,
+    });
+    const useMacListingProjection =
+      macProjection?.sourceAuthority === "mac_local_sqlite" &&
+      Array.isArray(macProjection.items);
+    if (!useMacListingProjection) {
+      return Response.json(
+        {
+          error: "Mac-local Master Listings inventory is temporarily unavailable.",
+          sourceAuthority: "mac_local_sqlite",
+          preserveExistingCounts: true,
+        },
+        { status: 503 },
+      );
+    }
+    const inventoryRows = macProjection.items!
+      .map((row: any) => {
+        const inventoryItemId = textValue(
+          row?.id || row?.inventory_item_id || row?.inventoryItemId,
+        );
+        if (!inventoryItemId) return null;
+        return {
+          ...row,
+          id: inventoryItemId,
+          inventoryItemId,
+        };
+      })
+      .filter((row: any) => Boolean(row));
+
+    // Mac-local KINGMAKER is the inventory authority. Legacy storefront
+    // staging is isolated from this path; Master Listings loads from the local
+    // projection first and does not fall back when Mac authority is unavailable.
+    if (refreshMac) try {
+      const macByInventoryId = await loadExactMacPendingTruth();
+      for (const row of inventoryRows as any[]) {
+        const macItem = macByInventoryId.get(String(row.id));
+        if (!macItem) continue;
+        const macMetadata = recordValue(macItem.metadata);
+        const macInstaComp = recordValue(macMetadata.instacomp);
+        const macChecklistIdentity = recordValue(macInstaComp.checklistIdentity);
+        const exactMacTruth =
+          macInstaComp.identityComplete === true &&
+          macInstaComp.trustedForIdentity === true &&
+          textValue(macChecklistIdentity.status) === "exact_match" &&
+          Boolean(textValue(macChecklistIdentity.identityId)) &&
+          Boolean(textValue(macChecklistIdentity.fingerprintSha256));
+        if (!exactMacTruth) continue;
+
+        const existingMetadata = recordValue(row.metadata);
+        row.metadata = {
+          ...existingMetadata,
+          instacomp: {
+            ...recordValue(existingMetadata.instacomp),
+            ...macInstaComp,
+            source: "mac_local_pending_projection",
+          },
+          collectible_asset: {
+            ...recordValue(existingMetadata.collectible_asset),
+            ...recordValue(macMetadata.collectible_asset),
+          },
+        };
+        if (!textValue(row.card_uuid) && textValue(macInstaComp.cardUuid)) {
+          row.card_uuid = textValue(macInstaComp.cardUuid);
+        }
+      }
+    } catch {
+      // Recovery enrichment is additive. Durable staging remains the normal
+      // page-load source and we never synthesize or downgrade identity.
+    }
+
+    const instaCompRows = inventoryRows.filter((row: any) => {
+      if (row.status === "archived" || row.status === "sold") return false;
+      const metadata = recordValue(row.metadata);
+      const instaComp = recordValue(metadata.instacomp);
+      const cardIdentity = recordValue(metadata.card_identity);
+      const legacyCardIdentity = recordValue(metadata.cardIdentity);
+      const saleIdentity = recordValue(metadata.sale_identity);
+      const hasInstaCompSource = Boolean(
+        textValue(instaComp.source) || textValue(instaComp.scanId),
+      );
+      const hasStoredIdentity = Boolean(
+        textValue(legacyCardIdentity.year) ||
+        textValue(legacyCardIdentity.player) ||
+        textValue(legacyCardIdentity.cardNumber) ||
+        textValue(legacyCardIdentity.card_number) ||
+        textValue(cardIdentity.year) ||
+        textValue(cardIdentity.player) ||
+        textValue(cardIdentity.cardNumber) ||
+        textValue(cardIdentity.card_number) ||
+        textValue(saleIdentity.year) ||
+        textValue(saleIdentity.player) ||
+        textValue(saleIdentity.cardNumber) ||
+        textValue(saleIdentity.card_number),
+      );
+      const queueHint =
+        textValue(recordValue(metadata.listingWorkflow).queue) ||
+        textValue(recordValue(metadata.listing_workflow).queue) ||
+        textValue(recordValue(metadata.pending_verification).status);
+      // Review-only REDO records remain visible even after identity/pricing reset.
+      // Publication is still gated downstream; this is display membership only.
+      if (queueHint === "redo_pending_resale" && row.status === "draft") return true;
+      const hasScanPairReceipt = Boolean(textValue(instaComp.imagePairSha256));
+      const hasStoredImageHint =
+        textValue(
+          instaComp.recoveredImageUrls &&
+            (instaComp.recoveredImageUrls as Record<string, unknown>).front,
+        ) ||
+        textValue(
+          instaComp.recoveredImageUrls &&
+            (instaComp.recoveredImageUrls as Record<string, unknown>).back,
+        ) ||
+        (Array.isArray(instaComp.sourceImageUrls) &&
+          instaComp.sourceImageUrls.some((value: unknown) =>
+            Boolean(textValue(value)),
+          ));
+      if (
+        !hasInstaCompSource &&
+        !hasStoredIdentity &&
+        !hasStoredImageHint &&
+        !hasScanPairReceipt &&
+        queueHint !== "pending_verification" &&
+        queueHint !== "pending"
+      ) {
+        return false;
+      }
+      if (
+        queueHint === "pending_verification" ||
+        queueHint === "pending" ||
+        hasStoredImageHint ||
+        hasStoredIdentity ||
+        hasScanPairReceipt
+      ) {
+        return true;
+      }
+      return (
+        instaComp.identityComplete === true ||
+        textValue(instaComp.lastStatus) === "identity_complete" ||
+        textValue(instaComp.lastStatus) === "review_required" ||
+        textValue(instaComp.pricingStatus) ===
+          "identity_complete_pricing_pending"
+      );
+    });
+    const scopedInstaCompRows = requestedBatch
+      ? instaCompRows.filter((row: any) => {
+          const metadata = recordValue(row.metadata);
+          const workflow = recordValue(metadata.listingWorkflow);
+          const legacyWorkflow = recordValue(metadata.listing_workflow);
+          const instaComp = recordValue(metadata.instacomp);
+          return (
+            textValue(workflow.reviewBatchId) === requestedBatch ||
+            textValue(legacyWorkflow.reviewBatchId) === requestedBatch ||
+            textValue(instaComp.kingmakerReviewBatchId) === requestedBatch
+          );
+        })
+      : instaCompRows;
+
+    const linkedEbayProducts: Array<{
+      id: number;
+      ebay_item_id: string | null;
+      quantity: number | null;
+      archived_at: string | null;
+    }> = [];
+    const legacyEbayLinkedProductIds = new Set(
+      linkedEbayProducts
+        .filter((product) => Boolean(textValue(product.ebay_item_id)))
+        .map((product) => Number(product.id)),
+    );
+    const legacyWebsiteLinkedProductIds = new Set(
+      linkedEbayProducts
+        .filter(
+          (product) =>
+            !textValue(product.archived_at) &&
+            Number(product.quantity || 0) > 0,
+        )
+        .map((product) => Number(product.id)),
+    );
+    const rowHasLegacyEbayListing = (row: any) =>
+      typeof row.legacy_product_id === "number" &&
+      legacyEbayLinkedProductIds.has(Number(row.legacy_product_id));
+    const rowHasLegacyWebsiteListing = (row: any) =>
+      row.status === "active" &&
+      typeof row.legacy_product_id === "number" &&
+      legacyWebsiteLinkedProductIds.has(Number(row.legacy_product_id));
+    const rowIsUnlistedEverywhere = (row: any) =>
+      listingFolderFromMetadata(
+        row.metadata,
+        rowHasLegacyEbayListing(row),
+        rowHasLegacyWebsiteListing(row),
+      ) === "pending";
+
+    const computedQueueCounts = {
+      listings: scopedInstaCompRows.filter(
+        (row: any) =>
+          row.status === "active" ||
+          instaCompPendingQueueFromMetadata(row.metadata) === "listings",
+      ).length,
+      verification: scopedInstaCompRows.filter(
+        (row: any) =>
+          row.status === "draft" &&
+          instaCompPendingQueueFromMetadata(row.metadata) === "verification" &&
+          rowIsUnlistedEverywhere(row),
+      ).length,
+      missing_picture: scopedInstaCompRows.filter(
+        (row: any) =>
+          row.status === "draft" &&
+          instaCompPendingQueueFromMetadata(row.metadata) === "missing_picture",
+      ).length,
+      redo_pending_resale: scopedInstaCompRows.filter(
+        (row: any) => row.status === "draft" && instaCompPendingQueueFromMetadata(row.metadata) === "redo_pending_resale",
+      ).length,
+    };
+    const queueCounts =
+      useMacListingProjection && macProjection?.queueCounts
+        ? {
+            listings: Number(macProjection.queueCounts.listings || 0),
+            verification: Number(macProjection.queueCounts.verification || 0),
+            missing_picture: Number(macProjection.queueCounts.missing_picture || 0),
+            redo_pending_resale: Number(macProjection.queueCounts.redo_pending_resale || computedQueueCounts.redo_pending_resale || 0),
+          }
+        : computedQueueCounts;
+    // This data is ALREADY selected by the Mac accounting projection for the
+    // requested folder/queue. Do not recategorize it using a separate stricter
+    // website classifier: doing so made 230 seller-received rows disappear.
+    const listingRows = scopedInstaCompRows.filter(
+      (row: any) => row.status === "active" || row.status === "draft",
+    );
+
+    const commercialFolderGroupKey = (row: any) => {
+      const metadata = recordValue(row.metadata);
+      const instaComp = recordValue(metadata.instacomp);
+      const collectibleAsset = recordValue(metadata.collectible_asset);
+      const ai = recordValue(instaComp.ai);
+      const uniquePhysicalCopy = Boolean(
+        recordValue(metadata.verifiedCsv).authority === "seller_verified_csv_v1" ||
+        textValue(collectibleAsset.exact_serial_number) ||
+          textValue(collectibleAsset.grading_cert_number) ||
+          textValue(ai.gradingCertNumber) ||
+          textValue(ai.certificationNumber),
+      );
+      const pricingGroupKey = uniquePhysicalCopy
+        ? null
+        : effectiveInstaCompPricingGroupKey(metadata);
+      return pricingGroupKey
+        ? `group:${pricingGroupKey}`
+        : `physical:${String(row.id)}`;
+    };
+    const commercialFolderCount = (targetFolder: InstaCompListingFolder) =>
+      new Set(
+        listingRows
+          .filter(
+            (row: any) =>
+              listingFolderFromMetadata(
+                row.metadata,
+                rowHasLegacyEbayListing(row),
+                rowHasLegacyWebsiteListing(row),
+              ) === targetFolder,
+          )
+          .map(commercialFolderGroupKey),
+      ).size;
+
+    // Master Listings renders one commercial/canonical row for mergeable raw
+    // duplicates. The nav must count those same actionable listings, not the
+    // hidden physical rows underneath them.
+    const computedFolderCounts = {
+      pending: commercialFolderCount("pending"),
+      website: commercialFolderCount("website"),
+      ebay: commercialFolderCount("ebay"),
+      mercari: commercialFolderCount("mercari"),
+      both: commercialFolderCount("both"),
+      website_mercari: commercialFolderCount("website_mercari"),
+      ebay_mercari: commercialFolderCount("ebay_mercari"),
+      all3: commercialFolderCount("all3"),
+      investment: commercialFolderCount("investment"),
+    };
+    const folderCounts =
+      compactKingmaker && macProjection?.folderCounts
+        ? {
+            pending: Number(macProjection.folderCounts.pending || 0),
+            website: Number(macProjection.folderCounts.website || 0),
+            ebay: Number(macProjection.folderCounts.ebay || 0),
+            mercari: Number(macProjection.folderCounts.mercari || 0),
+            both: Number(macProjection.folderCounts.both || 0),
+            website_mercari: Number(
+              macProjection.folderCounts.website_mercari || 0,
+            ),
+            ebay_mercari: Number(macProjection.folderCounts.ebay_mercari || 0),
+            all3: Number(macProjection.folderCounts.all3 || 0),
+            investment: Number(macProjection.folderCounts.investment || 0),
+          }
+        : computedFolderCounts;
+    const rows = requestedFocus
+      ? scopedInstaCompRows.filter((row: any) => String(row.id) === requestedFocus)
+      : scopedInstaCompRows.filter((row: any) => {
+          const rowQueue = instaCompPendingQueueFromMetadata(row.metadata);
+          if (queue === "redo_pending_resale") {
+            // Each physical card remains separate. Review gate != publish readiness.
+            return row.status === "draft" && rowQueue === "redo_pending_resale";
+          }
+          if (queue === "missing_picture") {
+            return row.status === "draft" && rowQueue === "missing_picture";
+          }
+          if (queue === "verification") {
+            return (
+              row.status === "draft" &&
+              rowQueue === "verification" &&
+              rowIsUnlistedEverywhere(row)
+            );
+          }
+          // The Mac authoritative master_list already filtered its own
+          // pendingQueue. Recomputing web-only Registry proof here is a DISPLAY
+          // bug. Publication readiness below still remains fail-closed.
+          if (row.status !== "active" && row.status !== "draft") return false;
+          if (
+            listingFolderFromMetadata(
+              row.metadata,
+              rowHasLegacyEbayListing(row),
+              rowHasLegacyWebsiteListing(row),
+            ) !== folder
+          )
+            return false;
+          // Readiness is separate from queue membership. Keep every pending
+          // physical card visible with its explicit validation/comp blockers.
+          return true;
+        });
+
+    const localCertifiedPricingRows = loadLocalCertifiedPricingRows();
+
+    const pricingGroupKeys = Array.from(
+      new Set(
+        rows
+          .map((row: any) => effectiveInstaCompPricingGroupKey(row.metadata))
+          .filter((value): value is string => Boolean(value)),
+      ),
+    );
+    // The first ownership query already contains every field needed for
+    // duplicate/pricing-group reconciliation. Reusing it avoids a second full
+    // inventory scan on every Pending request.
+    const allOwnedRows = rows.length > 0 ? inventoryRows : [];
+    const pricingGroups = new Map<string, any[]>();
+    for (const ownedRow of allOwnedRows || []) {
+      const key = effectiveInstaCompPricingGroupKey(ownedRow.metadata);
+      if (!key || !pricingGroupKeys.includes(key)) continue;
+      const current = pricingGroups.get(key) || [];
+      current.push(ownedRow);
+      pricingGroups.set(key, current);
+    }
+    // Pending reads Mac-local metadata only. Storefront database state is not
+    // an identity, image, inventory, or queue dependency.
+    const storedImages: StoredImage[] = [];
+    const products: any[] = [];
+    const liveWebsiteProducts: WebsiteInventoryProduct[] = [];
+
+    const imageRowsByItem = new Map<string, StoredImage[]>();
+    for (const image of storedImages) {
+      const key = String(image.inventory_item_id);
+      const current = imageRowsByItem.get(key) || [];
+      current.push(image);
+      imageRowsByItem.set(key, current);
+    }
+
+    const productMap = new Map(
+      products.map((product: any) => [product.id, product]),
+    );
+
+    const liveWebsiteProductsByAnchor = new Map<
+      string,
+      WebsiteInventoryProduct[]
+    >();
+    for (const websiteProduct of liveWebsiteProducts) {
+      const key = websiteProductAnchorKey(websiteProduct);
+      if (!key) continue;
+      const current = liveWebsiteProductsByAnchor.get(key) || [];
+      current.push(websiteProduct);
+      liveWebsiteProductsByAnchor.set(key, current);
+    }
+
+    const includeDetailedMarketEvidence =
+      !compactKingmaker || queue !== "listings" || folder === "pending";
+
+    const items = rows.map((row: any) => {
+      const metadata = recordValue(row.metadata);
+      const instaComp = recordValue(metadata.instacomp);
+      const imageOrientation = recordValue(instaComp.imageOrientation);
+      const centering = recordValue(instaComp.centering);
+      const ai = recordValue(instaComp.ai);
+      const manualIdentity = recordValue(instaComp.manualIdentity);
+      const manualIdentityLocked = instaComp.manualIdentityLocked === true;
+      const checklistIdentity = recordValue(instaComp.checklistIdentity);
+      const registryLockedFields = recordValue(checklistIdentity.lockedFields);
+      const checklistIdentityStatus = textValue(checklistIdentity.status);
+      const registryIdentityLocked =
+        (instaComp.identityComplete === true ||
+          checklistIdentityStatus === "exact_match" ||
+          checklistIdentityStatus === "identified") &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+          textValue(checklistIdentity.registryIdentityId) || "",
+        ) &&
+        /^[0-9a-f]{64}$/i.test(
+          textValue(checklistIdentity.registryFingerprintSha256) || "",
+        ) &&
+        Object.keys(registryLockedFields).length > 0;
+      const canonicalIdentityLocked = registryIdentityLocked || manualIdentityLocked;
+      // A deliberate seller correction is the highest identity authority. An
+      // exact Registry receipt protects automatic identity, but must never
+      // overwrite a later Edit All Fields save on the next Pending reload.
+      const primaryIdentity = manualIdentityLocked
+        ? manualIdentity
+        : registryIdentityLocked
+          ? {
+              ...ai,
+              ...registryLockedFields,
+              // Missing subset in an exact Registry lock means no subset. Do not
+              // inherit stale parser text that was previously stored here.
+              subset: Object.prototype.hasOwnProperty.call(
+                registryLockedFields,
+                "subset",
+              )
+                ? registryLockedFields.subset
+                : null,
+            }
+          : ai;
+      const localCertifiedPricing = manualIdentityLocked
+        ? localCertifiedPricingForIdentity(
+            localCertifiedPricingRows,
+            primaryIdentity,
+          )
+        : null;
+      const localCertifiedPricingAnalysis = recordValue(
+        localCertifiedPricing?.pricing,
+      );
+      const collectibleAsset = recordValue(metadata.collectible_asset);
+      const graderVerification = recordValue(metadata.grader_verification);
+      const sellerReview = recordValue(metadata.seller_review);
+      const sourceLinks = recordValue(instaComp.sourceLinks);
+      const acquisition = recordValue(instaComp.acquisition);
+      const dualMarketplace = recordValue(metadata.dual_marketplace);
+      const dualWebsite = recordValue(dualMarketplace.website);
+      const dualEbay = recordValue(dualMarketplace.ebay);
+      const dualMercari = recordValue(dualMarketplace.mercari);
+      const cardIdentity = recordValue(metadata.card_identity);
+      const legacyCardIdentity = recordValue(metadata.cardIdentity);
+      const saleIdentity = recordValue(metadata.sale_identity);
+      const titleNormalization = recordValue(metadata.titleNormalization);
+      const pricingGroupKey = effectiveInstaCompPricingGroupKey(metadata);
+      const pricingGroupRows = pricingGroupKey
+        ? pricingGroups.get(pricingGroupKey) || []
+        : [];
+      const product = row.legacy_product_id
+        ? productMap.get(row.legacy_product_id)
+        : null;
+      const storedPair = imagePairForItem(
+        imageRowsByItem.get(String(row.id)) || [],
+      );
+      const metadataBackUrl =
+        textValue(instaComp.backImageUrl) ||
+        textValue(recordValue(instaComp.recoveredImageUrls).back) ||
+        (Array.isArray(instaComp.sourceImageUrls)
+          ? textValue(instaComp.sourceImageUrls[1])
+          : null) ||
+        (Array.isArray(metadata.ebay_image_urls)
+          ? textValue(metadata.ebay_image_urls[1])
+          : null);
+      const hasBackImage =
+        storedPair.hasStoredBackImage || Boolean(metadataBackUrl);
+      const metadataFrontUrl =
+        textValue(instaComp.frontImageUrl) ||
+        textValue(recordValue(instaComp.recoveredImageUrls).front) ||
+        (Array.isArray(instaComp.sourceImageUrls)
+          ? textValue(instaComp.sourceImageUrls[0])
+          : null) ||
+        (Array.isArray(metadata.ebay_image_urls)
+          ? textValue(metadata.ebay_image_urls[0])
+          : null);
+      const displayFrontUrl =
+        storedPair.frontImageUrl ||
+        product?.image_url ||
+        metadataFrontUrl ||
+        null;
+      const displayBackUrl = storedPair.backImageUrl || metadataBackUrl || null;
+      const rawTitle = textValue(row.title);
+      const manualListingTitle =
+        instaComp.manualListingTitleLocked === true
+          ? exactStoredText(instaComp.manualListingTitle)
+          : null;
+      const registryExactTitle = registryIdentityLocked
+        ? buildInstaCompRegistryExactTitle(primaryIdentity) || null
+        : null;
+      const generatedTitle =
+        registryExactTitle ||
+        buildInstaCompCanonicalTitle(primaryIdentity, { metadata, rawTitle }) ||
+        buildInstaCompCanonicalTitle(legacyCardIdentity, { metadata, rawTitle }) ||
+        buildInstaCompCanonicalTitle(cardIdentity, { metadata, rawTitle }) ||
+        buildInstaCompCanonicalTitle(saleIdentity, { metadata, rawTitle }) ||
+        buildInstaCompCanonicalTitle(recordValue(metadata.verified_reference), { metadata, rawTitle }) ||
+        buildInstaCompCanonicalTitle(recordValue(metadata.collectible_asset), { metadata, rawTitle }) ||
+        null;
+      const identitySummary =
+        buildIdentitySummary(primaryIdentity) ||
+        buildIdentitySummary(recordValue(metadata.card)) ||
+        buildIdentitySummary(cardIdentity) ||
+        buildIdentitySummary(saleIdentity) ||
+        buildIdentitySummary(recordValue(metadata.verified_reference)) ||
+        buildIdentitySummary(recordValue(metadata.collectible_asset)) ||
+        buildIdentitySummary(metadata) ||
+        null;
+      const identityReadout =
+        buildIdentityReadout(primaryIdentity, registryIdentityLocked) ||
+        buildIdentityReadout(recordValue(metadata.card)) ||
+        buildIdentityReadout(cardIdentity) ||
+        buildIdentityReadout(saleIdentity) ||
+        buildIdentityReadout(recordValue(metadata.verified_reference)) ||
+        buildIdentityReadout(recordValue(metadata.collectible_asset)) ||
+        buildIdentityReadout(metadata) ||
+        null;
+      const displayTitle = kingmakerPendingDisplayTitle({
+        queue,
+        rawTitle,
+        rawIsGeneric: isGenericTitle(rawTitle),
+        manualListingTitle,
+        registryExactTitle,
+        generatedTitle,
+        identityReadout,
+        identitySummary,
+      });
+
+      const websiteAnchor = websiteInventoryAnchorKey(metadata, displayTitle);
+      const websiteCandidates = websiteAnchor
+        ? liveWebsiteProductsByAnchor.get(websiteAnchor) || []
+        : [];
+      const exactWebsiteProducts = websiteCandidates.filter(
+        (candidate) =>
+          classifyWebsiteProductIdentity({
+            metadata,
+            pendingTitle: displayTitle,
+            product: candidate,
+          }).status === "exact",
+      );
+      const linkedWebsiteMatch = product
+        ? classifyWebsiteProductIdentity({
+            metadata,
+            pendingTitle: displayTitle,
+            product,
+          })
+        : null;
+      const linkedWebsiteSellable = isSellableWebsiteProduct(product);
+
+      const suggestedPrice = optionalPrice(
+        localCertifiedPricingAnalysis.instacomp ??
+          localCertifiedPricingAnalysis.suggestedPrice ??
+          (Object.prototype.hasOwnProperty.call(instaComp, "suggestedPrice")
+            ? instaComp.suggestedPrice
+            : instaComp.marketPrice),
+      );
+      const pricingStatus =
+        (localCertifiedPricing && suggestedPrice !== null
+          ? "suggested_from_local_certified_exact_sold_comps"
+          : textValue(instaComp.pricingStatus)) ||
+        (suggestedPrice === null
+          ? "not_run"
+          : suggestedPrice > 0
+            ? "suggested_from_reliable_sold_comps"
+            : "seller_price_required");
+      const feeProfile = pendingChannelFeeProfile();
+      const storedEbayPrice = optionalPrice(dualEbay.price);
+      const storedWebsitePrice = optionalPrice(dualWebsite.price);
+      const savedListingPrice = optionalPrice(instaComp.listingPrice);
+      const savedListingPriceSource = textValue(instaComp.listingPriceSource);
+      const channelAnchor =
+        storedEbayPrice || savedListingPrice || suggestedPrice;
+      const calculatedChannels = calculateDualMarketplacePricing(
+        channelAnchor || 0,
+        feeProfile,
+      );
+      const ebayChannelPrice =
+        storedEbayPrice || calculatedChannels.ebayPrice || 0;
+      const websiteChannelPrice =
+        storedWebsitePrice || calculatedChannels.websitePrice || 0;
+      const channelPricing = calculateCustomWebsitePricing(
+        ebayChannelPrice,
+        websiteChannelPrice,
+        feeProfile,
+      );
+
+      const effectiveMetadata = hasBackImage
+        ? {
+            ...metadata,
+            instacomp: {
+              ...instaComp,
+              hasBackImage: true,
+              backSha256:
+                textValue(instaComp.backSha256) || "stored-image-row-confirmed",
+            },
+          }
+        : metadata;
+
+      const blockers: string[] = getInventoryActivationBlockers({
+        sku: row.sku || null,
+        price: Number(row.price || 0),
+        quantity: Number(row.quantity || 0),
+        imageUrl: displayFrontUrl,
+        title: row.title || null,
+        category: row.category || null,
+        metadata: effectiveMetadata,
+      });
+      const exactSerialNumber = textValue(collectibleAsset.exact_serial_number);
+      const gradingCertNumber =
+        textValue(collectibleAsset.grading_cert_number) ||
+        textValue(ai.gradingCertNumber) ||
+        textValue(ai.certificationNumber);
+      const uniquePhysicalCopy = Boolean(
+        exactSerialNumber || gradingCertNumber,
+      );
+      const duplicateDecision = recordValue(
+        instaComp.duplicateInventoryDecision,
+      );
+      const duplicateProtectionMatchKey = pendingDuplicateProtectionMatchKey({
+        pricingGroupKey,
+        title: displayTitle,
+      });
+      const exactKeyRows = pricingGroupRows.filter(
+        (candidate: any) =>
+          candidate.status === "active" &&
+          Number(candidate.quantity || 0) > 0 &&
+          Number(candidate.legacy_product_id || 0) !==
+            Number(row.legacy_product_id || 0),
+      );
+      const legacyTitleRows = allOwnedRows.filter((candidate: any) => {
+        if (
+          candidate.status !== "active" ||
+          Number(candidate.quantity || 0) <= 0
+        )
+          return false;
+        if (
+          Number(candidate.legacy_product_id || 0) ===
+          Number(row.legacy_product_id || 0)
+        )
+          return false;
+        const candidateKey = effectiveInstaCompPricingGroupKey(
+          candidate.metadata,
+        );
+        if (pricingGroupKey && candidateKey) return false;
+        return pendingDuplicateCandidateMatches({
+          draftPricingGroupKey: pricingGroupKey,
+          draftTitle: displayTitle,
+          candidatePricingGroupKey: candidateKey,
+          candidateTitle: candidate.title,
+        });
+      });
+      const existingActiveRows = Array.from(
+        new Map(
+          [...exactKeyRows, ...legacyTitleRows].map((candidate: any) => [
+            String(candidate.id),
+            candidate,
+          ]),
+        ).values(),
+      );
+      const duplicateDecisionResolved = pendingDuplicateDecisionResolved(
+        duplicateDecision,
+        duplicateProtectionMatchKey,
+      );
+      if (existingActiveRows.length > 0 && !duplicateDecisionResolved) {
+        blockers.push("duplicate_decision_required");
+      }
+
+      const gradedCard = Boolean(
+        textValue(collectibleAsset.grading_company) ||
+          textValue(ai.gradingCompany),
+      );
+      const effectiveAcquisitionSource =
+        textValue(acquisition.source) || "Misc";
+      const effectiveEbayCardCondition =
+        textValue(dualEbay.cardCondition) ||
+        (gradedCard ? null : "Near Mint or Better");
+      const listingReadiness = buildKingmakerListingReadiness({
+        metadata: effectiveMetadata,
+        frontImageUrl: displayFrontUrl,
+        backImageUrl: displayBackUrl,
+        condition: row.condition,
+        quantity: row.quantity,
+        acquisitionSource: effectiveAcquisitionSource,
+        duplicateDecisionRequired:
+          existingActiveRows.length > 0 && !duplicateDecisionResolved,
+        websitePrice: websiteChannelPrice,
+        ebayPrice: ebayChannelPrice,
+        mercariPrice: optionalPrice(dualMercari.price) || ebayChannelPrice,
+        ebayCardCondition: effectiveEbayCardCondition,
+        graded: gradedCard,
+      });
+
+      const currentListingFolder = listingFolderFromMetadata(
+        metadata,
+        rowHasLegacyEbayListing(row),
+        rowHasLegacyWebsiteListing(row),
+      );
+      const websiteActiveByProjection =
+        currentListingFolder === "website" ||
+        currentListingFolder === "both" ||
+        currentListingFolder === "website_mercari" ||
+        currentListingFolder === "all3";
+      const projectedWebsiteProductId =
+        useMacListingProjection && websiteActiveByProjection
+          ? Number(row.legacy_product_id || dualWebsite.productId || 0) || null
+          : null;
+      const projectedWebsiteProduct = projectedWebsiteProductId
+        ? {
+            id: projectedWebsiteProductId,
+            title: displayTitle,
+            quantity: Math.max(0, Number(row.quantity || 0)),
+            price: websiteChannelPrice || Number(row.price || 0),
+          }
+        : null;
+
+      const existingMatches = existingActiveRows
+        .map((candidate: any) => {
+          const candidateProduct = candidate.legacy_product_id
+            ? productMap.get(candidate.legacy_product_id)
+            : null;
+          return {
+            inventoryItemId: String(candidate.id),
+            legacyProductId: Number(candidate.legacy_product_id || 0) || null,
+            title:
+              candidate.title || candidateProduct?.title || "Existing listing",
+            sku: candidate.sku || candidateProduct?.sku || null,
+            price: Number(candidate.price || candidateProduct?.price || 0),
+            quantity: Math.max(
+              0,
+              Number(candidate.quantity || candidateProduct?.quantity || 0),
+            ),
+            imageUrl: candidateProduct?.image_url || null,
+            ebayItemId: candidateProduct?.ebay_item_id || null,
+          };
+        })
+        .sort((left: any, right: any) => {
+          if (Boolean(right.ebayItemId) !== Boolean(left.ebayItemId)) {
+            return (
+              Number(Boolean(right.ebayItemId)) -
+              Number(Boolean(left.ebayItemId))
+            );
+          }
+          return right.quantity - left.quantity;
+        });
+
+      return {
+        inventoryItemId: row.id,
+        legacyProductId: row.legacy_product_id,
+        title: displayTitle,
+        description: row.description || null,
+        sku: row.sku || null,
+        status: row.status || "draft",
+        quantity: Number(row.quantity || 0),
+        price: Number(row.price || 0),
+        imageUrl: displayFrontUrl,
+        frontImageUrl: displayFrontUrl,
+        backImageUrl: displayBackUrl,
+        storedImageCount:
+          storedPair.storedImageCount ||
+          Number(Boolean(metadataFrontUrl)) + Number(Boolean(metadataBackUrl)),
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        uniquePhysicalCopy,
+        quantityRule: uniquePhysicalCopy
+          ? "Serial-numbered and graded-cert copies stay quantity 1 so each physical asset keeps its own history."
+          : "Additional identical raw, non-serialized copies may be merged into this quantity.",
+        activationReadiness: {
+          ready: blockers.length === 0,
+          blockers,
+        },
+        listingReadiness,
+        websiteInventory: {
+          current: exactWebsiteProducts.length > 0 || websiteActiveByProjection,
+          quantity:
+            exactWebsiteProducts.length > 0
+              ? exactWebsiteProducts.reduce(
+                  (sum, websiteProduct) =>
+                    sum + Math.max(0, Number(websiteProduct.quantity || 0)),
+                  0,
+                )
+              : projectedWebsiteProduct
+                ? projectedWebsiteProduct.quantity
+                : Math.max(0, Number(row.quantity || 0)),
+          productIds:
+            exactWebsiteProducts.length > 0
+              ? exactWebsiteProducts.map((websiteProduct) => websiteProduct.id)
+              : projectedWebsiteProduct
+                ? [projectedWebsiteProduct.id]
+                : [],
+          products:
+            exactWebsiteProducts.length > 0
+              ? exactWebsiteProducts.slice(0, 10).map((websiteProduct) => ({
+                  id: websiteProduct.id,
+                  title: websiteProduct.title || null,
+                  quantity: Math.max(0, Number(websiteProduct.quantity || 0)),
+                  price: Number(websiteProduct.price || 0),
+                }))
+              : projectedWebsiteProduct
+                ? [projectedWebsiteProduct]
+                : [],
+          linkedProductId:
+            product?.id || projectedWebsiteProductId || null,
+          linkedProductTitle:
+            product?.title || (projectedWebsiteProductId ? displayTitle : null),
+          linkedProductSellable:
+            linkedWebsiteSellable ||
+            Boolean(projectedWebsiteProductId && websiteActiveByProjection),
+          linkedMatchStatus:
+            linkedWebsiteMatch?.status ||
+            (projectedWebsiteProductId && websiteActiveByProjection
+              ? "exact"
+              : "none"),
+          linkedMismatchReason:
+            linkedWebsiteMatch && linkedWebsiteMatch.status !== "exact"
+              ? linkedWebsiteMatch.reason
+              : null,
+        },
+        duplicateProtection: {
+          required: existingMatches.length > 0 && !duplicateDecisionResolved,
+          resolvedAsSeparate: duplicateDecisionResolved,
+          matchKey: duplicateProtectionMatchKey,
+          uniquePhysicalCopy,
+          existingActiveCount: existingMatches.length,
+          existingQuantity: existingMatches.reduce(
+            (sum: number, match: any) =>
+              sum + Math.max(0, Number(match.quantity || 0)),
+            0,
+          ),
+          matches: existingMatches,
+        },
+        sellerReview: {
+          identityConfirmed: sellerReview.identity_confirmed === true,
+          confirmedAt: textValue(sellerReview.confirmed_at),
+          confirmedBy: textValue(sellerReview.confirmed_by),
+        },
+        inventoryLifecycle: {
+          state: textValue(recordValue(metadata.inventory_lifecycle).state),
+          disposition: textValue(
+            recordValue(metadata.inventory_lifecycle).disposition,
+          ),
+          receivedAt: textValue(
+            recordValue(metadata.inventory_lifecycle).receivedAt,
+          ),
+          scanId: textValue(recordValue(metadata.inventory_lifecycle).scanId),
+        },
+        instaComp: {
+          source: textValue(instaComp.source),
+          scanId: textValue(instaComp.scanId),
+          humanVerified: instaComp.humanVerified === true,
+          verifiedCsvLocked: recordValue(metadata.verifiedCsv).authority === "seller_verified_csv_v1",
+          cardUuid:
+            textValue(row.card_uuid) ||
+            textValue(product?.card_uuid) ||
+            textValue(instaComp.cardUuid) ||
+            textValue(ai.internalCardUuid) ||
+            null,
+          pricingGroupKey,
+          duplicateGroup: pricingGroupKey
+            ? summarizeInstaCompPricingGroup(pricingGroupRows)
+            : null,
+          identity: {
+            sport: textValue(primaryIdentity.sport),
+            league: textValue(primaryIdentity.league),
+            year: canonicalIdentityLocked
+              ? textValue(primaryIdentity.year)
+              : textValue(primaryIdentity.year) ||
+                textValue(legacyCardIdentity.year) ||
+                textValue(cardIdentity.year) ||
+                textValue(saleIdentity.year),
+            manufacturer: canonicalIdentityLocked
+              ? textValue(primaryIdentity.manufacturer)
+              : textValue(primaryIdentity.manufacturer) ||
+                textValue(primaryIdentity.brand) ||
+                textValue(legacyCardIdentity.manufacturer) ||
+                textValue(legacyCardIdentity.brand) ||
+                textValue(cardIdentity.manufacturer) ||
+                textValue(cardIdentity.brand) ||
+                textValue(saleIdentity.manufacturer) ||
+                textValue(saleIdentity.brand),
+            brand: canonicalIdentityLocked
+              ? textValue(primaryIdentity.brand)
+              : textValue(primaryIdentity.brand) ||
+                textValue(legacyCardIdentity.brand) ||
+                textValue(cardIdentity.brand) ||
+                textValue(saleIdentity.brand),
+            product: canonicalIdentityLocked
+              ? textValue(primaryIdentity.product)
+              : textValue(primaryIdentity.product) ||
+                textValue(legacyCardIdentity.product) ||
+                textValue(cardIdentity.product) ||
+                textValue(saleIdentity.product),
+            setName: canonicalIdentityLocked
+              ? textValue(primaryIdentity.setName) ||
+                textValue(primaryIdentity.set_name)
+              : textValue(primaryIdentity.setName) ||
+                textValue(primaryIdentity.set_name) ||
+                textValue(legacyCardIdentity.setName) ||
+                textValue(legacyCardIdentity.set_name) ||
+                textValue(cardIdentity.setName) ||
+                textValue(cardIdentity.set_name) ||
+                textValue(saleIdentity.setName) ||
+                textValue(saleIdentity.set_name) ||
+                textValue(titleNormalization.setName),
+            subset: canonicalIdentityLocked
+              ? identitySubsetValue(primaryIdentity)
+              : identitySubsetValue(primaryIdentity) ||
+                identitySubsetValue(legacyCardIdentity) ||
+                identitySubsetValue(recordValue(metadata.card)) ||
+                identitySubsetValue(cardIdentity) ||
+                identitySubsetValue(saleIdentity) ||
+                identitySubsetValue(recordValue(metadata.verified_reference)),
+            player: canonicalIdentityLocked
+              ? identityPlayerValue(primaryIdentity)
+              : identityPlayerValue(primaryIdentity) ||
+                identityPlayerValue(legacyCardIdentity) ||
+                identityPlayerValue(cardIdentity) ||
+                identityPlayerValue(saleIdentity),
+            team: canonicalIdentityLocked
+              ? textValue(primaryIdentity.team)
+              : textValue(primaryIdentity.team) ||
+                textValue(legacyCardIdentity.team) ||
+                textValue(cardIdentity.team) ||
+                textValue(saleIdentity.team),
+            cardNumber: canonicalIdentityLocked
+              ? textValue(primaryIdentity.cardNumber) ||
+                textValue(primaryIdentity.card_number)
+              : textValue(primaryIdentity.cardNumber) ||
+                textValue(primaryIdentity.card_number) ||
+                textValue(legacyCardIdentity.cardNumber) ||
+                textValue(legacyCardIdentity.card_number) ||
+                textValue(cardIdentity.cardNumber) ||
+                textValue(cardIdentity.card_number) ||
+                textValue(saleIdentity.cardNumber) ||
+                textValue(saleIdentity.card_number),
+            parallel: canonicalIdentityLocked
+              ? textValue(primaryIdentity.parallel)
+              : textValue(primaryIdentity.checklistParallel) ||
+                textValue(primaryIdentity.parallelName) ||
+                textValue(primaryIdentity.parallel) ||
+                textValue(legacyCardIdentity.parallel) ||
+                textValue(cardIdentity.parallel) ||
+                textValue(saleIdentity.parallel) ||
+                textValue(titleNormalization.parallel),
+            variation: canonicalIdentityLocked
+              ? textValue(primaryIdentity.variation)
+              : textValue(primaryIdentity.variation) ||
+                textValue(legacyCardIdentity.variation) ||
+                textValue(cardIdentity.variation) ||
+                textValue(saleIdentity.variation),
+            notes:
+              textValue(primaryIdentity.notes) ||
+              buildIdentitySummary(ai) ||
+              buildIdentitySummary(cardIdentity) ||
+              buildIdentitySummary(saleIdentity),
+            serialNumber: canonicalIdentityLocked
+              ? textValue(primaryIdentity.serialNumber)
+              : textValue(ai.serialNumber) ||
+                textValue(legacyCardIdentity.serialNumber) ||
+                textValue(legacyCardIdentity.printRun) ||
+                textValue(cardIdentity.serialNumber) ||
+                textValue(saleIdentity.serialNumber) ||
+                exactSerialNumber,
+            isRookie: canonicalIdentityLocked
+              ? primaryIdentity.isRookie === true
+              : ai.isRookie === true || collectibleAsset.rookie === true,
+            isAuto: canonicalIdentityLocked
+              ? primaryIdentity.isAuto === true
+              : ai.isAuto === true || collectibleAsset.autograph === true,
+            isRelic: canonicalIdentityLocked
+              ? primaryIdentity.isRelic === true
+              : ai.isRelic === true || collectibleAsset.memorabilia === true,
+            inscription: canonicalIdentityLocked
+              ? primaryIdentity.inscription === true
+              : ai.internalInscription === true ||
+                collectibleAsset.inscription === true,
+            inscriptionText: canonicalIdentityLocked
+              ? textValue(primaryIdentity.inscriptionText)
+              : textValue(ai.internalInscriptionText) ||
+                textValue(collectibleAsset.inscription_text),
+            memorabiliaType: canonicalIdentityLocked
+              ? textValue(primaryIdentity.memorabiliaType)
+              : textValue(ai.internalMemorabiliaType) ||
+                textValue(collectibleAsset.memorabilia_type),
+          },
+          serialNumber: canonicalIdentityLocked
+            ? textValue(primaryIdentity.serialNumber)
+            : textValue(ai.serialNumber) || exactSerialNumber,
+          hasBackImage,
+          centering: {
+            front: recordValue(centering.front),
+            back: recordValue(centering.back),
+          },
+          imageOrientation: {
+            verified:
+              imageOrientation.status === "completed" &&
+              instaComp.imageOrientationPersisted === true &&
+              instaComp.imagePersistenceVerified === true,
+            status: textValue(imageOrientation.status),
+            source:
+              textValue(imageOrientation.source) ||
+              textValue(imageOrientation.model),
+            frontRotation: Number(imageOrientation.frontRotation || 0),
+            backRotation: Number(imageOrientation.backRotation || 0),
+            reason: textValue(imageOrientation.reason),
+          },
+          backImageSource: storedPair.hasStoredBackImage
+            ? "inventory_images"
+            : metadataBackUrl
+              ? "metadata_url"
+              : "missing",
+          suggestedPrice,
+          pricingStatus,
+          pricingReason:
+            (localCertifiedPricing
+              ? textValue(localCertifiedPricingAnalysis.explanation) ||
+                "Local human-certified exact sold comps produced this suggestion."
+              : null) ||
+            textValue(instaComp.pricingReason) ||
+            (pricingStatus === "not_run"
+              ? "InstaComp pricing has not run yet."
+              : pricingStatus === "seller_price_required"
+                ? "No reliable sold comps were available. Seller sets the price."
+                : "Reliable sold comps produced this suggestion."),
+          reliableSoldCompCount: Math.max(
+            0,
+            Number(
+              localCertifiedPricingAnalysis.soldCount ??
+                instaComp.reliableSoldCompCount ??
+                0,
+            ),
+          ),
+          pricingCheckedAt: textValue(instaComp.pricingCheckedAt),
+          listingPrice: optionalPrice(instaComp.listingPrice),
+          listingPriceSource: textValue(instaComp.listingPriceSource),
+          channelPricing: {
+            ...channelPricing,
+            websiteStatus: textValue(dualWebsite.status) || "draft",
+            ebayStatus:
+              textValue(dualEbay.status) ||
+              (textValue(product?.ebay_item_id) ? "linked" : "draft"),
+            ebayCardCondition: effectiveEbayCardCondition,
+            ebayCategoryId: textValue(dualEbay.categoryId) || "261328",
+            ebayLastError: textValue(dualEbay.lastError),
+            ebayLastAttemptAt: textValue(dualEbay.lastAttemptAt),
+            mercariPrice: optionalPrice(dualMercari.price) || channelPricing.ebayPrice,
+            mercariStatus: textValue(dualMercari.status) || "draft",
+            mercariItemId: textValue(dualMercari.itemId),
+            mercariItemUrl: textValue(dualMercari.itemUrl),
+            mercariSourceListingId: textValue(dualMercari.sourceListingId),
+            mercariAccount: textValue(dualMercari.account),
+            calculatedFrom: storedEbayPrice
+              ? "saved_ebay_price"
+              : savedListingPrice
+                ? savedListingPriceSource === "kingmaker_manual"
+                  ? "seller_manual"
+                  : "saved_listing_price"
+                : suggestedPrice
+                  ? "instacomp"
+                  : "seller_price_required",
+          },
+          soldCompEvidence: includeDetailedMarketEvidence
+            ? localCertifiedPricing
+              ? Array.isArray(localCertifiedPricing.exactSoldComps)
+                ? localCertifiedPricing.exactSoldComps
+                    .slice(0, 50)
+                    .map((comp) => ({
+                      title: textValue(comp.title),
+                      price: optionalPrice(comp.price),
+                      url: textValue(comp.url),
+                      sourceLabel: "Local InstaComp certified exact sold",
+                      soldAt: textValue(comp.soldAt),
+                    }))
+                : []
+              : evidenceList(instaComp.soldCompEvidence)
+            : [],
+          activeCompetition: includeDetailedMarketEvidence
+            ? evidenceList(instaComp.activeCompetition)
+            : [],
+          priceGuide:
+            includeDetailedMarketEvidence &&
+            instaComp.priceGuide &&
+            typeof instaComp.priceGuide === "object"
+              ? recordValue(instaComp.priceGuide)
+              : null,
+          priceGuideCheckedAt: textValue(instaComp.priceGuideCheckedAt),
+          priceGuideStatus: textValue(instaComp.priceGuideStatus),
+          priceGuideMessage: textValue(instaComp.priceGuideMessage),
+          priceGuideCoverage:
+            includeDetailedMarketEvidence &&
+            instaComp.priceGuideCoverage &&
+            typeof instaComp.priceGuideCoverage === "object"
+              ? recordValue(instaComp.priceGuideCoverage)
+              : null,
+          ...(compactKingmaker
+            ? {}
+            : {
+                rejectedCandidates: evidenceList(instaComp.rejectedCandidates),
+                excludedCompEvidence: evidenceList(instaComp.excludedCompEvidence),
+                excludedCompCount: Array.isArray(instaComp.excludedCompUrls)
+                  ? instaComp.excludedCompUrls.length
+                  : 0,
+                providerCoverage: providerCoverageList(instaComp.providerCoverage),
+                sourceLinks: {
+                  ebaySoldUrl: textValue(sourceLinks.ebaySoldUrl),
+                  ebayActiveUrl: textValue(sourceLinks.ebayActiveUrl),
+                  broadCardMarketUrl: textValue(sourceLinks.broadCardMarketUrl),
+                },
+              }),
+          identitySummary,
+          identityReadout,
+          identityTrace:
+            instaComp.identityTrace && typeof instaComp.identityTrace === "object"
+              ? recordValue(instaComp.identityTrace)
+              : null,
+          gradingCompany:
+            textValue(collectibleAsset.grading_company) ||
+            textValue(ai.gradingCompany),
+          gradingGrade:
+            textValue(collectibleAsset.grading_grade) ||
+            textValue(ai.gradeValue),
+          gradingCertNumber,
+          graderVerificationStatus: effectiveGraderStatus(metadata),
+          graderVerificationUrl:
+            textValue(collectibleAsset.grader_verification_url) ||
+            textValue(graderVerification.verificationUrl),
+        },
+      };
+    });
+
+    // Do not merge distinct physical scanned cards into a single UI row.
+    // The pricingGroupKey remains on each card for comparative analysis.
+    const commercialItems = items.map((item) => ({
+            ...item,
+            commercialGroup: {
+              mergeable: false,
+              memberInventoryItemIds: [item.inventoryItemId],
+              members: [
+                {
+                  inventoryItemId: item.inventoryItemId,
+                  scanId: item.instaComp.scanId || null,
+                  cardUuid: item.instaComp.cardUuid || null,
+                  identity: item.instaComp.identity || null,
+                  frontImageUrl: item.frontImageUrl || null,
+                  backImageUrl: item.backImageUrl || null,
+                  inventoryLifecycle: item.inventoryLifecycle || null,
+                },
+              ],
+              pendingRows: 1,
+              pendingQuantity: Math.max(1, Number(item.quantity || 1)),
+              activeRows: Number(
+                item.instaComp.duplicateGroup?.activeRows || 0,
+              ),
+              totalQuantity: Number(
+                item.instaComp.duplicateGroup?.totalQuantity ||
+                  item.quantity ||
+                  1,
+              ),
+            },
+          }));
+
+    return Response.json(
+      {
+        items: commercialItems,
+        count: commercialItems.length,
+        physicalRowCount: items.length,
+        queue,
+        folder,
+        queueCounts,
+        folderCounts,
+        imageAudit: {
+          itemCount: items.length,
+          withStoredBackImage: items.filter(
+            (item) => item.instaComp.backImageSource === "inventory_images",
+          ).length,
+          withMetadataBackImage: items.filter(
+            (item) => item.instaComp.backImageSource === "metadata_url",
+          ).length,
+          missingBackImage: items.filter(
+            (item) => item.instaComp.hasBackImage !== true,
+          ).length,
+        },
+        pricingRule: {
+          reliableSoldComps:
+            "Exact sold comps establish market value. Exact active listings establish current competition. InstaComp combines both into a transparent sweet-spot listing suggestion.",
+          noReliableSoldComps:
+            "$0.00 means no reliable sold comps passed; seller pricing is required.",
+          activeCompetition:
+            "Active listings are shown separately and also constrain the sweet-spot listing target without replacing sold-market evidence.",
+        },
+      },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+  } catch (error: any) {
+    return Response.json(
+      { error: error?.message || "Could not load InstaComp pending listings." },
+      { status: 500 },
+    );
+  }
+}

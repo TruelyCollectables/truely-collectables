@@ -1,0 +1,41 @@
+name: Sync Deal Hunter Email Recipient
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/sync-deal-hunter-email-recipient.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      DEAL_HUNTER_ALERT_TO: david@truelycollectables.com
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Wrangler
+        run: npm install --no-save --package-lock=false wrangler@4.123.0
+      - name: Sync Deal Hunter recipient to both production Workers
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${CLOUDFLARE_ACCOUNT_ID:-}"
+          test -n "${CLOUDFLARE_API_TOKEN:-}"
+          test -n "${DEAL_HUNTER_ALERT_TO:-}"
+          for config in wrangler.jsonc wrangler.production-route.jsonc; do
+            printf '%s' "$DEAL_HUNTER_ALERT_TO" | npx --no-install wrangler secret put DEAL_HUNTER_ALERT_TO --config "$config"
+            secret_file="/tmp/$(basename "$config").secrets.json"
+            npx --no-install wrangler secret list --format json --config "$config" > "$secret_file"
+            node -e "const fs=require('fs');const rows=JSON.parse(fs.readFileSync(process.argv[1],'utf8'));if(!rows.some(r=>r&&r.name==='DEAL_HUNTER_ALERT_TO'))process.exit(2);console.log('DEAL_HUNTER_ALERT_TO present for '+process.argv[2]+'; value withheld.');" "$secret_file" "$config"
+            shred -u "$secret_file"
+          done

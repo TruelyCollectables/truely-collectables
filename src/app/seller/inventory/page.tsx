@@ -1,0 +1,3939 @@
+"use client";
+
+import Link from "next/link";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
+import {
+  AUTHENTICITY_STATUSES,
+  AUTOGRAPH_SOURCES,
+  authenticityStatusLabel,
+  autographSourceLabel,
+  buildAuthenticityBadges,
+  type AuthenticityBadge,
+  type AuthenticityProfile,
+} from "../../../lib/authenticity";
+import {
+  STANDARD_AUCTION_DURATION_DAYS,
+  STANDARD_AUCTION_DURATION_LABEL,
+  STANDARD_AUCTION_FORMAT,
+  STANDARD_AUCTION_POLICY_SUMMARY,
+} from "../../../lib/auction-policy";
+import {
+  getFreshAccountSession,
+  type StoredAccountSession,
+} from "../../account/account-session";
+
+function hydrateInventoryItems(data: any): SellerInventoryItem[] {
+  const defaults =
+    data?.defaults && typeof data.defaults === "object" ? data.defaults : {};
+  const defaultAuthenticity =
+    defaults.authenticity && typeof defaults.authenticity === "object"
+      ? defaults.authenticity
+      : {
+          status: "not_applicable",
+          autographSource: "none",
+          certProvider: null,
+          certNumber: null,
+          guaranteedAuthenticators: [],
+          provenanceEvidence: null,
+          authenticityNotes: null,
+        };
+  const defaultPromotion =
+    defaults.promotion && typeof defaults.promotion === "object"
+      ? defaults.promotion
+      : {
+          onSale: false,
+          originalPrice: null,
+          discountPercent: 0,
+          automaticFreeShipping: false,
+          discountCouponCode: null,
+          discountCouponPercent: 0,
+          freeShippingCouponCode: null,
+        };
+  const shippingPolicy =
+    defaults.shippingPolicy && typeof defaults.shippingPolicy === "object"
+      ? defaults.shippingPolicy
+      : {};
+  return (Array.isArray(data?.items) ? data.items : []).map((item: any) => ({
+    ...item,
+    authenticity: item.authenticity || defaultAuthenticity,
+    promotion: item.promotion || defaultPromotion,
+    shippingPlan: {
+      ...shippingPolicy,
+      ...(item.shippingPlan || {}),
+    },
+  })) as SellerInventoryItem[];
+}
+
+type SellerInventorySummary = {
+  totalItems: number;
+  loadedItems?: number;
+  draftCount: number;
+  draftReadyCount: number;
+  draftNeedsWorkCount: number;
+  activeCount: number;
+  archivedCount: number;
+  storeOwnedCount: number;
+  instacompDraftCount: number;
+  instacompReadyDraftCount: number;
+  totalQuantity: number;
+  totalDraftValue: number;
+};
+
+type SellerInventoryPagination = {
+  offset: number;
+  limit: number;
+  returned: number;
+  total: number;
+  hasMore: boolean;
+  nextOffset: number;
+};
+
+type SellerInventoryItem = {
+  inventoryItemId: string;
+  legacyProductId: number | null;
+  ownershipScope?: "seller" | "store";
+  title: string;
+  description: string | null;
+  sku: string | null;
+  category: string;
+  condition: string;
+  status: string;
+  quantity: number;
+  price: number;
+  updatedAt: string | null;
+  createdAt: string | null;
+  ebayItemId: string | null;
+  imageUrl: string | null;
+  authenticity: AuthenticityProfile;
+  shippingPlan: {
+    method: "STANDARD_ENVELOPE" | "GROUND_ADVANTAGE" | "PRIORITY_MAIL";
+    label: string;
+    estimatedOunces: number;
+    postageEstimate: number;
+    coverageProvider: string;
+    coverageRequired: boolean;
+    coverageType: string;
+    sellerProtectionOptedIn: boolean;
+    sellerProtectionProvider: string;
+    sellerProtectionRate: number;
+    sellerProtectionMaxCoverage: number;
+    sellerProtectionFeeEstimate: number;
+    sellerProtectionCoveredAmount: number;
+    sellerProtectionCoverageBasis: string;
+    sellerProtectionClaimRule: string;
+    sellerProtectionRefundRule: string;
+    sellerProtectionReimbursesShipping: boolean;
+    sellerProtectionLegalLabel: string;
+    reason: string | null;
+  };
+  instaComp?: {
+    isInstaCompDraft: boolean;
+    source: string | null;
+    scanId: string | null;
+    serialNumber: string | null;
+    marketPrice: number | null;
+    listingPrice: number | null;
+    listingPriceSource: string | null;
+    hasBackImage: boolean;
+  };
+  promotion: {
+    onSale: boolean;
+    originalPrice: number | null;
+    discountPercent: number;
+    automaticFreeShipping: boolean;
+    discountCouponCode: string | null;
+    discountCouponPercent: number;
+    freeShippingCouponCode: string | null;
+  };
+  activationReadiness: {
+    ready: boolean;
+    blockers: string[];
+  };
+};
+
+type StatusFilter = "all" | "draft" | "active" | "archived";
+type ReadinessFilter = "all" | "ready" | "needs_work";
+type SourceFilter = "all" | "instacomp" | "manual";
+type MarketplaceStageFilter =
+  | "all"
+  | "needs_review"
+  | "staged"
+  | "mapped"
+  | "skipped"
+  | "blocked"
+  | "ready";
+type OrderQueueFilter =
+  | "all"
+  | "action_required"
+  | "shipping"
+  | "cash_out"
+  | "completed";
+type PayoutRequestFilter = "all" | "blocked" | "open" | "paid" | "attention";
+type BulkInventoryAction = "activate" | "archive";
+type BulkInventoryResult = {
+  inventoryItemId: string;
+  success: boolean;
+  status: number;
+  message: string;
+  blockers?: string[];
+};
+
+const statusFilters: Array<{ value: StatusFilter; label: string }> = [
+  { value: "all", label: "All" },
+  { value: "draft", label: "Drafts" },
+  { value: "active", label: "Active" },
+  { value: "archived", label: "Archived" },
+];
+
+const readinessFilters: Array<{
+  value: ReadinessFilter;
+  label: string;
+}> = [
+  { value: "all", label: "All readiness" },
+  { value: "ready", label: "Ready" },
+  { value: "needs_work", label: "Needs work" },
+];
+
+const sourceFilters: Array<{
+  value: SourceFilter;
+  label: string;
+}> = [
+  { value: "all", label: "All sources" },
+  { value: "instacomp", label: "InstaComp™" },
+  { value: "manual", label: "Manual/other" },
+];
+
+function parseStatusFilter(value: string | null): StatusFilter {
+  return value === "draft" || value === "active" || value === "archived"
+    ? value
+    : "all";
+}
+
+function parseReadinessFilter(value: string | null): ReadinessFilter {
+  return value === "ready" || value === "needs_work" ? value : "all";
+}
+
+function parseSourceFilter(value: string | null): SourceFilter {
+  return value === "instacomp" || value === "manual" ? value : "all";
+}
+
+function initialInventoryFilters() {
+  if (typeof window === "undefined") {
+    return {
+      search: "",
+      status: "all" as StatusFilter,
+      readiness: "all" as ReadinessFilter,
+      source: "all" as SourceFilter,
+      inventoryItemId: "",
+    };
+  }
+
+  const params = new URLSearchParams(window.location.search);
+
+  return {
+    search: params.get("search") || "",
+    status: parseStatusFilter(params.get("status")),
+    readiness: parseReadinessFilter(params.get("readiness")),
+    source: parseSourceFilter(params.get("source")),
+    inventoryItemId: params.get("inventoryItemId") || "",
+  };
+}
+
+function label(value: string | null | undefined) {
+  if (!value) return "Not set";
+  return value.replaceAll("_", " ").toUpperCase();
+}
+
+function formatCurrency(value: number | null | undefined) {
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+  }).format(Number(value || 0));
+}
+
+function exportTimestamp() {
+  return new Date().toISOString().replace(/[:.]/g, "-");
+}
+
+function exportSlug(value: string | null | undefined) {
+  return String(value || "all")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48) || "all";
+}
+
+function exportCell(value: unknown) {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "boolean") return value ? "yes" : "no";
+  if (typeof value === "number") return Number.isFinite(value) ? String(value) : "";
+
+  return String(value).replace(/\s+/g, " ").trim();
+}
+
+function csvCell(value: unknown) {
+  return `"${exportCell(value).replace(/"/g, '""')}"`;
+}
+
+function downloadTextFile(fileName: string, content: string, type: string) {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+const marketplaceExportWarning =
+  "Outbound marketplace packet only. Verify platform category, shipping, item specifics, and final listing rules before publishing externally.";
+
+const marketplaceExportShippingWarning =
+  "Shipping values are planning estimates only. This export does not buy postage, create Coverage policies, activate TCOS Under-$20 Seller Protection, reimburse shipping, or publish to an external marketplace.";
+
+const marketplaceExportSellerProtectionWarning =
+  "TCOS Under-$20 Seller Protection is an optional internal seller program, not insurance. It only applies when the seller opted in for the Standard Envelope shipment before fulfillment, delivery evidence does not show delivered under TCOS rules, and the seller/buyer refund is processed. Reimbursement is limited to the item sale amount up to $20; shipping is excluded.";
+
+const marketplaceExportChecklist = [
+  `If the destination listing is an auction, use the TCOS standard ${STANDARD_AUCTION_DURATION_LABEL} unless an operator explicitly approves a different duration.`,
+  "Verify the external marketplace category and item specifics before publishing.",
+  "Recheck title, description, condition, authenticity, image, price, and quantity on the destination platform.",
+  "Recalculate shipping on the destination platform or in TCOS checkout before any buyer purchase.",
+  "Confirm any TCOS Under-$20 Seller Protection opt-in before fulfillment; marketplace exports do not activate protection or reimburse shipping.",
+  "Do not treat this packet as permission to publish externally, buy postage, create Coverage, or release payouts.",
+];
+
+function shortDate(value: string | null | undefined) {
+  if (!value) return "Not recorded";
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
+function statusTone(value: string | null | undefined) {
+  if (value === "active") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-800";
+  }
+
+  if (value === "draft") {
+    return "border-amber-200 bg-amber-50 text-amber-900";
+  }
+
+  if (value === "archived") {
+    return "border-neutral-200 bg-neutral-100 text-neutral-700";
+  }
+
+  return "border-neutral-200 bg-neutral-100 text-neutral-700";
+}
+
+function readinessTone(ready: boolean) {
+  return ready
+    ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+    : "border-amber-200 bg-amber-50 text-amber-900";
+}
+
+function sourceTone(item: SellerInventoryItem) {
+  return item.instaComp?.isInstaCompDraft
+    ? "border-sky-200 bg-sky-50 text-sky-900"
+    : "border-neutral-200 bg-neutral-100 text-neutral-700";
+}
+
+function inventorySourceLabel(item: SellerInventoryItem) {
+  return item.instaComp?.isInstaCompDraft ? "INSTACOMP" : "MANUAL";
+}
+
+function marketplaceExportRows(items: SellerInventoryItem[]) {
+  return items.map((item, index) => ({
+    row: index + 1,
+    tcosInventoryItemId: item.inventoryItemId,
+    legacyProductId: item.legacyProductId || "",
+    source: inventorySourceLabel(item),
+    marketplaceStatus: "ready_to_crosslist",
+    marketplaceExportPurpose: "crosslist_prep_only",
+    externalPublishingApproved: false,
+    externalPublishingProhibited: true,
+    auctionStandardFormat: STANDARD_AUCTION_FORMAT,
+    auctionStandardDurationDays: STANDARD_AUCTION_DURATION_DAYS,
+    auctionStandardDurationLabel: STANDARD_AUCTION_DURATION_LABEL,
+    auctionStandardPolicy: STANDARD_AUCTION_POLICY_SUMMARY,
+    title: item.title,
+    sku: item.sku || "",
+    price: item.price,
+    quantity: item.quantity,
+    category: label(item.category),
+    condition: label(item.condition),
+    description: item.description || "",
+    imageUrl: item.imageUrl || "",
+    ebayItemId: item.ebayItemId || "",
+    shippingMethod: item.shippingPlan.label,
+    shippingEstimatedOunces: item.shippingPlan.estimatedOunces,
+    shippingPostageEstimate: item.shippingPlan.postageEstimate,
+    shippingCoverageProvider: item.shippingPlan.coverageProvider,
+    shippingCoverageRequired: item.shippingPlan.coverageRequired,
+    shippingCoverageType: item.shippingPlan.coverageType,
+    standardEnvelopeDeliveryEvidenceRequirement:
+      item.shippingPlan.method === "STANDARD_ENVELOPE"
+        ? "LetterTrack/USPS IMb delivery evidence must be able to show delivered; delivered evidence blocks TCOS under-$20 seller-protection reimbursement."
+        : "",
+    under20SellerProtectionOptedIn: item.shippingPlan.sellerProtectionOptedIn,
+    under20SellerProtectionProvider: item.shippingPlan.sellerProtectionProvider,
+    under20SellerProtectionRate: item.shippingPlan.sellerProtectionRate,
+    under20SellerProtectionMaxCoverage:
+      item.shippingPlan.sellerProtectionMaxCoverage,
+    under20SellerProtectionFeeEstimate:
+      item.shippingPlan.sellerProtectionFeeEstimate,
+    under20SellerProtectionCoveredAmount:
+      item.shippingPlan.sellerProtectionCoveredAmount,
+    under20SellerProtectionCoverageBasis:
+      item.shippingPlan.sellerProtectionCoverageBasis,
+    under20SellerProtectionClaimRule: item.shippingPlan.sellerProtectionClaimRule,
+    under20SellerProtectionRefundRule: item.shippingPlan.sellerProtectionRefundRule,
+    under20SellerProtectionReimbursesShipping:
+      item.shippingPlan.sellerProtectionReimbursesShipping,
+    under20SellerProtectionLegalLabel: item.shippingPlan.sellerProtectionLegalLabel,
+    under20SellerProtectionWarning: marketplaceExportSellerProtectionWarning,
+    shippingPlanNote: item.shippingPlan.reason || "",
+    shippingPurchaseIncluded: false,
+    shippingPurchaseMode: "not_included_in_marketplace_export",
+    postagePurchaseProhibited: true,
+    coveragePolicyCreationProhibited: true,
+    sellerPayoutReleaseProhibited: true,
+    orderFulfillmentProhibited: true,
+    shippingWarning: marketplaceExportShippingWarning,
+    sellerProtectionWarning: marketplaceExportSellerProtectionWarning,
+    operatorChecklist: marketplaceExportChecklist.join(" | "),
+    instacompScanId: item.instaComp?.scanId || "",
+    serialNumber: item.instaComp?.serialNumber || "",
+    instacompMarketPrice: item.instaComp?.marketPrice || "",
+    listingPriceSource: item.instaComp?.listingPriceSource || "",
+    hasBackImage: item.instaComp?.hasBackImage || false,
+    activationReady: item.activationReadiness.ready,
+    activationBlockers: item.activationReadiness.blockers
+      .map(readinessBlockerLabel)
+      .join("; "),
+    tcosSellerInventoryUrl: `/seller/inventory?search=${encodeURIComponent(
+      item.sku || item.title,
+    )}`,
+  }));
+}
+
+type MarketplaceExportContext = {
+  selectedCount: number;
+  selectedReadyCount: number;
+  visibleCount: number;
+  statusFilter: StatusFilter;
+  readinessFilter: ReadinessFilter;
+  sourceFilter: SourceFilter;
+  search: string;
+};
+
+function marketplaceExportPacket(
+  items: SellerInventoryItem[],
+  exportContext?: MarketplaceExportContext,
+) {
+  return {
+    exportedAt: new Date().toISOString(),
+    scope: "selected_ready_seller_inventory_marketplace_packet",
+    packetPurpose: "crosslist_prep_only",
+    itemCount: items.length,
+    exportContext: exportContext || null,
+    externalPublishingApproved: false,
+    shippingPurchaseIncluded: false,
+    auctionStandard: {
+      format: STANDARD_AUCTION_FORMAT,
+      durationDays: STANDARD_AUCTION_DURATION_DAYS,
+      label: STANDARD_AUCTION_DURATION_LABEL,
+      policy: STANDARD_AUCTION_POLICY_SUMMARY,
+    },
+    warning: marketplaceExportWarning,
+    shippingWarning: marketplaceExportShippingWarning,
+    sellerProtectionWarning: marketplaceExportSellerProtectionWarning,
+    operatorChecklist: marketplaceExportChecklist,
+    prohibitedActions: [
+      "external_marketplace_publish",
+      "postage_purchase",
+      "coverage_policy_creation",
+      "seller_payout_release",
+      "order_fulfillment",
+    ],
+    rows: marketplaceExportRows(items),
+  };
+}
+
+function marketplaceExportCsv(items: SellerInventoryItem[]) {
+  const rows = marketplaceExportRows(items);
+
+  if (!rows.length) return "";
+
+  const headers = Object.keys(rows[0]) as Array<keyof (typeof rows)[number]>;
+
+  return [
+    headers.map(csvCell).join(","),
+    ...rows.map((row) => headers.map((header) => csvCell(row[header])).join(",")),
+  ].join("\n");
+}
+
+function authenticityBadgeTone(tone: AuthenticityBadge["tone"]) {
+  if (tone === "emerald") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-800";
+  }
+
+  if (tone === "amber") {
+    return "border-amber-200 bg-amber-50 text-amber-900";
+  }
+
+  if (tone === "sky") {
+    return "border-sky-200 bg-sky-50 text-sky-900";
+  }
+
+  return "border-neutral-200 bg-neutral-100 text-neutral-700";
+}
+
+function readinessBlockerLabel(value: string) {
+  if (value === "missing_sku") return "Missing SKU";
+  if (value === "missing_price") return "Missing price";
+  if (value === "missing_quantity") return "Missing quantity";
+  if (value === "missing_image") return "Missing image";
+  if (value === "missing_authenticity_disclosure") {
+    return "Missing authenticity disclosure";
+  }
+  if (value === "missing_cert_provider") return "Missing cert provider";
+  if (value === "missing_pass_guarantee_authenticator") {
+    return "Missing guarantee authenticator";
+  }
+  if (value === "missing_provenance_evidence") {
+    return "Missing provenance evidence";
+  }
+  return label(value);
+}
+
+function canActivateInventoryItem(item: SellerInventoryItem) {
+  return ["draft", "archived"].includes(item.status) && item.activationReadiness.ready;
+}
+
+function canArchiveInventoryItem(item: SellerInventoryItem) {
+  return item.status !== "archived" && item.status !== "sold";
+}
+
+function canRunBulkInventoryAction(
+  item: SellerInventoryItem,
+  action: BulkInventoryAction | null,
+) {
+  if (action === "activate") return canActivateInventoryItem(item);
+  if (action === "archive") return canArchiveInventoryItem(item);
+  return false;
+}
+
+function inventorySelectionGuidance(summary: {
+  total: number;
+  ready: number;
+  needsWork: number;
+  draft: number;
+  active: number;
+  archived: number;
+}) {
+  if (summary.total === 0) return null;
+
+  if (summary.ready > 0 && summary.needsWork > 0) {
+    return "This selection mixes ready listings with needs-work drafts. Trim to ready rows before activation or isolate the cleanup work first.";
+  }
+
+  if (summary.active > 0 && (summary.draft > 0 || summary.archived > 0)) {
+    return "This selection mixes live listings with draft or archived items. Split the selection if you want a cleaner bulk action.";
+  }
+
+  if (summary.draft > 0 && summary.archived > 0) {
+    return "This selection mixes fresh drafts with archived listings. Separate them if you want a cleaner reactivation or cleanup pass.";
+  }
+
+  return null;
+}
+
+function bulkActionVerb(action: BulkInventoryAction | null) {
+  if (action === "activate") return "activated";
+  if (action === "archive") return "archived";
+  return "updated";
+}
+
+function bulkActionQueueLabel(action: BulkInventoryAction | null) {
+  if (action === "activate") return "Open Active Inventory";
+  if (action === "archive") return "Open Archived Inventory";
+  return "Open Seller Inventory";
+}
+
+function sellerOrdersQueueHref(queue: OrderQueueFilter, search?: string) {
+  const params = new URLSearchParams();
+
+  if (queue !== "all") {
+    params.set("queue", queue);
+  }
+
+  if (search?.trim()) {
+    params.set("search", search.trim());
+  }
+
+  const query = params.toString();
+  return query ? `/seller/orders?${query}` : "/seller/orders";
+}
+
+function sellerPayoutQueueHref(request: PayoutRequestFilter, search?: string) {
+  const params = new URLSearchParams();
+
+  if (request !== "all") {
+    params.set("request", request);
+  }
+
+  if (search?.trim()) {
+    params.set("search", search.trim());
+  }
+
+  const query = params.toString();
+  return query ? `/seller/payouts?${query}` : "/seller/payouts";
+}
+
+function inventoryOrdersHref(item: SellerInventoryItem) {
+  const search = item.title.trim();
+
+  if (item.status === "active") {
+    return sellerOrdersQueueHref("shipping", search);
+  }
+
+  if (!item.activationReadiness.ready) {
+    return sellerOrdersQueueHref("action_required", search);
+  }
+
+  return sellerOrdersQueueHref("all", search);
+}
+
+function inventoryOrdersLabel(item: SellerInventoryItem) {
+  if (item.status === "active") {
+    return "Open Shipping Orders";
+  }
+
+  if (!item.activationReadiness.ready) {
+    return "Open Action Orders";
+  }
+
+  return "Open Seller Orders";
+}
+
+function inventoryPayoutHref(item: SellerInventoryItem) {
+  const search = item.title.trim();
+
+  if (item.status === "active") {
+    return sellerPayoutQueueHref("open", search);
+  }
+
+  return sellerPayoutQueueHref("all", search);
+}
+
+function inventoryPayoutLabel(item: SellerInventoryItem) {
+  if (item.status === "active") {
+    return "Open Cash-Out Payouts";
+  }
+
+  return "Open Seller Payouts";
+}
+
+function inventoryQueueHref(item: SellerInventoryItem) {
+  const search = item.sku?.trim() || item.title.trim();
+
+  if (item.status === "draft") {
+    return item.activationReadiness.ready
+      ? `/seller/inventory?status=draft&readiness=ready&search=${encodeURIComponent(search)}`
+      : `/seller/inventory?status=draft&readiness=needs_work&search=${encodeURIComponent(search)}`;
+  }
+
+  if (item.status === "active" || item.status === "archived") {
+    return `/seller/inventory?status=${item.status}&search=${encodeURIComponent(search)}`;
+  }
+
+  return `/seller/inventory?search=${encodeURIComponent(search)}`;
+}
+
+function sellerMarketplaceHref(options?: {
+  stage?: MarketplaceStageFilter;
+  search?: string;
+}) {
+  const params = new URLSearchParams();
+
+  if (options?.stage && options.stage !== "all") {
+    params.set("stage", options.stage);
+  }
+
+  if (options?.search?.trim()) {
+    params.set("search", options.search.trim());
+  }
+
+  const query = params.toString();
+  return query ? `/seller/marketplaces?${query}` : "/seller/marketplaces";
+}
+
+function inventoryMarketplaceItemLink(item: SellerInventoryItem) {
+  const search =
+    item.ebayItemId?.trim() || item.sku?.trim() || item.title.trim();
+  const readiness =
+    item.status === "draft"
+      ? item.activationReadiness.ready
+        ? "ready"
+        : "needs_work"
+      : "all";
+
+  return {
+    href: inventoryMarketplaceWorkspaceHref({
+      search,
+      readiness,
+    }),
+    label: inventoryMarketplaceWorkspaceLabel({
+      search,
+      readiness,
+    }),
+  };
+}
+
+function inventoryMarketplaceWorkspaceHref(params: {
+  search?: string;
+  readiness?: ReadinessFilter;
+}) {
+  const stage =
+    params.readiness === "needs_work"
+      ? "needs_review"
+      : params.readiness === "ready"
+        ? "ready"
+        : "all";
+
+  return sellerMarketplaceHref({
+    stage,
+    search: params.search,
+  });
+}
+
+function inventoryMarketplaceWorkspaceLabel(params: {
+  search?: string;
+  readiness?: ReadinessFilter;
+}) {
+  if (params.readiness === "needs_work") {
+    return "Open Review Rows";
+  }
+
+  if (params.readiness === "ready") {
+    return "Open Ready Rows";
+  }
+
+  if (params.search?.trim()) {
+    return "Search Marketplace Rows";
+  }
+
+  return "Open Marketplace Rows";
+}
+
+function inventoryMarketplaceSummaryHref(draftNeedsWorkCount: number) {
+  return sellerMarketplaceHref({
+    stage: draftNeedsWorkCount > 0 ? "needs_review" : "ready",
+  });
+}
+
+function bulkOrdersFollowUp(action: BulkInventoryAction | null) {
+  if (action === "activate") {
+    return {
+      href: sellerOrdersQueueHref("shipping"),
+      label: "Open Shipping Orders",
+    };
+  }
+
+  if (action === "archive") {
+    return {
+      href: sellerOrdersQueueHref("action_required"),
+      label: "Open Action Orders",
+    };
+  }
+
+  return {
+    href: sellerOrdersQueueHref("all"),
+    label: "Open Seller Orders",
+  };
+}
+
+export default function SellerInventoryPage() {
+  const router = useRouter();
+  const pathname = usePathname();
+  const [session, setSession] = useState<StoredAccountSession | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [initialFilters] = useState(initialInventoryFilters);
+  const [summary, setSummary] = useState<SellerInventorySummary | null>(null);
+  const [items, setItems] = useState<SellerInventoryItem[]>([]);
+  const [pagination, setPagination] = useState<SellerInventoryPagination>({
+    offset: 0,
+    limit: 500,
+    returned: 0,
+    total: 0,
+    hasMore: false,
+    nextOffset: 0,
+  });
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [error, setError] = useState("");
+  const [activatingItemId, setActivatingItemId] = useState<string | null>(null);
+  const [archivingItemId, setArchivingItemId] = useState<string | null>(null);
+  const [selectedInventoryItemIds, setSelectedInventoryItemIds] = useState<
+    string[]
+  >([]);
+  const [bulkAction, setBulkAction] = useState<BulkInventoryAction | null>(null);
+  const [commerceAction, setCommerceAction] = useState<string | null>(null);
+  const [saleDiscountPercent, setSaleDiscountPercent] = useState("10");
+  const [discountCouponCode, setDiscountCouponCode] = useState("");
+  const [discountCouponPercent, setDiscountCouponPercent] = useState("10");
+  const [freeShippingCouponCode, setFreeShippingCouponCode] = useState("");
+  const [lastBulkInventoryAction, setLastBulkInventoryAction] =
+    useState<BulkInventoryAction | null>(null);
+  const [lastBulkInventorySuccesses, setLastBulkInventorySuccesses] = useState<
+    BulkInventoryResult[]
+  >([]);
+  const [lastBulkInventoryFailures, setLastBulkInventoryFailures] = useState<
+    BulkInventoryResult[]
+  >([]);
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [editorTitle, setEditorTitle] = useState("");
+  const [editorPrice, setEditorPrice] = useState("");
+  const [editorQuantity, setEditorQuantity] = useState("");
+  const [editorDescription, setEditorDescription] = useState("");
+  const [editorAuthenticityStatus, setEditorAuthenticityStatus] =
+    useState<AuthenticityProfile["status"]>("not_applicable");
+  const [editorAutographSource, setEditorAutographSource] =
+    useState<AuthenticityProfile["autographSource"]>("none");
+  const [editorCertProvider, setEditorCertProvider] = useState("");
+  const [editorCertNumber, setEditorCertNumber] = useState("");
+  const [editorGuaranteedAuthenticators, setEditorGuaranteedAuthenticators] =
+    useState("");
+  const [editorProvenanceEvidence, setEditorProvenanceEvidence] = useState("");
+  const [editorAuthenticityNotes, setEditorAuthenticityNotes] = useState("");
+  const [
+    editorUnder20SellerProtectionOptIn,
+    setEditorUnder20SellerProtectionOptIn,
+  ] = useState(false);
+  const [savingItemId, setSavingItemId] = useState<string | null>(null);
+  const [descriptionActionItemId, setDescriptionActionItemId] = useState<
+    string | null
+  >(null);
+  const [descriptionActionMode, setDescriptionActionMode] = useState<
+    "regenerate" | "ai" | null
+  >(null);
+  const [search, setSearch] = useState(initialFilters.search);
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>(
+    initialFilters.status,
+  );
+  const [readinessFilter, setReadinessFilter] = useState<ReadinessFilter>(
+    initialFilters.readiness,
+  );
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>(
+    initialFilters.source,
+  );
+  const [focusInventoryItemId, setFocusInventoryItemId] = useState(
+    initialFilters.inventoryItemId,
+  );
+  const [renderLimit, setRenderLimit] = useState(80);
+
+  function syncInventoryUrl(next: {
+    search?: string;
+    status?: StatusFilter;
+    readiness?: ReadinessFilter;
+    source?: SourceFilter;
+    inventoryItemId?: string;
+  }) {
+    const finalSearch = next.search ?? search;
+    const finalStatus = next.status ?? statusFilter;
+    const finalReadiness = next.readiness ?? readinessFilter;
+    const finalSource = next.source ?? sourceFilter;
+    const finalInventoryItemId = next.inventoryItemId ?? focusInventoryItemId;
+    const params = new URLSearchParams();
+
+    if (finalSearch.trim()) {
+      params.set("search", finalSearch.trim());
+    }
+
+    if (finalStatus !== "all") {
+      params.set("status", finalStatus);
+    }
+
+    if (finalReadiness !== "all") {
+      params.set("readiness", finalReadiness);
+    }
+
+    if (finalSource !== "all") {
+      params.set("source", finalSource);
+    }
+
+    if (finalInventoryItemId.trim()) {
+      params.set("inventoryItemId", finalInventoryItemId.trim());
+    }
+
+    const query = params.toString();
+    router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
+  }
+
+  function setInventoryView(next: {
+    search?: string;
+    status?: StatusFilter;
+    readiness?: ReadinessFilter;
+    source?: SourceFilter;
+    inventoryItemId?: string;
+  }) {
+    const finalSearch = next.search ?? search;
+    const finalStatus = next.status ?? statusFilter;
+    const finalReadiness = next.readiness ?? readinessFilter;
+    const finalSource = next.source ?? sourceFilter;
+    const finalInventoryItemId = next.inventoryItemId ?? focusInventoryItemId;
+
+    setSearch(finalSearch);
+    setStatusFilter(finalStatus);
+    setReadinessFilter(finalReadiness);
+    setSourceFilter(finalSource);
+    setFocusInventoryItemId(finalInventoryItemId);
+    syncInventoryUrl({
+      search: finalSearch,
+      status: finalStatus,
+      readiness: finalReadiness,
+      source: finalSource,
+      inventoryItemId: finalInventoryItemId,
+    });
+  }
+
+  function applyLoadedInventory(
+    nextSummary: SellerInventorySummary | null,
+    nextItems: SellerInventoryItem[],
+  ) {
+    const itemIdSet = new Set(nextItems.map((item) => item.inventoryItemId));
+    setSummary(nextSummary);
+    setItems(nextItems);
+    setSelectedInventoryItemIds((current) =>
+      current.filter((id) => itemIdSet.has(id)),
+    );
+    setLastBulkInventorySuccesses((current) =>
+      current.filter((entry) => itemIdSet.has(entry.inventoryItemId)),
+    );
+    setLastBulkInventoryFailures((current) =>
+      current.filter((entry) => itemIdSet.has(entry.inventoryItemId)),
+    );
+  }
+
+  function clearBulkInventoryFollowUp() {
+    setLastBulkInventoryAction(null);
+    setLastBulkInventorySuccesses([]);
+    setLastBulkInventoryFailures([]);
+  }
+
+  async function loadInventory(
+    accessToken: string,
+    options?: { silent?: boolean; append?: boolean },
+  ) {
+    const append = options?.append === true;
+    if (append) {
+      setLoadingMore(true);
+    } else if (options?.silent) {
+      setRefreshing(true);
+    } else {
+      setLoading(true);
+    }
+
+    try {
+      const offset = append ? pagination.nextOffset : 0;
+      const response = await fetch(
+        "/api/account/seller/inventory?offset=" + offset + "&limit=500",
+        {
+          headers: {
+            Authorization: "Bearer " + accessToken,
+          },
+        },
+      );
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Could not load seller inventory.");
+      }
+
+      const pageItems = hydrateInventoryItems(data);
+      const nextPagination = {
+        offset: Math.max(0, Number(data.pagination?.offset || offset)),
+        limit: Math.max(1, Number(data.pagination?.limit || 500)),
+        returned: Math.max(0, Number(data.pagination?.returned || pageItems.length)),
+        total: Math.max(0, Number(data.pagination?.total || pageItems.length)),
+        hasMore: data.pagination?.hasMore === true,
+        nextOffset: Math.max(
+          0,
+          Number(data.pagination?.nextOffset || offset + pageItems.length),
+        ),
+      } satisfies SellerInventoryPagination;
+      setPagination(nextPagination);
+
+      if (append) {
+        const byId = new Map(
+          items.map((item) => [item.inventoryItemId, item] as const),
+        );
+        for (const item of pageItems) byId.set(item.inventoryItemId, item);
+        const mergedItems = Array.from(byId.values());
+        const pageSummary = (data.summary || null) as SellerInventorySummary | null;
+        const mergedSummary =
+          summary && pageSummary
+            ? {
+                ...summary,
+                totalItems: Math.max(
+                  nextPagination.total,
+                  summary.totalItems || 0,
+                ),
+                loadedItems: mergedItems.length,
+                draftCount: summary.draftCount + pageSummary.draftCount,
+                draftReadyCount:
+                  summary.draftReadyCount + pageSummary.draftReadyCount,
+                draftNeedsWorkCount:
+                  summary.draftNeedsWorkCount + pageSummary.draftNeedsWorkCount,
+                activeCount: summary.activeCount + pageSummary.activeCount,
+                archivedCount: summary.archivedCount + pageSummary.archivedCount,
+                storeOwnedCount:
+                  summary.storeOwnedCount + pageSummary.storeOwnedCount,
+                instacompDraftCount:
+                  summary.instacompDraftCount + pageSummary.instacompDraftCount,
+                instacompReadyDraftCount:
+                  summary.instacompReadyDraftCount +
+                  pageSummary.instacompReadyDraftCount,
+                totalQuantity:
+                  summary.totalQuantity + pageSummary.totalQuantity,
+                totalDraftValue:
+                  summary.totalDraftValue + pageSummary.totalDraftValue,
+              }
+            : pageSummary;
+        applyLoadedInventory(mergedSummary, mergedItems);
+      } else {
+        const pageSummary = (data.summary || null) as SellerInventorySummary | null;
+        applyLoadedInventory(
+          pageSummary
+            ? {
+                ...pageSummary,
+                totalItems: nextPagination.total,
+                loadedItems: pageItems.length,
+              }
+            : null,
+          pageItems,
+        );
+      }
+      setError("");
+    } catch (nextError: any) {
+      if (!append) applyLoadedInventory(null, []);
+      setError(nextError.message || "Could not load seller inventory.");
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+      setLoadingMore(false);
+    }
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void (async () => {
+      const freshSession =
+        typeof window === "undefined"
+          ? null
+          : await getFreshAccountSession(5 * 60, true);
+
+      if (cancelled) return;
+
+      setSession(freshSession);
+      setAuthChecked(true);
+
+      if (!freshSession?.access_token) {
+        setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!session?.access_token) return;
+
+    let cancelled = false;
+
+    const timeout = window.setTimeout(() => {
+      if (!cancelled) {
+        void loadInventory(session.access_token);
+      }
+    }, 0);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+    };
+  }, [session?.access_token]);
+
+  const filteredItems = useMemo(() => {
+    const searchTerm = search.trim().toLowerCase();
+
+    const visibleItems = items.filter((item) => {
+      if (statusFilter !== "all" && item.status !== statusFilter) {
+        return false;
+      }
+
+      if (readinessFilter === "ready" && !item.activationReadiness.ready) {
+        return false;
+      }
+
+      if (readinessFilter === "needs_work" && item.activationReadiness.ready) {
+        return false;
+      }
+
+      if (sourceFilter === "instacomp" && !item.instaComp?.isInstaCompDraft) {
+        return false;
+      }
+
+      if (sourceFilter === "manual" && item.instaComp?.isInstaCompDraft) {
+        return false;
+      }
+
+      if (!searchTerm) {
+        return true;
+      }
+
+      const haystack = [
+        item.inventoryItemId,
+        item.title,
+        item.sku || "",
+        item.category,
+        item.condition,
+        item.ebayItemId || "",
+        inventorySourceLabel(item),
+        item.instaComp?.scanId || "",
+        item.instaComp?.serialNumber || "",
+        item.instaComp?.listingPriceSource || "",
+        item.shippingPlan.label,
+        item.shippingPlan.coverageProvider,
+        item.shippingPlan.coverageType,
+      ]
+        .join(" ")
+        .toLowerCase();
+
+      return haystack.includes(searchTerm);
+    });
+    if (focusInventoryItemId.trim()) {
+      return visibleItems.filter(
+        (item) => item.inventoryItemId === focusInventoryItemId.trim(),
+      );
+    }
+    return visibleItems;
+  }, [
+    focusInventoryItemId,
+    items,
+    readinessFilter,
+    search,
+    sourceFilter,
+    statusFilter,
+  ]);
+
+  useEffect(() => {
+    if (!focusInventoryItemId || typeof document === "undefined") return;
+    const node = document.querySelector<HTMLElement>(
+      `[data-inventory-item-id="${CSS.escape(focusInventoryItemId)}"]`,
+    );
+    if (!node) return;
+    node.scrollIntoView({ behavior: "smooth", block: "center" });
+    node.classList.add("ring-4", "ring-amber-400", "ring-offset-4");
+    const timer = window.setTimeout(() => {
+      node.classList.remove("ring-4", "ring-amber-400", "ring-offset-4");
+    }, 2500);
+    return () => window.clearTimeout(timer);
+  }, [focusInventoryItemId, filteredItems.length]);
+
+  useEffect(() => {
+    setRenderLimit(80);
+  }, [search, statusFilter, readinessFilter, sourceFilter, focusInventoryItemId]);
+
+  const renderedItems = useMemo(
+    () =>
+      focusInventoryItemId.trim()
+        ? filteredItems
+        : filteredItems.slice(0, renderLimit),
+    [filteredItems, focusInventoryItemId, renderLimit],
+  );
+
+  const visibleInventoryItemIds = useMemo(
+    () => filteredItems.map((item) => item.inventoryItemId),
+    [filteredItems],
+  );
+
+  const readyVisibleInventoryItemIds = useMemo(
+    () =>
+      filteredItems
+        .filter((item) => canActivateInventoryItem(item))
+        .map((item) => item.inventoryItemId),
+    [filteredItems],
+  );
+
+  const selectedInventoryItemIdSet = useMemo(
+    () => new Set(selectedInventoryItemIds),
+    [selectedInventoryItemIds],
+  );
+
+  const selectedVisibleCount = useMemo(() => {
+    const visibleIdSet = new Set(visibleInventoryItemIds);
+    return selectedInventoryItemIds.filter((id) => visibleIdSet.has(id)).length;
+  }, [selectedInventoryItemIds, visibleInventoryItemIds]);
+  const selectedItems = useMemo(
+    () =>
+      items.filter((item) =>
+        selectedInventoryItemIdSet.has(item.inventoryItemId),
+      ),
+    [items, selectedInventoryItemIdSet],
+  );
+  const selectedSummary = useMemo(
+    () =>
+      selectedItems.reduce(
+        (summary, item) => {
+          summary.total += 1;
+
+          if (item.activationReadiness.ready) {
+            summary.ready += 1;
+          } else {
+            summary.needsWork += 1;
+          }
+
+          if (item.status === "draft") summary.draft += 1;
+          if (item.status === "active") summary.active += 1;
+          if (item.status === "archived") summary.archived += 1;
+
+          return summary;
+        },
+        {
+          total: 0,
+          ready: 0,
+          needsWork: 0,
+          draft: 0,
+          active: 0,
+          archived: 0,
+        },
+      ),
+    [selectedItems],
+  );
+  const selectedReadyInventoryItemIds = useMemo(
+    () =>
+      selectedItems
+        .filter((item) => item.activationReadiness.ready)
+        .map((item) => item.inventoryItemId),
+    [selectedItems],
+  );
+  const selectedMarketplaceReadyItems = useMemo(
+    () => selectedItems.filter((item) => item.activationReadiness.ready),
+    [selectedItems],
+  );
+  const selectedShippingSummary = useMemo(
+    () =>
+      selectedItems.reduce(
+        (summary, item) => {
+          summary.totalPostage += item.shippingPlan.postageEstimate || 0;
+
+          if (item.shippingPlan.method === "STANDARD_ENVELOPE") {
+            summary.standardEnvelope += 1;
+          }
+
+          if (item.shippingPlan.method === "GROUND_ADVANTAGE") {
+            summary.groundAdvantage += 1;
+          }
+
+          if (item.shippingPlan.method === "PRIORITY_MAIL") {
+            summary.priorityMail += 1;
+          }
+
+          if (item.shippingPlan.coverageRequired) {
+            summary.coverageRequired += 1;
+          }
+
+          if (item.shippingPlan.reason) {
+            summary.forcedMethod += 1;
+          }
+
+          return summary;
+        },
+        {
+          standardEnvelope: 0,
+          groundAdvantage: 0,
+          priorityMail: 0,
+          coverageRequired: 0,
+          forcedMethod: 0,
+          totalPostage: 0,
+        },
+      ),
+    [selectedItems],
+  );
+  const selectedNeedsWorkInventoryItemIds = useMemo(
+    () =>
+      selectedItems
+        .filter((item) => !item.activationReadiness.ready)
+        .map((item) => item.inventoryItemId),
+    [selectedItems],
+  );
+  const selectedDraftInventoryItemIds = useMemo(
+    () =>
+      selectedItems
+        .filter((item) => item.status === "draft")
+        .map((item) => item.inventoryItemId),
+    [selectedItems],
+  );
+  const selectedActiveInventoryItemIds = useMemo(
+    () =>
+      selectedItems
+        .filter((item) => item.status === "active")
+        .map((item) => item.inventoryItemId),
+    [selectedItems],
+  );
+  const selectedArchivedInventoryItemIds = useMemo(
+    () =>
+      selectedItems
+        .filter((item) => item.status === "archived")
+        .map((item) => item.inventoryItemId),
+    [selectedItems],
+  );
+  const selectedActivatableInventoryItemIds = useMemo(
+    () =>
+      selectedItems
+        .filter((item) => canActivateInventoryItem(item))
+        .map((item) => item.inventoryItemId),
+    [selectedItems],
+  );
+  const selectedActivationSummary = useMemo(
+    () =>
+      selectedItems.reduce(
+        (summary, item) => {
+          if (canActivateInventoryItem(item)) {
+            summary.activatable += 1;
+          }
+
+          if (item.status === "draft" && !item.activationReadiness.ready) {
+            summary.draftNeedsWork += 1;
+          }
+
+          if (item.status === "active") {
+            summary.alreadyActive += 1;
+          }
+
+          if (item.status === "archived") {
+            summary.archived += 1;
+          }
+
+          item.activationReadiness.blockers.forEach((blocker) => {
+            summary.blockers.set(
+              readinessBlockerLabel(blocker),
+              (summary.blockers.get(readinessBlockerLabel(blocker)) || 0) + 1,
+            );
+          });
+
+          return summary;
+        },
+        {
+          activatable: 0,
+          draftNeedsWork: 0,
+          alreadyActive: 0,
+          archived: 0,
+          blockers: new Map<string, number>(),
+        },
+      ),
+    [selectedItems],
+  );
+  const selectedActivationBlockers = useMemo(
+    () =>
+      Array.from(selectedActivationSummary.blockers.entries())
+        .map(([blocker, count]) => ({ blocker, count }))
+        .sort((left, right) => right.count - left.count),
+    [selectedActivationSummary],
+  );
+  const selectedArchivableInventoryItemIds = useMemo(
+    () =>
+      selectedItems
+        .filter((item) => canArchiveInventoryItem(item))
+        .map((item) => item.inventoryItemId),
+    [selectedItems],
+  );
+  const selectionGuidance = useMemo(
+    () => inventorySelectionGuidance(selectedSummary),
+    [selectedSummary],
+  );
+
+  const blockerSummary = useMemo(() => {
+    const counts = new Map<string, number>();
+
+    items.forEach((item) => {
+      if (item.status !== "draft" || item.activationReadiness.ready) {
+        return;
+      }
+
+      item.activationReadiness.blockers.forEach((blocker) => {
+        counts.set(blocker, (counts.get(blocker) || 0) + 1);
+      });
+    });
+
+    return Array.from(counts.entries())
+      .map(([blocker, count]) => ({ blocker, count }))
+      .sort((left, right) => right.count - left.count);
+  }, [items]);
+  const blockerItemIds = useMemo(() => {
+    const entries = new Map<string, string[]>();
+
+    items.forEach((item) => {
+      if (item.status !== "draft" || item.activationReadiness.ready) {
+        return;
+      }
+
+      item.activationReadiness.blockers.forEach((blocker) => {
+        const current = entries.get(blocker) || [];
+        current.push(item.inventoryItemId);
+        entries.set(blocker, current);
+      });
+    });
+
+    return entries;
+  }, [items]);
+  const itemsById = useMemo(
+    () => new Map(items.map((item) => [item.inventoryItemId, item])),
+    [items],
+  );
+  const bulkSuccessItemIds = useMemo(
+    () => lastBulkInventorySuccesses.map((entry) => entry.inventoryItemId),
+    [lastBulkInventorySuccesses],
+  );
+  const bulkFailureItemIds = useMemo(
+    () => lastBulkInventoryFailures.map((entry) => entry.inventoryItemId),
+    [lastBulkInventoryFailures],
+  );
+  const bulkFailureRetryReadyItemIds = useMemo(
+    () =>
+      lastBulkInventoryFailures
+        .filter((entry) => {
+          const item = itemsById.get(entry.inventoryItemId);
+
+          return item
+            ? canRunBulkInventoryAction(item, lastBulkInventoryAction)
+            : false;
+        })
+        .map((entry) => entry.inventoryItemId),
+    [itemsById, lastBulkInventoryAction, lastBulkInventoryFailures],
+  );
+  const bulkFailureBlockerItemIds = useMemo(
+    () =>
+      lastBulkInventoryFailures
+        .filter((entry) => (entry.blockers || []).length > 0)
+        .map((entry) => entry.inventoryItemId),
+    [lastBulkInventoryFailures],
+  );
+  const bulkFailureBlockerSummary = useMemo(() => {
+    const entries = new Map<string, { count: number; itemIds: string[] }>();
+
+    lastBulkInventoryFailures.forEach((entry) => {
+      (entry.blockers || []).forEach((blocker) => {
+        const label = readinessBlockerLabel(blocker);
+        const current = entries.get(label) || { count: 0, itemIds: [] };
+
+        current.count += 1;
+        current.itemIds.push(entry.inventoryItemId);
+        entries.set(label, current);
+      });
+    });
+
+    return Array.from(entries.entries())
+      .map(([blocker, summary]) => ({
+        blocker,
+        count: summary.count,
+        itemIds: summary.itemIds,
+      }))
+      .sort((left, right) => right.count - left.count);
+  }, [lastBulkInventoryFailures]);
+  const bulkActionReport = useMemo(() => {
+    const successRows = lastBulkInventorySuccesses.map((entry) => {
+      const item = itemsById.get(entry.inventoryItemId);
+
+      return {
+        inventoryItemId: entry.inventoryItemId,
+        title: item?.title || "",
+        sku: item?.sku || "",
+        status: item?.status || "",
+        message: entry.message,
+      };
+    });
+    const failureRows = lastBulkInventoryFailures.map((entry) => {
+      const item = itemsById.get(entry.inventoryItemId);
+
+      return {
+        inventoryItemId: entry.inventoryItemId,
+        title: item?.title || "",
+        sku: item?.sku || "",
+        status: item?.status || "",
+        message: entry.message,
+        blockers: (entry.blockers || []).map(readinessBlockerLabel),
+        retryReady: bulkFailureRetryReadyItemIds.includes(entry.inventoryItemId),
+      };
+    });
+
+    return {
+      exportedAt: new Date().toISOString(),
+      scope: "seller_inventory_bulk_action_report",
+      action: lastBulkInventoryAction,
+      successCount: lastBulkInventorySuccesses.length,
+      failureCount: lastBulkInventoryFailures.length,
+      retryReadyCount: bulkFailureRetryReadyItemIds.length,
+      blockerGroups: bulkFailureBlockerSummary.map((entry) => ({
+        blocker: entry.blocker,
+        count: entry.count,
+        itemIds: entry.itemIds,
+      })),
+      successes: successRows,
+      failures: failureRows,
+    };
+  }, [
+    bulkFailureBlockerSummary,
+    bulkFailureRetryReadyItemIds,
+    itemsById,
+    lastBulkInventoryAction,
+    lastBulkInventoryFailures,
+    lastBulkInventorySuccesses,
+  ]);
+  const bulkPayoutFailureCount = useMemo(
+    () =>
+      lastBulkInventoryFailures.filter((entry) =>
+        entry.message.toLowerCase().includes("payout verification"),
+      ).length,
+    [lastBulkInventoryFailures],
+  );
+  const actionOrdersHref = sellerOrdersQueueHref("action_required");
+  const blockedPayoutsHref = sellerPayoutQueueHref("blocked");
+  const bulkOrdersFollowUpLink = bulkOrdersFollowUp(lastBulkInventoryAction);
+  const ordersWorkspaceLink =
+    selectedActiveInventoryItemIds.length > 0 || statusFilter === "active"
+      ? {
+          href: sellerOrdersQueueHref("shipping"),
+          label: "Shipping Orders",
+        }
+      : selectedNeedsWorkInventoryItemIds.length > 0 ||
+          readinessFilter === "needs_work"
+        ? {
+            href: sellerOrdersQueueHref("action_required"),
+            label: "Action Orders",
+          }
+        : {
+            href: sellerOrdersQueueHref("all"),
+            label: "Seller Orders",
+          };
+  const payoutWorkspaceLink =
+    bulkPayoutFailureCount > 0
+      ? {
+          href: sellerPayoutQueueHref("blocked"),
+          label: "Blocked Payouts",
+        }
+      : selectedActiveInventoryItemIds.length > 0 || statusFilter === "active"
+        ? {
+            href: sellerPayoutQueueHref("open"),
+            label: "Cash-Out Payouts",
+          }
+        : {
+            href: sellerPayoutQueueHref("all"),
+            label: "Seller Payouts",
+          };
+
+  function keepBulkInventorySelection(ids: string[]) {
+    if (ids.length === 0) return;
+    setSelectedInventoryItemIds(ids);
+  }
+
+  function openBulkInventoryQueue(
+    status: StatusFilter,
+    readiness: ReadinessFilter,
+    ids: string[],
+  ) {
+    if (ids.length === 0) return;
+    setInventoryView({
+      search: "",
+      status,
+      readiness,
+      source: "all",
+    });
+    setSelectedInventoryItemIds(ids);
+  }
+
+  function focusBlockerQueue(blocker: string) {
+    const ids = blockerItemIds.get(blocker) || [];
+
+    setInventoryView({
+      search: "",
+      status: "draft",
+      readiness: "needs_work",
+      source: "all",
+    });
+    setSelectedInventoryItemIds(ids);
+  }
+
+  async function activateSellerInventoryItem(inventoryItemId: string) {
+    if (!session?.access_token) return;
+
+    setActivatingItemId(inventoryItemId);
+    clearBulkInventoryFollowUp();
+    setNotice("");
+    setError("");
+
+    try {
+      const response = await fetch(
+        `/api/account/seller/inventory/${inventoryItemId}/activate`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: "Bearer " + session.access_token,
+          },
+        },
+      );
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.error || "Could not activate seller inventory item.",
+        );
+      }
+
+      await loadInventory(session.access_token, { silent: true });
+    } catch (nextError: any) {
+      setError(
+        nextError.message || "Could not activate seller inventory item.",
+      );
+    } finally {
+      setActivatingItemId(null);
+    }
+  }
+
+  async function archiveSellerInventoryItem(inventoryItemId: string) {
+    if (!session?.access_token) return;
+
+    setArchivingItemId(inventoryItemId);
+    clearBulkInventoryFollowUp();
+    setNotice("");
+    setError("");
+
+    try {
+      const response = await fetch(
+        `/api/account/seller/inventory/${inventoryItemId}/archive`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: "Bearer " + session.access_token,
+          },
+        },
+      );
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Could not archive seller inventory item.");
+      }
+
+      await loadInventory(session.access_token, { silent: true });
+    } catch (nextError: any) {
+      setError(
+        nextError.message || "Could not archive seller inventory item.",
+      );
+    } finally {
+      setArchivingItemId(null);
+    }
+  }
+
+  function openEditor(item: SellerInventoryItem) {
+    setEditingItemId(item.inventoryItemId);
+    setEditorTitle(item.title);
+    setEditorPrice(String(item.price));
+    setEditorQuantity(String(item.quantity));
+    setEditorDescription(item.description || "");
+    setEditorAuthenticityStatus(item.authenticity.status);
+    setEditorAutographSource(item.authenticity.autographSource);
+    setEditorCertProvider(item.authenticity.certProvider || "");
+    setEditorCertNumber(item.authenticity.certNumber || "");
+    setEditorGuaranteedAuthenticators(
+      item.authenticity.guaranteedAuthenticators.join(", "),
+    );
+    setEditorProvenanceEvidence(item.authenticity.provenanceEvidence || "");
+    setEditorAuthenticityNotes(item.authenticity.authenticityNotes || "");
+    setEditorUnder20SellerProtectionOptIn(
+      item.shippingPlan.sellerProtectionOptedIn,
+    );
+    setNotice("");
+    setError("");
+  }
+
+  function closeEditor() {
+    setEditingItemId(null);
+    setEditorTitle("");
+    setEditorPrice("");
+    setEditorQuantity("");
+    setEditorDescription("");
+    setEditorAuthenticityStatus("not_applicable");
+    setEditorAutographSource("none");
+    setEditorCertProvider("");
+    setEditorCertNumber("");
+    setEditorGuaranteedAuthenticators("");
+    setEditorProvenanceEvidence("");
+    setEditorAuthenticityNotes("");
+    setEditorUnder20SellerProtectionOptIn(false);
+  }
+
+  async function saveSellerInventoryItem(inventoryItemId: string) {
+    if (!session?.access_token) return;
+
+    setSavingItemId(inventoryItemId);
+    clearBulkInventoryFollowUp();
+    setNotice("");
+    setError("");
+
+    try {
+      const response = await fetch(
+        `/api/account/seller/inventory/${inventoryItemId}`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "Bearer " + session.access_token,
+          },
+          body: JSON.stringify({
+            title: editorTitle,
+            price: Number(editorPrice || 0),
+            quantity: Number(editorQuantity || 0),
+            description: editorDescription,
+            authenticity: {
+              status: editorAuthenticityStatus,
+              autographSource: editorAutographSource,
+              certProvider: editorCertProvider,
+              certNumber: editorCertNumber,
+              guaranteedAuthenticators: editorGuaranteedAuthenticators,
+              provenanceEvidence: editorProvenanceEvidence,
+              authenticityNotes: editorAuthenticityNotes,
+            },
+            under20SellerProtectionOptIn:
+              editorUnder20SellerProtectionOptIn,
+          }),
+        },
+      );
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Could not save seller inventory item.");
+      }
+
+      await loadInventory(session.access_token, { silent: true });
+      closeEditor();
+    } catch (nextError: any) {
+      setError(nextError.message || "Could not save seller inventory item.");
+    } finally {
+      setSavingItemId(null);
+    }
+  }
+
+  async function generateSellerDescription(
+    inventoryItemId: string,
+    mode: "regenerate" | "ai",
+  ) {
+    if (!session?.access_token) return;
+
+    setDescriptionActionItemId(inventoryItemId);
+    setDescriptionActionMode(mode);
+    clearBulkInventoryFollowUp();
+    setNotice("");
+    setError("");
+
+    try {
+      const response = await fetch(
+        `/api/account/seller/inventory/${inventoryItemId}/description`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "Bearer " + session.access_token,
+          },
+          body: JSON.stringify({ mode }),
+        },
+      );
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Could not generate seller description.");
+      }
+
+      const nextDescription = data.item?.description;
+
+      if (typeof nextDescription === "string") {
+        setEditorDescription(nextDescription);
+      }
+
+      await loadInventory(session.access_token, { silent: true });
+    } catch (nextError: any) {
+      setError(nextError.message || "Could not generate seller description.");
+    } finally {
+      setDescriptionActionItemId(null);
+      setDescriptionActionMode(null);
+    }
+  }
+
+  function toggleInventoryItemSelection(inventoryItemId: string) {
+    setSelectedInventoryItemIds((current) =>
+      current.includes(inventoryItemId)
+        ? current.filter((id) => id !== inventoryItemId)
+        : [...current, inventoryItemId],
+    );
+  }
+
+  function selectVisibleInventoryItems() {
+    setSelectedInventoryItemIds((current) =>
+      Array.from(new Set([...current, ...visibleInventoryItemIds])),
+    );
+  }
+
+  function selectReadyVisibleInventoryItems() {
+    setSelectedInventoryItemIds((current) =>
+      Array.from(new Set([...current, ...readyVisibleInventoryItemIds])),
+    );
+  }
+
+  function keepInventorySelection(ids: string[]) {
+    if (ids.length === 0) return;
+    setSelectedInventoryItemIds(ids);
+  }
+
+  function clearInventorySelection() {
+    setSelectedInventoryItemIds([]);
+  }
+
+  function marketplaceExportFileName(extension: "csv" | "json") {
+    const parts = [
+      "tcos-marketplace-ready",
+      `${selectedMarketplaceReadyItems.length}-rows`,
+      `status-${statusFilter}`,
+      `readiness-${readinessFilter}`,
+      `source-${sourceFilter}`,
+    ];
+
+    if (search.trim()) {
+      parts.push(`search-${exportSlug(search)}`);
+    }
+
+    return `${parts.join("-")}-${exportTimestamp()}.${extension}`;
+  }
+
+  function marketplaceExportContext(): MarketplaceExportContext {
+    return {
+      selectedCount: selectedInventoryItemIds.length,
+      selectedReadyCount: selectedMarketplaceReadyItems.length,
+      visibleCount: selectedVisibleCount,
+      statusFilter,
+      readinessFilter,
+      sourceFilter,
+      search: search.trim(),
+    };
+  }
+
+  async function copySelectedMarketplacePacket() {
+    if (!selectedMarketplaceReadyItems.length) {
+      setNotice("Select at least one ready listing before copying a marketplace packet.");
+      setError("");
+      return;
+    }
+
+    const payload = marketplaceExportPacket(
+      selectedMarketplaceReadyItems,
+      marketplaceExportContext(),
+    );
+
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+      setNotice(
+        `Copied ${selectedMarketplaceReadyItems.length} ready listing${
+          selectedMarketplaceReadyItems.length === 1 ? "" : "s"
+        } as a marketplace packet.`,
+      );
+      setError("");
+    } catch {
+      setError("Could not copy the marketplace packet.");
+    }
+  }
+
+  function downloadSelectedMarketplacePacket() {
+    if (!selectedMarketplaceReadyItems.length) {
+      setNotice(
+        "Select at least one ready listing before downloading a marketplace packet.",
+      );
+      setError("");
+      return;
+    }
+
+    downloadTextFile(
+      marketplaceExportFileName("json"),
+      JSON.stringify(
+        marketplaceExportPacket(
+          selectedMarketplaceReadyItems,
+          marketplaceExportContext(),
+        ),
+        null,
+        2,
+      ),
+      "application/json;charset=utf-8",
+    );
+    setNotice(
+      `Downloaded ${selectedMarketplaceReadyItems.length} ready listing${
+        selectedMarketplaceReadyItems.length === 1 ? "" : "s"
+      } as a marketplace packet.`,
+    );
+    setError("");
+  }
+
+  async function copyBulkActionReport() {
+    if (
+      !lastBulkInventoryAction ||
+      (lastBulkInventorySuccesses.length === 0 &&
+        lastBulkInventoryFailures.length === 0)
+    ) {
+      setNotice("Run a bulk inventory action before copying a report.");
+      setError("");
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(
+        JSON.stringify(bulkActionReport, null, 2),
+      );
+      setNotice("Copied the latest seller inventory bulk action report.");
+      setError("");
+    } catch {
+      setError("Could not copy the bulk action report.");
+    }
+  }
+
+  function downloadBulkActionReport() {
+    if (
+      !lastBulkInventoryAction ||
+      (lastBulkInventorySuccesses.length === 0 &&
+        lastBulkInventoryFailures.length === 0)
+    ) {
+      setNotice("Run a bulk inventory action before downloading a report.");
+      setError("");
+      return;
+    }
+
+    downloadTextFile(
+      `tcos-seller-bulk-${lastBulkInventoryAction}-report-${exportTimestamp()}.json`,
+      JSON.stringify(bulkActionReport, null, 2),
+      "application/json;charset=utf-8",
+    );
+    setNotice("Downloaded the latest seller inventory bulk action report.");
+    setError("");
+  }
+
+  function downloadSelectedMarketplaceCsv() {
+    if (!selectedMarketplaceReadyItems.length) {
+      setNotice(
+        "Select at least one ready listing before downloading a marketplace CSV.",
+      );
+      setError("");
+      return;
+    }
+
+    downloadTextFile(
+      marketplaceExportFileName("csv"),
+      marketplaceExportCsv(selectedMarketplaceReadyItems),
+      "text/csv;charset=utf-8",
+    );
+    setNotice(
+      `Downloaded ${selectedMarketplaceReadyItems.length} ready listing${
+        selectedMarketplaceReadyItems.length === 1 ? "" : "s"
+      } for marketplace cross-listing.`,
+    );
+    setError("");
+  }
+
+  async function runBulkInventoryAction(params: {
+    action: BulkInventoryAction;
+    inventoryItemIds: string[];
+    emptyMessage: string;
+  }) {
+    const { action, inventoryItemIds, emptyMessage } = params;
+
+    if (!session?.access_token) return;
+    if (inventoryItemIds.length === 0) {
+      setNotice(emptyMessage);
+      setError("");
+      return;
+    }
+
+    setBulkAction(action);
+    clearBulkInventoryFollowUp();
+    setNotice("");
+    setError("");
+
+    try {
+      const response = await fetch("/api/account/seller/inventory/bulk-status", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: "Bearer " + session.access_token,
+        },
+        body: JSON.stringify({
+          action,
+          inventoryItemIds,
+        }),
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.error || "Could not run the selected seller inventory action.",
+        );
+      }
+
+      const results = Array.isArray(data.results)
+        ? (data.results as BulkInventoryResult[])
+        : [];
+      const successCount = Number(data.summary?.successCount || 0);
+      const failureCount = Number(data.summary?.failureCount || 0);
+      const verb = bulkActionVerb(action);
+      const firstFailure = results.find((result) => !result.success) || null;
+      const successfulIds = results
+        .filter((result) => result.success)
+        .map((result) => result.inventoryItemId);
+
+      setNotice(
+        failureCount > 0
+          ? `${successCount} selected listing${successCount === 1 ? "" : "s"} ${verb}. ${failureCount} could not be processed${firstFailure?.message ? `: ${firstFailure.message}` : "."}`
+          : `${successCount} selected listing${successCount === 1 ? "" : "s"} ${verb}.`,
+      );
+
+      await loadInventory(session.access_token, { silent: true });
+      setLastBulkInventoryAction(action);
+      setLastBulkInventorySuccesses(results.filter((result) => result.success));
+      setLastBulkInventoryFailures(results.filter((result) => !result.success));
+      setSelectedInventoryItemIds((current) => current.filter((id) => !successfulIds.includes(id)));
+    } catch (nextError: any) {
+      setError(
+        nextError.message || "Could not run the selected seller inventory action.",
+      );
+    } finally {
+      setBulkAction(null);
+    }
+  }
+
+  async function runBulkCommerceAction(action: string) {
+    if (!session?.access_token || selectedInventoryItemIds.length === 0) return;
+    setCommerceAction(action);
+    setNotice("");
+    setError("");
+    try {
+      const response = await fetch(
+        "/api/account/seller/inventory/instacomp-bulk-commerce",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "Bearer " + session.access_token,
+          },
+          body: JSON.stringify({
+            action,
+            inventoryItemIds: selectedInventoryItemIds,
+            discountPercent:
+              action === "set-discount-coupon"
+                ? Number(discountCouponPercent)
+                : Number(saleDiscountPercent),
+            couponCode: action === "set-free-shipping-coupon"
+              ? freeShippingCouponCode
+              : discountCouponCode,
+          }),
+        },
+      );
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.success !== true) {
+        throw new Error(data.error || "Could not update the selected promotions.");
+      }
+      const failedCount = Number(data.failedCount || 0);
+      const firstFailure = Array.isArray(data.results)
+        ? data.results.find((result: BulkInventoryResult) => !result.success)
+        : null;
+      setNotice(
+        `${data.updatedCount} selected listing${data.updatedCount === 1 ? "" : "s"} updated${
+          failedCount
+            ? `; ${failedCount} skipped${firstFailure?.message ? `: ${firstFailure.message}` : "."}`
+            : "."
+        }`,
+      );
+      await loadInventory(session.access_token, { silent: true });
+    } catch (nextError: any) {
+      setError(nextError.message || "Could not update the selected promotions.");
+    } finally {
+      setCommerceAction(null);
+    }
+  }
+
+  if (!authChecked) {
+    return (
+      <main className="min-h-screen bg-[#f4f1ea] p-6 text-neutral-950">
+        <div className="mx-auto max-w-4xl rounded-md border border-neutral-200 bg-white p-6">
+          <h1 className="text-3xl font-black">Seller Inventory</h1>
+          <p className="mt-3 text-sm text-neutral-600">
+            Refreshing your TCOS account session...
+          </p>
+        </div>
+      </main>
+    );
+  }
+
+  if (!session) {
+    return (
+      <main className="min-h-screen bg-[#f4f1ea] p-6 text-neutral-950">
+        <div className="mx-auto max-w-4xl rounded-md border border-neutral-200 bg-white p-6">
+          <h1 className="text-3xl font-black">Seller Inventory</h1>
+          <p className="mt-3 text-sm text-neutral-600">
+            Log in through your TCOS account first, then come back here to review
+            seller-owned drafts, active inventory, and activation blockers.
+          </p>
+          <div className="mt-5 flex flex-wrap gap-2">
+            <Link
+              href="/account/login"
+              className="rounded-md bg-neutral-950 px-4 py-2 text-sm font-bold text-white"
+            >
+              Log In
+            </Link>
+            <Link
+              href={sellerMarketplaceHref()}
+              className="rounded-md border border-neutral-300 px-4 py-2 text-sm font-bold"
+            >
+              Seller Marketplaces
+            </Link>
+          </div>
+        </div>
+      </main>
+    );
+  }
+
+  return (
+    <main className="min-h-screen bg-[#f4f1ea] text-neutral-950">
+      <section className="border-b border-neutral-200 bg-[#101418] text-white">
+        <div className="mx-auto flex max-w-7xl flex-col gap-5 px-6 py-6 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-[0.16em] text-amber-300">
+              TCOS Seller
+            </p>
+            <h1 className="mt-2 text-4xl font-black tracking-tight">
+              Inventory Workspace
+            </h1>
+            <p className="mt-2 max-w-3xl text-sm text-neutral-300">
+              Review seller-owned drafts, spot activation blockers, and keep your
+              active catalog moving without touching shared store inventory.
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-2">
+            <HeaderLink href="/seller" label="Seller Home" />
+            <HeaderLink href="/account" label="Account" />
+            <HeaderLink
+              href={inventoryMarketplaceWorkspaceHref({
+                search,
+                readiness: readinessFilter,
+              })}
+              label={inventoryMarketplaceWorkspaceLabel({
+                search,
+                readiness: readinessFilter,
+              })}
+            />
+            <HeaderLink
+              href={payoutWorkspaceLink.href}
+              label={workspaceHeaderLabel(payoutWorkspaceLink.label)}
+            />
+            <HeaderLink
+              href={ordersWorkspaceLink.href}
+              label={workspaceHeaderLabel(ordersWorkspaceLink.label)}
+            />
+            <HeaderLink href="/seller-terms" label="Seller Terms" primary />
+          </div>
+        </div>
+      </section>
+
+      <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
+        <section className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-8">
+          <Metric
+            label="Seller Items"
+            value={loading ? "..." : String(summary?.totalItems || 0)}
+          />
+          <Metric
+            label="Drafts"
+            value={loading ? "..." : String(summary?.draftCount || 0)}
+          />
+          <Metric
+            label="Draft Ready"
+            value={loading ? "..." : String(summary?.draftReadyCount || 0)}
+          />
+          <Metric
+            label="Needs Work"
+            value={loading ? "..." : String(summary?.draftNeedsWorkCount || 0)}
+          />
+          <Metric
+            label="InstaComp™ Drafts"
+            value={loading ? "..." : String(summary?.instacompDraftCount || 0)}
+          />
+          <Metric
+            label="InstaComp™ Ready"
+            value={
+              loading ? "..." : String(summary?.instacompReadyDraftCount || 0)
+            }
+          />
+          <Metric
+            label="Active"
+            value={loading ? "..." : String(summary?.activeCount || 0)}
+          />
+          <Metric
+            label="eBay Store Imports"
+            value={loading ? "..." : String(summary?.storeOwnedCount || 0)}
+          />
+          <Metric
+            label="Units"
+            value={loading ? "..." : String(summary?.totalQuantity || 0)}
+          />
+          <Metric
+            label="Draft Value"
+            value={loading ? "..." : formatCurrency(summary?.totalDraftValue || 0)}
+          />
+        </section>
+
+        {error ? (
+          <section className="rounded-md border border-amber-200 bg-amber-50 p-5 text-sm font-semibold text-amber-950">
+            {error}
+          </section>
+        ) : null}
+
+        {notice ? (
+          <section className="rounded-md border border-emerald-200 bg-emerald-50 p-5 text-sm font-semibold text-emerald-950">
+            {notice}
+          </section>
+        ) : null}
+
+        <section className="rounded-md border border-neutral-200 bg-white">
+          <div className="flex flex-wrap items-start justify-between gap-4 border-b border-neutral-200 p-5">
+            <div>
+              <h2 className="text-2xl font-black">Activation Readiness Board</h2>
+              <p className="mt-1 max-w-3xl text-sm text-neutral-600">
+                Drafts only become painless to activate when the listing basics are
+                complete. Imported eBay store listings show as active inventory,
+                not drafts.
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() =>
+                session?.access_token &&
+                loadInventory(session.access_token, { silent: true })
+              }
+              disabled={refreshing || loading || !session?.access_token}
+              className="rounded-md border border-neutral-300 px-4 py-2 text-sm font-bold hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {refreshing ? "Refreshing..." : "Refresh Inventory"}
+            </button>
+          </div>
+
+          <div className="grid gap-6 p-5 lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              <div className="rounded-md border border-neutral-200 bg-neutral-50 p-4">
+                <p className="text-xs font-black uppercase text-neutral-500">
+                  Ready Draft Share
+                </p>
+                <p className="mt-2 text-2xl font-black">
+                  {summary?.draftCount
+                    ? `${Math.round(
+                        ((summary.draftReadyCount || 0) / summary.draftCount) * 100,
+                      )}%`
+                    : "0%"}
+                </p>
+                <p className="mt-2 text-sm text-neutral-600">
+                  Drafts that can move forward without more cleanup.
+                </p>
+              </div>
+              <div className="rounded-md border border-neutral-200 bg-neutral-50 p-4">
+                <p className="text-xs font-black uppercase text-neutral-500">
+                  Drafts Needing Work
+                </p>
+                <p className="mt-2 text-2xl font-black">
+                  {summary?.draftNeedsWorkCount || 0}
+                </p>
+                <p className="mt-2 text-sm text-neutral-600">
+                  Drafts still blocked by missing listing data.
+                </p>
+              </div>
+              <div className="rounded-md border border-neutral-200 bg-neutral-50 p-4">
+                <p className="text-xs font-black uppercase text-neutral-500">
+                  Active Catalog
+                </p>
+                <p className="mt-2 text-2xl font-black">
+                  {summary?.activeCount || 0}
+                </p>
+                <p className="mt-2 text-sm text-neutral-600">
+                  Seller-owned items already live inside the active store.
+                </p>
+              </div>
+              <div className="rounded-md border border-emerald-200 bg-emerald-50 p-4">
+                <p className="text-xs font-black uppercase text-emerald-700">
+                  eBay Store Imports
+                </p>
+                <p className="mt-2 text-2xl font-black">
+                  {summary?.storeOwnedCount || 0}
+                </p>
+                <p className="mt-2 text-sm text-emerald-900">
+                  Store-owned imports from eBay. Use Active or All to review them.
+                </p>
+              </div>
+            </div>
+
+            <aside className="rounded-md border border-neutral-200 bg-neutral-50 p-4">
+              <h3 className="text-sm font-black uppercase tracking-[0.14em] text-neutral-600">
+                Top Blockers
+              </h3>
+
+              {blockerSummary.length === 0 ? (
+                <p className="mt-3 text-sm text-neutral-600">
+                  No draft blockers are showing right now.
+                </p>
+              ) : (
+                <div className="mt-3 space-y-2">
+                  {blockerSummary.map((entry) => (
+                    <button
+                      type="button"
+                      key={entry.blocker}
+                      onClick={() => focusBlockerQueue(entry.blocker)}
+                      className="flex w-full items-center justify-between rounded-md border border-neutral-200 bg-white px-3 py-2 text-left hover:border-neutral-300 hover:bg-neutral-50"
+                    >
+                      <span className="text-sm font-bold text-neutral-800">
+                        {readinessBlockerLabel(entry.blocker)}
+                      </span>
+                      <span className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-black text-amber-900">
+                        {entry.count}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Link
+                  href={inventoryMarketplaceSummaryHref(
+                    summary?.draftNeedsWorkCount || 0,
+                  )}
+                  className="rounded-md border border-neutral-300 px-3 py-2 text-xs font-bold hover:bg-white"
+                >
+                  {(summary?.draftNeedsWorkCount || 0) > 0
+                    ? "Open Review Rows"
+                    : "Open Ready Rows"}
+                </Link>
+                <Link
+                  href={actionOrdersHref}
+                  className="rounded-md border border-neutral-300 px-3 py-2 text-xs font-bold hover:bg-white"
+                >
+                  Open Action Orders
+                </Link>
+              </div>
+            </aside>
+          </div>
+        </section>
+
+        <section className="rounded-md border border-neutral-200 bg-white">
+          <div className="border-b border-neutral-200 p-5">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div>
+                <h2 className="text-2xl font-black">Seller Inventory Workspace</h2>
+                <p className="mt-1 max-w-3xl text-sm text-neutral-600">
+                  This list shows seller-owned rows plus TCOS store-owned eBay
+                  imports for the store account. Draft readiness is calculated from
+                  the inventory record plus linked product image coverage.
+                </p>
+              </div>
+
+              <p className="rounded border border-neutral-200 bg-neutral-100 px-3 py-1 text-xs font-black uppercase text-neutral-700">
+                {filteredItems.length} showing
+              </p>
+            </div>
+
+            <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1.8fr)_minmax(0,1fr)]">
+              <label className="block">
+                <span className="text-xs font-black uppercase tracking-[0.14em] text-neutral-500">
+                  Search inventory
+                </span>
+                <input
+                  type="text"
+                  value={search}
+                  onChange={(event) =>
+                    setInventoryView({ search: event.target.value })
+                  }
+                  placeholder="Title, SKU, category, condition, or eBay item ID"
+                  className="mt-2 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm outline-none transition focus:border-neutral-500"
+                />
+              </label>
+
+              <div className="grid gap-3 md:grid-cols-3">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.14em] text-neutral-500">
+                    Status
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {statusFilters.map((filter) => (
+                      <FilterChip
+                        key={filter.value}
+                        active={statusFilter === filter.value}
+                        label={filter.label}
+                        onClick={() => setInventoryView({ status: filter.value })}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.14em] text-neutral-500">
+                    Readiness
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {readinessFilters.map((filter) => (
+                      <FilterChip
+                        key={filter.value}
+                        active={readinessFilter === filter.value}
+                        label={filter.label}
+                        onClick={() =>
+                          setInventoryView({ readiness: filter.value })
+                        }
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.14em] text-neutral-500">
+                    Source
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {sourceFilters.map((filter) => (
+                      <FilterChip
+                        key={filter.value}
+                        active={sourceFilter === filter.value}
+                        label={filter.label}
+                        onClick={() => setInventoryView({ source: filter.value })}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="mt-4 rounded-md border border-neutral-200 bg-neutral-50 px-4 py-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.14em] text-neutral-500">
+                    Bulk controls
+                  </p>
+                  <p className="mt-1 text-sm text-neutral-700">
+                    {selectedInventoryItemIds.length} selected across the loaded workspace,{" "}
+                    {selectedVisibleCount} visible in the current filter view.{" "}
+                    Loaded {items.length.toLocaleString()} of {pagination.total.toLocaleString()} total inventory rows.
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={selectVisibleInventoryItems}
+                    disabled={visibleInventoryItemIds.length === 0}
+                    className="rounded-md border border-neutral-300 px-3 py-2 text-xs font-bold hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Select Visible
+                  </button>
+                  <button
+                    type="button"
+                    onClick={selectReadyVisibleInventoryItems}
+                    disabled={readyVisibleInventoryItemIds.length === 0}
+                    className="rounded-md border border-neutral-300 px-3 py-2 text-xs font-bold hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Select Ready Visible
+                  </button>
+                  <button
+                    type="button"
+                    onClick={clearInventorySelection}
+                    disabled={selectedInventoryItemIds.length === 0}
+                    className="rounded-md border border-neutral-300 px-3 py-2 text-xs font-bold hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Clear Selection
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void copySelectedMarketplacePacket()}
+                    disabled={selectedMarketplaceReadyItems.length === 0}
+                    className="rounded-md border border-sky-300 bg-white px-3 py-2 text-xs font-bold text-sky-900 hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Copy Marketplace Packet ({selectedMarketplaceReadyItems.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={downloadSelectedMarketplacePacket}
+                    disabled={selectedMarketplaceReadyItems.length === 0}
+                    className="rounded-md border border-sky-300 bg-white px-3 py-2 text-xs font-bold text-sky-900 hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Download Marketplace Packet ({selectedMarketplaceReadyItems.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={downloadSelectedMarketplaceCsv}
+                    disabled={selectedMarketplaceReadyItems.length === 0}
+                    className="rounded-md border border-sky-300 bg-white px-3 py-2 text-xs font-bold text-sky-900 hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Download Marketplace CSV ({selectedMarketplaceReadyItems.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void runBulkInventoryAction({
+                        action: "activate",
+                        inventoryItemIds: selectedActivatableInventoryItemIds,
+                        emptyMessage:
+                          "No selected seller listings are currently ready to activate.",
+                      })
+                    }
+                    disabled={
+                      bulkAction !== null ||
+                      selectedActivatableInventoryItemIds.length === 0
+                    }
+                    className="rounded-md bg-neutral-950 px-3 py-2 text-xs font-bold text-white hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-500"
+                  >
+                    {bulkAction === "activate"
+                      ? "Activating..."
+                      : `Activate Ready (${selectedActivatableInventoryItemIds.length})`}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void runBulkInventoryAction({
+                        action: "archive",
+                        inventoryItemIds: selectedArchivableInventoryItemIds,
+                        emptyMessage:
+                          "No selected seller listings can be archived right now.",
+                      })
+                    }
+                    disabled={
+                      bulkAction !== null ||
+                      selectedArchivableInventoryItemIds.length === 0
+                    }
+                    className="rounded-md border border-neutral-300 px-3 py-2 text-xs font-bold hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {bulkAction === "archive"
+                      ? "Archiving..."
+                      : `Archive Eligible (${selectedArchivableInventoryItemIds.length})`}
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-3 rounded-md border-2 border-amber-300 bg-amber-50 p-3">
+                <p className="text-xs font-black uppercase tracking-[0.14em] text-amber-950">
+                  Selected-card sales and coupons
+                </p>
+                <p className="mt-1 text-xs font-semibold text-amber-900">
+                  Sale pricing, percentage coupons, and free-shipping coupons are independent. Apply only the benefits each selected card should receive.
+                </p>
+                <div className="mt-3 grid gap-3 lg:grid-cols-3">
+                  <div className="rounded border border-amber-200 bg-white p-3">
+                    <label className="text-xs font-black">
+                      ON SALE discount (1–25%)
+                      <input
+                        type="number"
+                        min="1"
+                        max="25"
+                        step="1"
+                        value={saleDiscountPercent}
+                        onChange={(event) => setSaleDiscountPercent(event.target.value)}
+                        className="mt-1 min-h-11 w-full rounded border border-neutral-300 px-3"
+                      />
+                    </label>
+                    <div className="mt-2 flex gap-2">
+                      <button
+                        type="button"
+                        disabled={!selectedInventoryItemIds.length || commerceAction !== null}
+                        onClick={() => void runBulkCommerceAction("apply-sale")}
+                        className="rounded bg-red-700 px-3 py-2 text-xs font-black text-white disabled:opacity-50"
+                      >
+                        Put Selected ON SALE
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!selectedInventoryItemIds.length || commerceAction !== null}
+                        onClick={() => void runBulkCommerceAction("clear-sale")}
+                        className="rounded border border-neutral-300 px-3 py-2 text-xs font-black disabled:opacity-50"
+                      >
+                        End Sale
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="rounded border border-amber-200 bg-white p-3">
+                    <label className="text-xs font-black">
+                      Percentage coupon code
+                      <input
+                        value={discountCouponCode}
+                        onChange={(event) => setDiscountCouponCode(event.target.value.toUpperCase())}
+                        placeholder="CARD-DEAL"
+                        className="mt-1 min-h-11 w-full rounded border border-neutral-300 px-3 uppercase"
+                      />
+                    </label>
+                    <label className="mt-2 block text-xs font-black">
+                      Coupon discount (1–25%)
+                      <input
+                        type="number"
+                        min="1"
+                        max="25"
+                        step="1"
+                        value={discountCouponPercent}
+                        onChange={(event) => setDiscountCouponPercent(event.target.value)}
+                        className="mt-1 min-h-11 w-full rounded border border-neutral-300 px-3"
+                      />
+                    </label>
+                    <div className="mt-2 flex gap-2">
+                      <button type="button" disabled={!selectedInventoryItemIds.length || commerceAction !== null} onClick={() => void runBulkCommerceAction("set-discount-coupon")} className="rounded bg-violet-700 px-3 py-2 text-xs font-black text-white disabled:opacity-50">Add Selected</button>
+                      <button type="button" disabled={!selectedInventoryItemIds.length || commerceAction !== null} onClick={() => void runBulkCommerceAction("clear-discount-coupon")} className="rounded border border-neutral-300 px-3 py-2 text-xs font-black disabled:opacity-50">Remove</button>
+                    </div>
+                  </div>
+
+                  <div className="rounded border border-amber-200 bg-white p-3">
+                    <label className="text-xs font-black">
+                      Free-shipping coupon code
+                      <input
+                        value={freeShippingCouponCode}
+                        onChange={(event) => setFreeShippingCouponCode(event.target.value.toUpperCase())}
+                        placeholder="SHIP-FREE"
+                        className="mt-1 min-h-11 w-full rounded border border-neutral-300 px-3 uppercase"
+                      />
+                    </label>
+                    <p className="mt-2 text-xs font-semibold text-neutral-600">
+                      Keep this separate from the percentage coupon when a card should receive only one benefit.
+                    </p>
+                    <div className="mt-2 flex gap-2">
+                      <button type="button" disabled={!selectedInventoryItemIds.length || commerceAction !== null} onClick={() => void runBulkCommerceAction("set-free-shipping-coupon")} className="rounded bg-emerald-700 px-3 py-2 text-xs font-black text-white disabled:opacity-50">Add Selected</button>
+                      <button type="button" disabled={!selectedInventoryItemIds.length || commerceAction !== null} onClick={() => void runBulkCommerceAction("clear-free-shipping-coupon")} className="rounded border border-neutral-300 px-3 py-2 text-xs font-black disabled:opacity-50">Remove</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-3 rounded-md border border-sky-200 bg-white px-3 py-2 text-sky-950">
+                <p className="text-xs font-black uppercase tracking-[0.14em]">
+                  Marketplace export guardrails
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <span className="rounded border border-sky-200 bg-sky-50 px-2 py-1 text-[11px] font-black">
+                    Cross-list prep only
+                  </span>
+                  <span className="rounded border border-sky-200 bg-sky-50 px-2 py-1 text-[11px] font-black">
+                    No external publishing
+                  </span>
+                  <span className="rounded border border-sky-200 bg-sky-50 px-2 py-1 text-[11px] font-black">
+                    No postage purchase
+                  </span>
+                  <span className="rounded border border-sky-200 bg-sky-50 px-2 py-1 text-[11px] font-black">
+                    Ready rows only: {selectedMarketplaceReadyItems.length}
+                  </span>
+                </div>
+                <p className="mt-2 text-xs font-semibold">
+                  {marketplaceExportWarning} {marketplaceExportShippingWarning}
+                </p>
+                <p className="mt-2 text-xs font-semibold">
+                  JSON packets include an operator checklist and prohibited-action
+                  manifest. CSV rows carry matching prohibited-action columns so
+                  saved files cannot be mistaken for publishing, postage,
+                  Coverage, payout, or fulfillment approval.
+                </p>
+              </div>
+            </div>
+
+            {selectedInventoryItemIds.length > 0 ? (
+              <div className="mt-4 rounded-md border border-neutral-200 bg-neutral-50 px-4 py-3">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-[0.14em] text-neutral-500">
+                      Selection Summary
+                    </p>
+                    <p className="mt-1 text-sm text-neutral-700">
+                      Bulk actions only target the listings that are actually eligible for that move.
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <span className="rounded border border-emerald-200 bg-white px-2 py-1 text-[11px] font-black text-emerald-800">
+                      {selectedSummary.ready} ready
+                    </span>
+                    <span className="rounded border border-amber-200 bg-white px-2 py-1 text-[11px] font-black text-amber-900">
+                      {selectedSummary.needsWork} needs work
+                    </span>
+                    <span className="rounded border border-neutral-200 bg-white px-2 py-1 text-[11px] font-black text-neutral-700">
+                      {selectedSummary.draft} draft
+                    </span>
+                    <span className="rounded border border-neutral-200 bg-white px-2 py-1 text-[11px] font-black text-neutral-700">
+                      {selectedSummary.active} active
+                    </span>
+                    <span className="rounded border border-neutral-200 bg-white px-2 py-1 text-[11px] font-black text-neutral-700">
+                      {selectedSummary.archived} archived
+                    </span>
+                    <span className="rounded border border-sky-200 bg-white px-2 py-1 text-[11px] font-black text-sky-900">
+                      {selectedMarketplaceReadyItems.length} export ready
+                    </span>
+                  </div>
+                </div>
+
+                <div className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-3 text-emerald-950">
+                  <p className="text-xs font-black uppercase tracking-[0.14em]">
+                    Selected Shipping Mix
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <span className="rounded border border-emerald-300 bg-white px-2 py-1 text-[11px] font-black">
+                      Standard Envelope {selectedShippingSummary.standardEnvelope}
+                    </span>
+                    <span className="rounded border border-emerald-300 bg-white px-2 py-1 text-[11px] font-black">
+                      Ground Advantage {selectedShippingSummary.groundAdvantage}
+                    </span>
+                    <span className="rounded border border-emerald-300 bg-white px-2 py-1 text-[11px] font-black">
+                      Priority Mail {selectedShippingSummary.priorityMail}
+                    </span>
+                    <span className="rounded border border-emerald-300 bg-white px-2 py-1 text-[11px] font-black">
+                      Coverage Required {selectedShippingSummary.coverageRequired}
+                    </span>
+                    <span className="rounded border border-emerald-300 bg-white px-2 py-1 text-[11px] font-black">
+                      Est. Postage {formatCurrency(selectedShippingSummary.totalPostage)}
+                    </span>
+                    {selectedShippingSummary.forcedMethod > 0 ? (
+                      <span className="rounded border border-amber-300 bg-white px-2 py-1 text-[11px] font-black text-amber-900">
+                        Forced Method {selectedShippingSummary.forcedMethod}
+                      </span>
+                    ) : null}
+                  </div>
+                  <p className="mt-2 text-xs font-semibold">
+                    This is the selected-row shipping estimate before external
+                    marketplace export or TCOS activation; exact purchase remains
+                    blocked until a live shipping adapter is approved.
+                  </p>
+                </div>
+
+                <div className="mt-3 rounded-md border border-neutral-200 bg-white px-3 py-3 text-neutral-900">
+                  <p className="text-xs font-black uppercase tracking-[0.14em] text-neutral-500">
+                    Selected Activation Check
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <span className="rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-black text-emerald-800">
+                      Activatable {selectedActivationSummary.activatable}
+                    </span>
+                    <span className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-black text-amber-900">
+                      Draft needs work {selectedActivationSummary.draftNeedsWork}
+                    </span>
+                    <span className="rounded border border-neutral-200 bg-neutral-50 px-2 py-1 text-[11px] font-black text-neutral-700">
+                      Already active {selectedActivationSummary.alreadyActive}
+                    </span>
+                    <span className="rounded border border-neutral-200 bg-neutral-50 px-2 py-1 text-[11px] font-black text-neutral-700">
+                      Archived {selectedActivationSummary.archived}
+                    </span>
+                  </div>
+
+                  {selectedActivationBlockers.length > 0 ? (
+                    <div className="mt-3">
+                      <p className="text-xs font-black uppercase tracking-[0.14em] text-amber-900">
+                        Top selected blockers
+                      </p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {selectedActivationBlockers.slice(0, 4).map((entry) => (
+                          <span
+                            key={entry.blocker}
+                            className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-black text-amber-900"
+                          >
+                            {entry.blocker}: {entry.count}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="mt-2 text-xs font-semibold text-emerald-800">
+                      No selected readiness blockers are currently present.
+                    </p>
+                  )}
+                </div>
+
+                <p className="mt-3 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-950">
+                  Marketplace packets are outbound prep files only. They do not publish
+                  to eBay, Whatnot, or any external storefront until a connected
+                  publishing flow is approved and wired.
+                </p>
+
+                {selectionGuidance ? (
+                  <div className="mt-3 rounded-md border border-sky-200 bg-sky-50 px-3 py-3 text-sky-950">
+                    <p className="text-sm font-semibold">{selectionGuidance}</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => keepInventorySelection(selectedReadyInventoryItemIds)}
+                        disabled={selectedReadyInventoryItemIds.length === 0}
+                        className="rounded-md border border-emerald-300 bg-white px-3 py-2 text-xs font-bold text-emerald-800 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        Keep Ready Only
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => keepInventorySelection(selectedNeedsWorkInventoryItemIds)}
+                        disabled={selectedNeedsWorkInventoryItemIds.length === 0}
+                        className="rounded-md border border-amber-300 bg-white px-3 py-2 text-xs font-bold text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        Keep Needs Work Only
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => keepInventorySelection(selectedDraftInventoryItemIds)}
+                        disabled={selectedDraftInventoryItemIds.length === 0}
+                        className="rounded-md border border-neutral-300 bg-white px-3 py-2 text-xs font-bold text-neutral-800 hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        Keep Drafts Only
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => keepInventorySelection(selectedActiveInventoryItemIds)}
+                        disabled={selectedActiveInventoryItemIds.length === 0}
+                        className="rounded-md border border-neutral-300 bg-white px-3 py-2 text-xs font-bold text-neutral-800 hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        Keep Active Only
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => keepInventorySelection(selectedArchivedInventoryItemIds)}
+                        disabled={selectedArchivedInventoryItemIds.length === 0}
+                        className="rounded-md border border-neutral-300 bg-white px-3 py-2 text-xs font-bold text-neutral-800 hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        Keep Archived Only
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+
+            {lastBulkInventorySuccesses.length > 0 ? (
+              <div className="mt-4 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-950">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-[0.14em]">
+                      Bulk Action Results
+                    </p>
+                    <p className="mt-1 text-sm font-semibold">
+                      {lastBulkInventorySuccesses.length} listing(s) {bulkActionVerb(lastBulkInventoryAction)} in the seller inventory workspace.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void copyBulkActionReport()}
+                      className="rounded-md border border-neutral-300 bg-white px-3 py-2 text-xs font-bold text-neutral-800 hover:bg-neutral-100"
+                    >
+                      Copy Bulk Report
+                    </button>
+                    <button
+                      type="button"
+                      onClick={downloadBulkActionReport}
+                      className="rounded-md border border-neutral-300 bg-white px-3 py-2 text-xs font-bold text-neutral-800 hover:bg-neutral-100"
+                    >
+                      Download Bulk Report
+                    </button>
+                    <button
+                      type="button"
+                      onClick={clearBulkInventoryFollowUp}
+                      className="rounded-md border border-neutral-300 bg-white px-3 py-2 text-xs font-bold text-neutral-800 hover:bg-neutral-100"
+                    >
+                      Clear Bulk Report
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => keepBulkInventorySelection(bulkSuccessItemIds)}
+                      className="rounded-md border border-emerald-300 bg-white px-3 py-2 text-xs font-bold text-emerald-800 hover:bg-emerald-100"
+                    >
+                      Keep Changed Only
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        openBulkInventoryQueue(
+                          lastBulkInventoryAction === "archive" ? "archived" : "active",
+                          "all",
+                          bulkSuccessItemIds,
+                        )
+                      }
+                      className="rounded-md border border-sky-300 bg-white px-3 py-2 text-xs font-bold text-sky-800 hover:bg-sky-100"
+                    >
+                      {bulkActionQueueLabel(lastBulkInventoryAction)}
+                    </button>
+                    <Link
+                      href={bulkOrdersFollowUpLink.href}
+                      className="rounded-md border border-neutral-300 bg-white px-3 py-2 text-xs font-bold text-neutral-800 hover:bg-neutral-100"
+                    >
+                      {bulkOrdersFollowUpLink.label}
+                    </Link>
+                  </div>
+                </div>
+
+                <div className="mt-3 space-y-2">
+                  {lastBulkInventorySuccesses.slice(0, 3).map((entry) => {
+                    const item = itemsById.get(entry.inventoryItemId);
+
+                    return (
+                      <div
+                        key={`${entry.inventoryItemId}-${entry.status}-success`}
+                        className="rounded-md border border-emerald-200 bg-white px-3 py-2"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-bold text-neutral-900">
+                              {item?.title || "Seller listing"}
+                            </p>
+                            <p className="text-xs font-semibold text-emerald-800">
+                              {entry.message}
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {item
+                              ? (() => {
+                                  const marketplaceLink =
+                                    inventoryMarketplaceItemLink(item);
+
+                                  return (
+                                    <>
+                                      <Link
+                                        href={inventoryQueueHref(item)}
+                                        className="text-xs font-bold text-neutral-700 underline"
+                                      >
+                                        Open Seller Inventory
+                                      </Link>
+                                      <Link
+                                        href={marketplaceLink.href}
+                                        className="text-xs font-bold text-neutral-700 underline"
+                                      >
+                                        {marketplaceLink.label}
+                                      </Link>
+                                    </>
+                                  );
+                                })()
+                              : null}
+                            {item?.legacyProductId ? (
+                              <Link
+                                href={`/admin/products/${item.legacyProductId}`}
+                                className="text-xs font-bold text-neutral-700 underline"
+                              >
+                                Open Admin Product
+                              </Link>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  {lastBulkInventorySuccesses.length > 3 ? (
+                    <p className="text-xs font-semibold text-emerald-800">
+                      {lastBulkInventorySuccesses.length - 3} more changed listing(s) remain in the current selection.
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+
+            {lastBulkInventoryFailures.length > 0 ? (
+              <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-amber-950">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-black uppercase tracking-[0.14em]">
+                      Bulk Action Follow-Up
+                    </p>
+                    <p className="mt-1 text-sm font-semibold">
+                      {lastBulkInventoryFailures.length} listing(s) still need attention before this bulk action can fully finish.
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void copyBulkActionReport()}
+                      className="rounded-md border border-neutral-300 bg-white px-3 py-2 text-xs font-bold text-neutral-800 hover:bg-neutral-100"
+                    >
+                      Copy Bulk Report
+                    </button>
+                    <button
+                      type="button"
+                      onClick={downloadBulkActionReport}
+                      className="rounded-md border border-neutral-300 bg-white px-3 py-2 text-xs font-bold text-neutral-800 hover:bg-neutral-100"
+                    >
+                      Download Bulk Report
+                    </button>
+                    <button
+                      type="button"
+                      onClick={clearBulkInventoryFollowUp}
+                      className="rounded-md border border-neutral-300 bg-white px-3 py-2 text-xs font-bold text-neutral-800 hover:bg-neutral-100"
+                    >
+                      Clear Bulk Report
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => keepBulkInventorySelection(bulkFailureItemIds)}
+                      className="rounded-md border border-amber-300 bg-white px-3 py-2 text-xs font-bold text-amber-900 hover:bg-amber-100"
+                    >
+                      Keep Failed Only
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!lastBulkInventoryAction) return;
+
+                        void runBulkInventoryAction({
+                          action: lastBulkInventoryAction,
+                          inventoryItemIds: bulkFailureRetryReadyItemIds,
+                          emptyMessage:
+                            "No failed seller listings are ready to retry yet.",
+                        });
+                      }}
+                      disabled={
+                        bulkAction !== null ||
+                        !lastBulkInventoryAction ||
+                        bulkFailureRetryReadyItemIds.length === 0
+                      }
+                      className="rounded-md border border-emerald-300 bg-white px-3 py-2 text-xs font-bold text-emerald-800 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Retry Corrected ({bulkFailureRetryReadyItemIds.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        openBulkInventoryQueue("all", "all", bulkFailureItemIds)
+                      }
+                      className="rounded-md border border-neutral-300 bg-white px-3 py-2 text-xs font-bold text-neutral-800 hover:bg-neutral-100"
+                    >
+                      Open Failed Inventory
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        openBulkInventoryQueue(
+                          "draft",
+                          "needs_work",
+                          bulkFailureBlockerItemIds,
+                        )
+                      }
+                      disabled={bulkFailureBlockerItemIds.length === 0}
+                      className="rounded-md border border-amber-300 bg-white px-3 py-2 text-xs font-bold text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {`Open Needs Work (${bulkFailureBlockerItemIds.length})`}
+                    </button>
+                    {bulkPayoutFailureCount > 0 ? (
+                      <Link
+                        href={blockedPayoutsHref}
+                        className="rounded-md border border-rose-300 bg-white px-3 py-2 text-xs font-bold text-rose-800 hover:bg-rose-100"
+                      >
+                        Open Blocked Payouts
+                      </Link>
+                    ) : null}
+                  </div>
+                </div>
+
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <span className="rounded border border-amber-200 bg-white px-2 py-1 text-[11px] font-black text-amber-900">
+                    {lastBulkInventoryFailures.length} failed
+                  </span>
+                  {bulkFailureRetryReadyItemIds.length > 0 ? (
+                    <span className="rounded border border-emerald-200 bg-white px-2 py-1 text-[11px] font-black text-emerald-800">
+                      {bulkFailureRetryReadyItemIds.length} retry ready
+                    </span>
+                  ) : null}
+                  {bulkFailureBlockerItemIds.length > 0 ? (
+                    <span className="rounded border border-amber-200 bg-white px-2 py-1 text-[11px] font-black text-amber-900">
+                      {bulkFailureBlockerItemIds.length} blockers
+                    </span>
+                  ) : null}
+                  {bulkPayoutFailureCount > 0 ? (
+                    <span className="rounded border border-rose-200 bg-white px-2 py-1 text-[11px] font-black text-rose-800">
+                      {bulkPayoutFailureCount} payout hold
+                    </span>
+                  ) : null}
+                </div>
+
+                {bulkFailureBlockerSummary.length > 0 ? (
+                  <div className="mt-3 rounded-md border border-amber-200 bg-white px-3 py-3">
+                    <p className="text-xs font-black uppercase tracking-[0.14em] text-amber-900">
+                      Failure blocker groups
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {bulkFailureBlockerSummary.slice(0, 5).map((entry) => (
+                        <button
+                          key={entry.blocker}
+                          type="button"
+                          onClick={() => keepBulkInventorySelection(entry.itemIds)}
+                          className="rounded border border-amber-300 bg-amber-50 px-2 py-1 text-[11px] font-black text-amber-900 hover:bg-amber-100"
+                        >
+                          {entry.blocker}: {entry.count}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="mt-2 text-xs font-semibold text-amber-900">
+                      Click a blocker group to keep only those failed rows selected
+                      for cleanup.
+                    </p>
+                  </div>
+                ) : null}
+
+                <div className="mt-3 space-y-2">
+                  {lastBulkInventoryFailures.slice(0, 3).map((entry) => {
+                    const item = itemsById.get(entry.inventoryItemId);
+
+                    return (
+                      <div
+                        key={`${entry.inventoryItemId}-${entry.status}-failure`}
+                        className="rounded-md border border-amber-200 bg-white px-3 py-2"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-bold text-neutral-900">
+                              {item?.title || "Seller listing"}
+                            </p>
+                            <p className="mt-1 text-xs font-semibold text-amber-900">
+                              {entry.message}
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap gap-2">
+                            {item
+                              ? (() => {
+                                  const marketplaceLink =
+                                    inventoryMarketplaceItemLink(item);
+
+                                  return (
+                                    <>
+                                      <Link
+                                        href={inventoryQueueHref(item)}
+                                        className="text-xs font-bold text-neutral-700 underline"
+                                      >
+                                        Open Seller Inventory
+                                      </Link>
+                                      <Link
+                                        href={marketplaceLink.href}
+                                        className="text-xs font-bold text-neutral-700 underline"
+                                      >
+                                        {marketplaceLink.label}
+                                      </Link>
+                                    </>
+                                  );
+                                })()
+                              : null}
+                            {item?.legacyProductId ? (
+                              <Link
+                                href={`/admin/products/${item.legacyProductId}`}
+                                className="text-xs font-bold text-neutral-700 underline"
+                              >
+                                Open Admin Product
+                              </Link>
+                            ) : null}
+                          </div>
+                        </div>
+                        {(entry.blockers || []).length > 0 ? (
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {(entry.blockers || []).map((blocker) => (
+                              <span
+                                key={`${entry.inventoryItemId}-${blocker}`}
+                                className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-black text-amber-900"
+                              >
+                                {readinessBlockerLabel(blocker)}
+                              </span>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                  {lastBulkInventoryFailures.length > 3 ? (
+                    <p className="text-xs font-semibold text-amber-900">
+                      {lastBulkInventoryFailures.length - 3} more failed listing(s) remain selected for follow-up.
+                    </p>
+                  ) : null}
+                </div>
+              </div>
+            ) : null}
+          </div>
+
+          {loading ? (
+            <p className="p-5 text-sm text-neutral-600">Loading seller inventory...</p>
+          ) : filteredItems.length === 0 ? (
+            <div className="p-5">
+              <p className="text-sm text-neutral-600">
+                No seller inventory matches the current filters yet.
+              </p>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setInventoryView({
+                      search: "",
+                      status: "all",
+                      readiness: "all",
+                      source: "all",
+                    });
+                  }}
+                  className="rounded-md border border-neutral-300 px-3 py-2 text-sm font-bold hover:bg-neutral-50"
+                >
+                  Reset Filters
+                </button>
+                <Link
+                  href={inventoryMarketplaceWorkspaceHref({
+                    search,
+                    readiness: readinessFilter,
+                  })}
+                  className="rounded-md border border-neutral-300 px-3 py-2 text-sm font-bold hover:bg-neutral-50"
+                >
+                  {inventoryMarketplaceWorkspaceLabel({
+                    search,
+                    readiness: readinessFilter,
+                  })}
+                </Link>
+              </div>
+            </div>
+          ) : (
+            <div className="grid gap-4 p-5 xl:grid-cols-2">
+              {renderedItems.map((item) => (
+                <article
+                  key={item.inventoryItemId}
+                  data-inventory-item-id={item.inventoryItemId}
+                  className="rounded-md border border-neutral-200 bg-neutral-50 p-4 transition-shadow"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div className="flex min-w-0 items-start gap-3">
+                      <input
+                        type="checkbox"
+                        checked={selectedInventoryItemIdSet.has(
+                          item.inventoryItemId,
+                        )}
+                        onChange={() =>
+                          toggleInventoryItemSelection(item.inventoryItemId)
+                        }
+                        className="mt-1 h-4 w-4 rounded border-neutral-300 text-neutral-950 focus:ring-neutral-500"
+                        aria-label={`Select ${item.title}`}
+                      />
+
+                      <div className="min-w-0">
+                        <h3 className="text-lg font-black text-neutral-950">
+                          {item.title}
+                        </h3>
+                        <p className="mt-1 text-xs text-neutral-500">
+                          SKU {item.sku || "Not set"}
+                          {item.ebayItemId ? ` / eBay ${item.ebayItemId}` : ""}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      <span
+                        className={`rounded border px-2 py-1 text-[11px] font-black ${statusTone(
+                          item.status,
+                        )}`}
+                      >
+                        {label(item.status)}
+                      </span>
+                      <span
+                        className={`rounded border px-2 py-1 text-[11px] font-black ${readinessTone(
+                          item.activationReadiness.ready,
+                        )}`}
+                      >
+                        {item.activationReadiness.ready ? "READY" : "NEEDS WORK"}
+                      </span>
+                      <span
+                        className={`rounded border px-2 py-1 text-[11px] font-black ${sourceTone(
+                          item,
+                        )}`}
+                      >
+                        {inventorySourceLabel(item)}
+                      </span>
+                      {item.promotion?.onSale ? (
+                        <span className="rounded border border-red-300 bg-red-700 px-2 py-1 text-[11px] font-black text-white">
+                          ON SALE · {item.promotion.discountPercent}% OFF
+                        </span>
+                      ) : null}
+                      {item.promotion?.discountCouponCode ? (
+                        <span className="rounded border border-violet-300 bg-violet-50 px-2 py-1 text-[11px] font-black text-violet-900">
+                          {item.promotion.discountCouponCode} · {item.promotion.discountCouponPercent}%
+                        </span>
+                      ) : null}
+                      {item.promotion?.freeShippingCouponCode ? (
+                        <span className="rounded border border-emerald-300 bg-emerald-50 px-2 py-1 text-[11px] font-black text-emerald-900">
+                          {item.promotion.freeShippingCouponCode} · FREE SHIPPING
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                    <Info label="Category" value={label(item.category)} />
+                    <Info label="Condition" value={label(item.condition)} />
+                    <Info label="Quantity" value={String(item.quantity)} />
+                    <Info label="Price" value={formatCurrency(item.price)} />
+                    <Info label="Shipping" value={item.shippingPlan.label} />
+                    <Info
+                      label="Est. postage"
+                      value={formatCurrency(item.shippingPlan.postageEstimate)}
+                    />
+                    <Info label="Updated" value={shortDate(item.updatedAt)} />
+                    <Info label="Created" value={shortDate(item.createdAt)} />
+                  </div>
+
+                  <div className="mt-4 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2">
+                    <p className="text-xs font-black uppercase tracking-[0.14em] text-emerald-900">
+                      Shipping plan
+                    </p>
+                    <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-emerald-950">
+                      <Info label="Method" value={item.shippingPlan.label} />
+                      <Info
+                        label="Est. weight"
+                        value={`${item.shippingPlan.estimatedOunces} oz`}
+                      />
+                      <Info
+                        label="Coverage"
+                        value={
+                          item.shippingPlan.coverageRequired
+                            ? `${item.shippingPlan.coverageProvider} required`
+                            : item.shippingPlan.coverageProvider
+                        }
+                      />
+                      <Info
+                        label="Coverage type"
+                        value={label(item.shippingPlan.coverageType)}
+                      />
+                      <Info
+                        label="Seller protection"
+                        value={
+                          item.shippingPlan.sellerProtectionOptedIn
+                            ? `Opted in - ${formatCurrency(
+                                item.shippingPlan.sellerProtectionFeeEstimate,
+                              )} reserve`
+                            : "Not opted in - seller responsible for loss refund"
+                        }
+                      />
+                      <Info
+                        label="Item protection cap"
+                        value={
+                          item.shippingPlan.sellerProtectionOptedIn
+                            ? formatCurrency(
+                                item.shippingPlan.sellerProtectionCoveredAmount,
+                              )
+                            : "$0.00"
+                        }
+                      />
+                    </div>
+                    {item.shippingPlan.method === "STANDARD_ENVELOPE" ? (
+                      <p className="mt-2 text-xs font-semibold text-emerald-950">
+                        {item.shippingPlan.sellerProtectionOptedIn
+                          ? "Seller opted into TCOS Under-$20 Seller Protection for this listing. The 2% reserve is withheld from payout if this ships by Standard Envelope. If a covered refund is required, TCOS reimburses the item sale amount up to $20; shipping is not reimbursed."
+                          : "Seller has not opted in. If this Standard Envelope shipment is lost or cannot show delivered status, the seller is responsible for refunding the buyer in full."}
+                      </p>
+                    ) : null}
+                    {item.shippingPlan.method === "STANDARD_ENVELOPE" ? (
+                      <p className="mt-2 text-xs font-semibold text-emerald-950">
+                        Not insurance: LetterTrack/USPS IMb is delivery evidence;
+                        TCOS protection is an internal optional seller program
+                        and shipping is excluded from reimbursement.
+                      </p>
+                    ) : null}
+                    {item.shippingPlan.reason ? (
+                      <p className="mt-2 text-xs font-semibold text-emerald-950">
+                        {item.shippingPlan.reason}
+                      </p>
+                    ) : null}
+                  </div>
+
+                  {item.instaComp?.isInstaCompDraft ? (
+                    <div className="mt-4 rounded-md border border-sky-200 bg-sky-50 px-3 py-2">
+                      <p className="text-xs font-black uppercase tracking-[0.14em] text-sky-900">
+                        InstaComp™ draft
+                      </p>
+                      <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-sky-950">
+                        <Info
+                          label="Scan"
+                          value={item.instaComp.scanId || "Recorded"}
+                        />
+                        <Info
+                          label="Serial"
+                          value={item.instaComp.serialNumber || "Not detected"}
+                        />
+                        <Info
+                          label="Price source"
+                          value={label(item.instaComp.listingPriceSource)}
+                        />
+                        <Info
+                          label="Back image"
+                          value={item.instaComp.hasBackImage ? "Yes" : "No"}
+                        />
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {item.ownershipScope === "store" ? (
+                    <div className="mt-4 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2">
+                      <p className="text-xs font-black uppercase tracking-[0.14em] text-emerald-800">
+                        TCOS store-owned eBay import
+                      </p>
+                      <p className="mt-1 text-xs font-semibold text-emerald-950">
+                        This listing is already in the store catalog. Use Open
+                        Admin Product for the clean edit path.
+                      </p>
+                    </div>
+                  ) : null}
+
+                  {buildAuthenticityBadges(item.authenticity).length > 0 ? (
+                    <div className="mt-4">
+                      <p className="text-xs font-black uppercase tracking-[0.14em] text-neutral-500">
+                        Authenticity
+                      </p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {buildAuthenticityBadges(item.authenticity).map((badge) => (
+                          <span
+                            key={`${item.inventoryItemId}-${badge.label}`}
+                            className={`rounded border px-2 py-1 text-[11px] font-black ${authenticityBadgeTone(
+                              badge.tone,
+                            )}`}
+                          >
+                            {badge.label}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {item.activationReadiness.blockers.length > 0 ? (
+                    <div className="mt-4">
+                      <p className="text-xs font-black uppercase tracking-[0.14em] text-neutral-500">
+                        Activation blockers
+                      </p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {item.activationReadiness.blockers.map((blocker) => (
+                          <span
+                            key={`${item.inventoryItemId}-${blocker}`}
+                            className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-black text-amber-900"
+                          >
+                            {readinessBlockerLabel(blocker)}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="mt-4 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-semibold text-emerald-900">
+                      This item is ready for activation review.
+                    </p>
+                  )}
+
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    {(() => {
+                      const marketplaceLink = inventoryMarketplaceItemLink(item);
+
+                      return (
+                        <>
+                    {item.status !== "sold" && item.status !== "reserved" ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          editingItemId === item.inventoryItemId
+                            ? closeEditor()
+                            : openEditor(item)
+                        }
+                        className="rounded-md border border-neutral-300 px-3 py-2 text-xs font-bold hover:bg-white"
+                      >
+                        {editingItemId === item.inventoryItemId
+                          ? "Close Editor"
+                          : "Edit Listing"}
+                      </button>
+                    ) : null}
+                    {["draft", "archived"].includes(item.status) &&
+                    item.activationReadiness.ready ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void activateSellerInventoryItem(item.inventoryItemId)
+                        }
+                        disabled={activatingItemId === item.inventoryItemId}
+                        className="rounded-md bg-neutral-950 px-3 py-2 text-xs font-bold text-white hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-500"
+                      >
+                        {activatingItemId === item.inventoryItemId
+                          ? "Activating..."
+                          : item.status === "archived"
+                            ? "Reactivate Listing"
+                            : "Activate Listing"}
+                      </button>
+                    ) : null}
+                    {item.status !== "archived" && item.status !== "sold" ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          void archiveSellerInventoryItem(item.inventoryItemId)
+                        }
+                        disabled={archivingItemId === item.inventoryItemId}
+                        className="rounded-md border border-neutral-300 px-3 py-2 text-xs font-bold hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {archivingItemId === item.inventoryItemId
+                          ? "Archiving..."
+                          : item.status === "active"
+                            ? "Pause Listing"
+                            : "Archive Draft"}
+                      </button>
+                    ) : null}
+                    <Link
+                      href={marketplaceLink.href}
+                      className="rounded-md border border-neutral-300 px-3 py-2 text-xs font-bold hover:bg-white"
+                    >
+                      {marketplaceLink.label}
+                    </Link>
+                    <Link
+                      href={inventoryOrdersHref(item)}
+                      className="rounded-md border border-neutral-300 px-3 py-2 text-xs font-bold hover:bg-white"
+                    >
+                      {inventoryOrdersLabel(item)}
+                    </Link>
+                    <Link
+                      href={inventoryPayoutHref(item)}
+                      className="rounded-md border border-neutral-300 px-3 py-2 text-xs font-bold hover:bg-white"
+                    >
+                      {inventoryPayoutLabel(item)}
+                    </Link>
+                    {item.legacyProductId ? (
+                      <Link
+                        href={`/admin/products/${item.legacyProductId}`}
+                        className="rounded-md border border-neutral-300 px-3 py-2 text-xs font-bold hover:bg-white"
+                      >
+                        Open Admin Product
+                      </Link>
+                    ) : null}
+                        </>
+                      );
+                    })()}
+                  </div>
+
+                  {editingItemId === item.inventoryItemId ? (
+                    <div className="mt-4 rounded-md border border-neutral-200 bg-white p-4">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <h4 className="text-sm font-black uppercase tracking-[0.14em] text-neutral-600">
+                            Seller Editor
+                          </h4>
+                          <p className="mt-1 text-sm text-neutral-600">
+                            Update the listing details, authenticity disclosure,
+                            and buyer-facing provenance notes without leaving the
+                            seller workspace.
+                          </p>
+                        </div>
+
+                        <div className="flex flex-wrap gap-2">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void generateSellerDescription(
+                                item.inventoryItemId,
+                                "regenerate",
+                              )
+                            }
+                            disabled={
+                              descriptionActionItemId === item.inventoryItemId
+                            }
+                            className="rounded-md border border-neutral-300 px-3 py-2 text-xs font-bold hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {descriptionActionItemId === item.inventoryItemId &&
+                            descriptionActionMode === "regenerate"
+                              ? "Refreshing..."
+                              : "Refresh Description"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void generateSellerDescription(
+                                item.inventoryItemId,
+                                "ai",
+                              )
+                            }
+                            disabled={
+                              descriptionActionItemId === item.inventoryItemId
+                            }
+                            className="rounded-md border border-neutral-300 px-3 py-2 text-xs font-bold hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {descriptionActionItemId === item.inventoryItemId &&
+                            descriptionActionMode === "ai"
+                              ? "Writing..."
+                              : "AI Description"}
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                        <label className="block">
+                          <span className="text-xs font-black uppercase tracking-[0.14em] text-neutral-500">
+                            Title
+                          </span>
+                          <input
+                            type="text"
+                            value={editorTitle}
+                            onChange={(event) =>
+                              setEditorTitle(event.target.value)
+                            }
+                            className="mt-2 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm"
+                          />
+                        </label>
+
+                        <div className="grid gap-4 sm:grid-cols-2">
+                          <label className="block">
+                            <span className="text-xs font-black uppercase tracking-[0.14em] text-neutral-500">
+                              Price
+                            </span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={editorPrice}
+                              onChange={(event) =>
+                                setEditorPrice(event.target.value)
+                              }
+                              className="mt-2 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm"
+                            />
+                          </label>
+
+                          <label className="block">
+                            <span className="text-xs font-black uppercase tracking-[0.14em] text-neutral-500">
+                              Quantity
+                            </span>
+                            <input
+                              type="number"
+                              min="0"
+                              step="1"
+                              value={editorQuantity}
+                              onChange={(event) =>
+                                setEditorQuantity(event.target.value)
+                              }
+                              className="mt-2 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm"
+                            />
+                          </label>
+                        </div>
+                      </div>
+
+                      <label className="mt-4 block">
+                        <span className="text-xs font-black uppercase tracking-[0.14em] text-neutral-500">
+                          Description
+                        </span>
+                        <textarea
+                          value={editorDescription}
+                          onChange={(event) =>
+                            setEditorDescription(event.target.value)
+                          }
+                          rows={5}
+                          className="mt-2 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm"
+                        />
+                      </label>
+
+                      <div className="mt-4 rounded-md border border-neutral-200 bg-neutral-50 p-4">
+                        <div>
+                          <h5 className="text-xs font-black uppercase tracking-[0.14em] text-neutral-600">
+                            Authenticity And Provenance
+                          </h5>
+                          <p className="mt-1 text-sm text-neutral-600">
+                            Match the listing disclosure to the exact support you
+                            can stand behind.
+                          </p>
+                        </div>
+
+                        <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                          <label className="block">
+                            <span className="text-xs font-black uppercase tracking-[0.14em] text-neutral-500">
+                              Authenticity Status
+                            </span>
+                            <select
+                              value={editorAuthenticityStatus}
+                              onChange={(event) =>
+                                setEditorAuthenticityStatus(
+                                  event.target.value as AuthenticityProfile["status"],
+                                )
+                              }
+                              className="mt-2 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm"
+                            >
+                              {AUTHENTICITY_STATUSES.map((status) => (
+                                <option key={status} value={status}>
+                                  {authenticityStatusLabel(status)}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+
+                          <label className="block">
+                            <span className="text-xs font-black uppercase tracking-[0.14em] text-neutral-500">
+                              Autograph Source
+                            </span>
+                            <select
+                              value={editorAutographSource}
+                              onChange={(event) =>
+                                setEditorAutographSource(
+                                  event.target.value as AuthenticityProfile["autographSource"],
+                                )
+                              }
+                              className="mt-2 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm"
+                            >
+                              {AUTOGRAPH_SOURCES.map((source) => (
+                                <option key={source} value={source}>
+                                  {autographSourceLabel(source)}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+
+                          <label className="block">
+                            <span className="text-xs font-black uppercase tracking-[0.14em] text-neutral-500">
+                              Certification Provider
+                            </span>
+                            <input
+                              type="text"
+                              value={editorCertProvider}
+                              onChange={(event) =>
+                                setEditorCertProvider(event.target.value)
+                              }
+                              placeholder="PSA, JSA, Beckett, SGC, CGC"
+                              className="mt-2 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm"
+                            />
+                          </label>
+
+                          <label className="block">
+                            <span className="text-xs font-black uppercase tracking-[0.14em] text-neutral-500">
+                              Certification Number
+                            </span>
+                            <input
+                              type="text"
+                              value={editorCertNumber}
+                              onChange={(event) =>
+                                setEditorCertNumber(event.target.value)
+                              }
+                              placeholder="Cert or lookup number"
+                              className="mt-2 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm"
+                            />
+                          </label>
+                        </div>
+
+                        <label className="mt-4 block">
+                          <span className="text-xs font-black uppercase tracking-[0.14em] text-neutral-500">
+                            Pass Guarantee Authenticators
+                          </span>
+                          <input
+                            type="text"
+                            value={editorGuaranteedAuthenticators}
+                            onChange={(event) =>
+                              setEditorGuaranteedAuthenticators(event.target.value)
+                            }
+                            placeholder="JSA, PSA DNA, Beckett"
+                            className="mt-2 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm"
+                          />
+                        </label>
+
+                        <label className="mt-4 block">
+                          <span className="text-xs font-black uppercase tracking-[0.14em] text-neutral-500">
+                            Provenance Evidence
+                          </span>
+                          <textarea
+                            value={editorProvenanceEvidence}
+                            onChange={(event) =>
+                              setEditorProvenanceEvidence(event.target.value)
+                            }
+                            rows={3}
+                            placeholder="Envelope, fan club return, ticket, signing photo, letter, receipt, or other support"
+                            className="mt-2 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm"
+                          />
+                        </label>
+
+                        <label className="mt-4 block">
+                          <span className="text-xs font-black uppercase tracking-[0.14em] text-neutral-500">
+                            Authenticity Notes
+                          </span>
+                          <textarea
+                            value={editorAuthenticityNotes}
+                            onChange={(event) =>
+                              setEditorAuthenticityNotes(event.target.value)
+                            }
+                            rows={3}
+                            placeholder="Extra buyer-facing disclosure that should travel with the listing"
+                            className="mt-2 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm"
+                          />
+                        </label>
+
+                        <label className="mt-4 flex items-start gap-3 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={editorUnder20SellerProtectionOptIn}
+                            onChange={(event) =>
+                              setEditorUnder20SellerProtectionOptIn(
+                                event.target.checked,
+                              )
+                            }
+                            className="mt-1"
+                          />
+                          <span>
+                            <span className="block font-black text-emerald-950">
+                              Opt into TCOS Under-$20 Seller Protection
+                            </span>
+                            <span className="mt-1 block font-semibold text-emerald-900">
+                              If this card ships by Standard Envelope, TCOS
+                              withholds 2% of the sale as the protection reserve
+                              and may reimburse the item sale amount up to $20
+                              if delivery evidence fails under TCOS claim rules.
+                              Shipping is not reimbursed. If you do not opt in,
+                              you are responsible for refunding the buyer in full
+                              if the shipment is lost.
+                            </span>
+                          </span>
+                        </label>
+                      </div>
+
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() =>
+                            void saveSellerInventoryItem(item.inventoryItemId)
+                          }
+                          disabled={savingItemId === item.inventoryItemId}
+                          className="rounded-md bg-neutral-950 px-4 py-2 text-sm font-bold text-white hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-500"
+                        >
+                          {savingItemId === item.inventoryItemId
+                            ? "Saving..."
+                            : "Save Changes"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={closeEditor}
+                          className="rounded-md border border-neutral-300 px-4 py-2 text-sm font-bold hover:bg-neutral-50"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : null}
+                </article>
+              ))}
+              {renderedItems.length < filteredItems.length ? (
+                <div className="col-span-full flex justify-center py-3">
+                  <button
+                    type="button"
+                    onClick={() => setRenderLimit((value) => value + 80)}
+                    className="rounded-md border-2 border-neutral-900 bg-white px-5 py-3 text-sm font-black shadow-[4px_4px_0_#111]"
+                  >
+                    Load 80 more · {filteredItems.length - renderedItems.length} remaining
+                  </button>
+                </div>
+              ) : null}
+              {renderedItems.length >= filteredItems.length && pagination.hasMore ? (
+                <div className="col-span-full flex flex-col items-center gap-2 py-3">
+                  <p className="text-xs font-semibold text-neutral-600">
+                    Filters and search currently apply to the {items.length.toLocaleString()} loaded rows.
+                  </p>
+                  <button
+                    type="button"
+                    disabled={loadingMore || !session?.access_token}
+                    onClick={() =>
+                      session?.access_token &&
+                      void loadInventory(session.access_token, { append: true })
+                    }
+                    className="rounded-md bg-neutral-950 px-5 py-3 text-sm font-black text-white disabled:opacity-50"
+                  >
+                    {loadingMore
+                      ? "Loading next 500…"
+                      : "Load next 500 · " +
+                        Math.max(0, pagination.total - items.length).toLocaleString() +
+                        " not loaded"}
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          )}
+        </section>
+      </div>
+    </main>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md border border-neutral-200 bg-white p-5">
+      <p className="text-sm font-bold uppercase text-neutral-500">{label}</p>
+      <p className="mt-3 text-3xl font-black tracking-tight">{value}</p>
+    </div>
+  );
+}
+
+function Info({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt className="text-xs font-black uppercase text-neutral-500">{label}</dt>
+      <dd className="mt-1 break-words font-bold text-neutral-900">{value}</dd>
+    </div>
+  );
+}
+
+function HeaderLink({
+  href,
+  label,
+  primary,
+}: {
+  href: string;
+  label: string;
+  primary?: boolean;
+}) {
+  const className = primary
+    ? "bg-amber-300 text-neutral-950 hover:bg-amber-200"
+    : "border border-white/20 text-white hover:bg-white/10";
+
+  return (
+    <Link
+      href={href}
+      className={`rounded-md px-4 py-2 text-sm font-bold ${className}`}
+    >
+      {label}
+    </Link>
+  );
+}
+
+function workspaceHeaderLabel(label: string) {
+  if (
+    label.startsWith("Open ") ||
+    label.startsWith("Search ") ||
+    label.startsWith("Back To ") ||
+    label.startsWith("Return To ")
+  ) {
+    return label;
+  }
+
+  return `Open ${label}`;
+}
+
+function FilterChip({
+  active,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`rounded-md border px-3 py-2 text-xs font-black uppercase tracking-[0.14em] transition ${
+        active
+          ? "border-neutral-950 bg-neutral-950 text-white"
+          : "border-neutral-300 bg-white text-neutral-700 hover:bg-neutral-100"
+      }`}
+    >
+      {label}
+    </button>
+  );
+}

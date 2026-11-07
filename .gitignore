@@ -1,0 +1,62 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/.next-*/
+/out/
+
+# OpenNext / Cloudflare Worker build output
+/.open-next/
+/.wrangler/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+*.zip
+/.codex-run/
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# env files and local credential exports
+.env*
+/ENV_BACKUP_DO_NOT_DELETE.txt
+
+# Local PaddleOCR runtime and downloaded models
+/services/paddleocr-service/.venv/
+/services/paddleocr-service/.paddlex-cache/
+__pycache__/
+
+# Local InstaComp trial files can contain personal inventory paths/results
+/instacomp-trial-*.local.json
+/instacomp-trial-*.local.md
+/instacomp-trial-*.local.tsv
+/instacomp-trial-*.local.html
+/instacomp-trial-inbox/
+/instacomp-trial-images/
+
+# Supabase CLI link/cache metadata
+/supabase/.temp/
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts

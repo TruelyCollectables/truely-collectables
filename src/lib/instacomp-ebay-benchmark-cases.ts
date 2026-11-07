@@ -1,0 +1,456 @@
+export type InstaCompEbayBenchmarkExpectedIdentity = {
+  player: string;
+  playerAliases?: string[];
+  year: string;
+  brand: string;
+  product: string;
+  setName: string;
+  setAliases?: string[];
+  cardNumber: string;
+  parallel: string | null;
+  parallelAliases?: string[];
+  serialDenominator: number | null;
+  team: string | null;
+  sport: string;
+  isRookie: boolean;
+  isAuto: boolean;
+  isRelic: boolean;
+};
+
+export type InstaCompEbayBenchmarkCase = {
+  id: string;
+  searchQuery: string;
+  catalogSourceLabel: string;
+  catalogSourceUrl: string;
+  expected: InstaCompEbayBenchmarkExpectedIdentity;
+};
+
+const UPPER_DECK_SERIES_ONE_CHECKLIST =
+  "https://upperdeck.com/checklist/2024-25-ud-series-1-hockey-checklist/";
+
+function upperDeckCase(params: {
+  id: string;
+  searchQuery: string;
+  player: string;
+  playerAliases?: string[];
+  setName: string;
+  setAliases?: string[];
+  cardNumber: string;
+  parallel?: string | null;
+  parallelAliases?: string[];
+  serialDenominator?: number | null;
+  team?: string | null;
+  isRookie?: boolean;
+}): InstaCompEbayBenchmarkCase {
+  return {
+    id: params.id,
+    searchQuery: `${params.searchQuery} -lot -reprint -custom -digital -NFT`,
+    catalogSourceLabel: "Upper Deck official 2024-25 Series 1 checklist",
+    catalogSourceUrl: UPPER_DECK_SERIES_ONE_CHECKLIST,
+    expected: {
+      player: params.player,
+      playerAliases: params.playerAliases,
+      year: "2024-25",
+      brand: "Upper Deck",
+      product: "Upper Deck Series 1 Hockey",
+      setName: params.setName,
+      setAliases: params.setAliases,
+      cardNumber: params.cardNumber,
+      parallel: params.parallel ?? null,
+      parallelAliases: params.parallelAliases,
+      serialDenominator: params.serialDenominator ?? null,
+      team: params.team ?? null,
+      sport: "Hockey",
+      isRookie: params.isRookie ?? false,
+      isAuto: false,
+      isRelic: false,
+    },
+  };
+}
+
+// The runner scans the first 25 cases that can be backed by a live eBay listing
+// containing at least two listing images. The larger pool prevents one ended or
+// one-image listing from reducing the completed benchmark below 25 cards.
+export const INSTACOMP_EBAY_BENCHMARK_CASES: InstaCompEbayBenchmarkCase[] = [
+  upperDeckCase({
+    id: "ud-s1-lane-hutson-young-guns-229",
+    searchQuery: '2024-25 Upper Deck Series 1 Lane Hutson Young Guns 229',
+    player: "Lane Hutson",
+    setName: "Base Set - Young Guns",
+    setAliases: ["Young Guns", "Upper Deck Series 1 Young Guns"],
+    cardNumber: "229",
+    parallel: "Base",
+    parallelAliases: ["Base Young Guns", "Young Guns"],
+    team: "Montreal Canadiens",
+    isRookie: true,
+  }),
+  upperDeckCase({
+    id: "ud-s1-logan-stankoven-young-guns-244",
+    searchQuery: '2024-25 Upper Deck Series 1 Logan Stankoven Young Guns 244',
+    player: "Logan Stankoven",
+    setName: "Base Set - Young Guns",
+    setAliases: ["Young Guns", "Upper Deck Series 1 Young Guns"],
+    cardNumber: "244",
+    parallel: "Base",
+    parallelAliases: ["Base Young Guns", "Young Guns"],
+    team: "Dallas Stars",
+    isRookie: true,
+  }),
+  upperDeckCase({
+    id: "ud-s1-frank-nazar-young-guns-227",
+    searchQuery: '2024-25 Upper Deck Series 1 Frank Nazar Young Guns 227',
+    player: "Frank Nazar",
+    setName: "Base Set - Young Guns",
+    setAliases: ["Young Guns", "Upper Deck Series 1 Young Guns"],
+    cardNumber: "227",
+    parallel: "Base",
+    parallelAliases: ["Base Young Guns", "Young Guns"],
+    team: "Chicago Blackhawks",
+    isRookie: true,
+  }),
+  upperDeckCase({
+    id: "ud-s1-brad-lambert-young-guns-228",
+    searchQuery: '2024-25 Upper Deck Series 1 Brad Lambert Young Guns 228',
+    player: "Brad Lambert",
+    setName: "Base Set - Young Guns",
+    setAliases: ["Young Guns", "Upper Deck Series 1 Young Guns"],
+    cardNumber: "228",
+    parallel: "Base",
+    parallelAliases: ["Base Young Guns", "Young Guns"],
+    team: "Winnipeg Jets",
+    isRookie: true,
+  }),
+  upperDeckCase({
+    id: "ud-s1-matt-rempe-canvas-young-guns-c113",
+    searchQuery: '2024-25 Upper Deck Series 1 Matt Rempe Canvas Young Guns C-113',
+    player: "Matt Rempe",
+    setName: "UD Canvas - Young Guns",
+    setAliases: ["Canvas Young Guns", "UD Canvas Young Guns"],
+    cardNumber: "C-113",
+    parallel: "Canvas Young Guns",
+    parallelAliases: ["UD Canvas Young Guns", "Canvas"],
+    team: "New York Rangers",
+    isRookie: true,
+  }),
+  upperDeckCase({
+    id: "ud-s1-lane-hutson-canvas-young-guns-c111",
+    searchQuery: '2024-25 Upper Deck Series 1 Lane Hutson Canvas Young Guns C-111',
+    player: "Lane Hutson",
+    setName: "UD Canvas - Young Guns",
+    setAliases: ["Canvas Young Guns", "UD Canvas Young Guns"],
+    cardNumber: "C-111",
+    parallel: "Canvas Young Guns",
+    parallelAliases: ["UD Canvas Young Guns", "Canvas"],
+    team: "Montreal Canadiens",
+    isRookie: true,
+  }),
+  upperDeckCase({
+    id: "ud-s1-lane-hutson-clear-cut-young-guns-229",
+    searchQuery: '2024-25 Upper Deck Series 1 Lane Hutson Young Guns Clear Cut 229',
+    player: "Lane Hutson",
+    setName: "Clear Cut Parallel - Young Guns",
+    setAliases: ["Young Guns", "Upper Deck Series 1 Young Guns"],
+    cardNumber: "229",
+    parallel: "Clear Cut",
+    parallelAliases: ["Clear Cut Young Guns", "Acetate"],
+    team: "Montreal Canadiens",
+    isRookie: true,
+  }),
+  upperDeckCase({
+    id: "ud-s1-lane-hutson-outburst-silver-young-guns-229",
+    searchQuery: '2024-25 Upper Deck Series 1 Lane Hutson Young Guns Outburst Silver 229',
+    player: "Lane Hutson",
+    setName: "Outburst Silver Parallel - Young Guns",
+    setAliases: ["Young Guns", "Upper Deck Series 1 Young Guns"],
+    cardNumber: "229",
+    parallel: "Outburst Silver",
+    parallelAliases: ["Silver Outburst", "Outburst"],
+    team: "Montreal Canadiens",
+    isRookie: true,
+  }),
+  upperDeckCase({
+    id: "ud-s1-logan-stankoven-outburst-silver-young-guns-244",
+    searchQuery: '2024-25 Upper Deck Series 1 Logan Stankoven Young Guns Outburst Silver 244',
+    player: "Logan Stankoven",
+    setName: "Outburst Silver Parallel - Young Guns",
+    setAliases: ["Young Guns", "Upper Deck Series 1 Young Guns"],
+    cardNumber: "244",
+    parallel: "Outburst Silver",
+    parallelAliases: ["Silver Outburst", "Outburst"],
+    team: "Dallas Stars",
+    isRookie: true,
+  }),
+  upperDeckCase({
+    id: "ud-s1-lane-hutson-deluxe-young-guns-229-250",
+    searchQuery: '2024-25 Upper Deck Series 1 Lane Hutson Young Guns Deluxe 229 /250',
+    player: "Lane Hutson",
+    setName: "Deluxe Parallel - Young Guns",
+    setAliases: ["Young Guns", "Upper Deck Series 1 Young Guns"],
+    cardNumber: "229",
+    parallel: "Deluxe",
+    parallelAliases: ["Deluxe Young Guns"],
+    serialDenominator: 250,
+    team: "Montreal Canadiens",
+    isRookie: true,
+  }),
+  upperDeckCase({
+    id: "ud-s1-lane-hutson-exclusives-young-guns-229-100",
+    searchQuery: '2024-25 Upper Deck Series 1 Lane Hutson Young Guns Exclusives 229 /100',
+    player: "Lane Hutson",
+    setName: "Exclusives Parallel - Young Guns",
+    setAliases: ["Young Guns", "Upper Deck Series 1 Young Guns"],
+    cardNumber: "229",
+    parallel: "Exclusives",
+    parallelAliases: ["Exclusives Young Guns"],
+    serialDenominator: 100,
+    team: "Montreal Canadiens",
+    isRookie: true,
+  }),
+  upperDeckCase({
+    id: "ud-s1-logan-stankoven-deluxe-young-guns-244-250",
+    searchQuery: '2024-25 Upper Deck Series 1 Logan Stankoven Young Guns Deluxe 244 /250',
+    player: "Logan Stankoven",
+    setName: "Deluxe Parallel - Young Guns",
+    setAliases: ["Young Guns", "Upper Deck Series 1 Young Guns"],
+    cardNumber: "244",
+    parallel: "Deluxe",
+    parallelAliases: ["Deluxe Young Guns"],
+    serialDenominator: 250,
+    team: "Dallas Stars",
+    isRookie: true,
+  }),
+  upperDeckCase({
+    id: "ud-s1-connor-mcdavid-city-satellites-cs3",
+    searchQuery: '2024-25 Upper Deck Series 1 Connor McDavid City Satellites CS-3',
+    player: "Connor McDavid",
+    setName: "City Satellites",
+    cardNumber: "CS-3",
+    parallel: "Base",
+    parallelAliases: ["City Satellites"],
+    team: "Edmonton Oilers",
+  }),
+  upperDeckCase({
+    id: "ud-s1-sidney-crosby-city-satellites-cs1",
+    searchQuery: '2024-25 Upper Deck Series 1 Sidney Crosby City Satellites CS-1',
+    player: "Sidney Crosby",
+    setName: "City Satellites",
+    cardNumber: "CS-1",
+    parallel: "Base",
+    parallelAliases: ["City Satellites"],
+    team: "Pittsburgh Penguins",
+  }),
+  upperDeckCase({
+    id: "ud-s1-connor-bedard-city-satellites-cs11",
+    searchQuery: '2024-25 Upper Deck Series 1 Connor Bedard City Satellites CS-11',
+    player: "Connor Bedard",
+    setName: "City Satellites",
+    cardNumber: "CS-11",
+    parallel: "Base",
+    parallelAliases: ["City Satellites"],
+    team: "Chicago Blackhawks",
+  }),
+  upperDeckCase({
+    id: "ud-s1-connor-bedard-city-satellites-speckle-cs11",
+    searchQuery: '2024-25 Upper Deck Series 1 Connor Bedard City Satellites Speckle CS-11',
+    player: "Connor Bedard",
+    setName: "City Satellites Speckle Parallel",
+    setAliases: ["City Satellites"],
+    cardNumber: "CS-11",
+    parallel: "Speckle",
+    parallelAliases: ["City Satellites Speckle"],
+    team: "Chicago Blackhawks",
+  }),
+  upperDeckCase({
+    id: "ud-s1-connor-bedard-city-satellites-red-cs11-99",
+    searchQuery: '2024-25 Upper Deck Series 1 Connor Bedard City Satellites Red CS-11 /99',
+    player: "Connor Bedard",
+    setName: "City Satellites Red Parallel",
+    setAliases: ["City Satellites"],
+    cardNumber: "CS-11",
+    parallel: "Red",
+    parallelAliases: ["City Satellites Red"],
+    serialDenominator: 99,
+    team: "Chicago Blackhawks",
+  }),
+  upperDeckCase({
+    id: "ud-s1-connor-bedard-city-satellites-black-cs11",
+    searchQuery: '2024-25 Upper Deck Series 1 Connor Bedard City Satellites Black CS-11',
+    player: "Connor Bedard",
+    setName: "City Satellites Black Parallel",
+    setAliases: ["City Satellites"],
+    cardNumber: "CS-11",
+    parallel: "Black",
+    parallelAliases: ["City Satellites Black"],
+    team: "Chicago Blackhawks",
+  }),
+  upperDeckCase({
+    id: "ud-s1-connor-bedard-dazzlers-blue-dz13",
+    searchQuery: '2024-25 Upper Deck Series 1 Connor Bedard Dazzlers Blue DZ-13',
+    player: "Connor Bedard",
+    setName: "Dazzlers Blue",
+    setAliases: ["Dazzlers"],
+    cardNumber: "DZ-13",
+    parallel: "Blue",
+    parallelAliases: ["Dazzlers Blue"],
+    team: "Chicago Blackhawks",
+  }),
+  upperDeckCase({
+    id: "ud-s1-connor-bedard-gaming-xp-gxp1",
+    searchQuery: '2024-25 Upper Deck Series 1 Connor Bedard Gaming XP GXP-1',
+    player: "Connor Bedard",
+    setName: "Gaming XP",
+    cardNumber: "GXP-1",
+    parallel: "Base",
+    parallelAliases: ["Gaming XP"],
+    team: "Chicago Blackhawks",
+  }),
+  upperDeckCase({
+    id: "ud-s1-connor-mcdavid-gaming-xp-gxp25",
+    searchQuery: '2024-25 Upper Deck Series 1 Connor McDavid Gaming XP GXP-25',
+    player: "Connor McDavid",
+    setName: "Gaming XP",
+    cardNumber: "GXP-25",
+    parallel: "Base",
+    parallelAliases: ["Gaming XP"],
+    team: "Edmonton Oilers",
+  }),
+  upperDeckCase({
+    id: "ud-s1-connor-bedard-gaming-xp-speckle-gxp1",
+    searchQuery: '2024-25 Upper Deck Series 1 Connor Bedard Gaming XP Speckle GXP-1',
+    player: "Connor Bedard",
+    setName: "Gaming XP Speckle Parallel",
+    setAliases: ["Gaming XP"],
+    cardNumber: "GXP-1",
+    parallel: "Speckle",
+    parallelAliases: ["Gaming XP Speckle"],
+    team: "Chicago Blackhawks",
+  }),
+  upperDeckCase({
+    id: "ud-s1-alex-ovechkin-checkpoint-cp11",
+    searchQuery: '2024-25 Upper Deck Series 1 Alex Ovechkin Checkpoint CP-11',
+    player: "Alex Ovechkin",
+    setName: "Checkpoint",
+    cardNumber: "CP-11",
+    parallel: "Base",
+    parallelAliases: ["Checkpoint"],
+    team: "Washington Capitals",
+  }),
+  upperDeckCase({
+    id: "ud-s1-connor-bedard-opc-glossy-gold-og7",
+    searchQuery: '2024-25 Upper Deck Series 1 Connor Bedard O-Pee-Chee Glossy Gold OG-7',
+    player: "Connor Bedard",
+    setName: "O-Pee-Chee Glossy Gold Parallel",
+    setAliases: ["O-Pee-Chee Glossy"],
+    cardNumber: "OG-7",
+    parallel: "Gold",
+    parallelAliases: ["Glossy Gold", "O-Pee-Chee Glossy Gold"],
+    team: "Chicago Blackhawks",
+  }),
+  upperDeckCase({
+    id: "ud-s1-alex-ovechkin-opc-glossy-gold-og5",
+    searchQuery: '2024-25 Upper Deck Series 1 Alex Ovechkin O-Pee-Chee Glossy Gold OG-5',
+    player: "Alex Ovechkin",
+    setName: "O-Pee-Chee Glossy Gold Parallel",
+    setAliases: ["O-Pee-Chee Glossy"],
+    cardNumber: "OG-5",
+    parallel: "Gold",
+    parallelAliases: ["Glossy Gold", "O-Pee-Chee Glossy Gold"],
+    team: "Washington Capitals",
+  }),
+  upperDeckCase({
+    id: "ud-s1-connor-bedard-population-count-1000-pc3",
+    searchQuery: '2024-25 Upper Deck Series 1 Connor Bedard Population Count 1000 PC-3',
+    player: "Connor Bedard",
+    setName: "Population Count 1000",
+    cardNumber: "PC-3",
+    parallel: "Population Count 1000",
+    parallelAliases: ["Pop Count 1000", "PC 1000"],
+    team: "Chicago Blackhawks",
+  }),
+  upperDeckCase({
+    id: "ud-s1-caufield-bedard-canvas-c90",
+    searchQuery: '2024-25 Upper Deck Series 1 Cole Caufield Connor Bedard Canvas C-90',
+    player: "Cole Caufield/Connor Bedard",
+    playerAliases: ["Cole Caufield Connor Bedard", "Connor Bedard/Cole Caufield"],
+    setName: "UD Canvas",
+    setAliases: ["Canvas"],
+    cardNumber: "C-90",
+    parallel: "Canvas",
+    team: null,
+  }),
+  upperDeckCase({
+    id: "ud-s1-lane-hutson-canvas-black-white-c111",
+    searchQuery: '2024-25 Upper Deck Series 1 Lane Hutson Canvas Black White C-111',
+    player: "Lane Hutson",
+    setName: "UD Canvas Black and White Parallel - Young Guns",
+    setAliases: ["Canvas Young Guns"],
+    cardNumber: "C-111",
+    parallel: "Black and White",
+    parallelAliases: ["Black & White", "Canvas Black and White"],
+    team: "Montreal Canadiens",
+    isRookie: true,
+  }),
+  upperDeckCase({
+    id: "ud-s1-matt-rempe-canvas-black-white-c113",
+    searchQuery: '2024-25 Upper Deck Series 1 Matt Rempe Canvas Black White C-113',
+    player: "Matt Rempe",
+    setName: "UD Canvas Black and White Parallel - Young Guns",
+    setAliases: ["Canvas Young Guns"],
+    cardNumber: "C-113",
+    parallel: "Black and White",
+    parallelAliases: ["Black & White", "Canvas Black and White"],
+    team: "New York Rangers",
+    isRookie: true,
+  }),
+  upperDeckCase({
+    id: "ud-s1-connor-bedard-gaming-fov-blue-gfov5",
+    searchQuery: '2024-25 Upper Deck Series 1 Connor Bedard Gaming FOV Blue GFOV-5',
+    player: "Connor Bedard",
+    setName: "Gaming FOV Blue Parallel",
+    setAliases: ["Gaming FOV"],
+    cardNumber: "GFOV-5",
+    parallel: "Blue",
+    parallelAliases: ["Gaming FOV Blue"],
+    team: "Chicago Blackhawks",
+  }),
+  upperDeckCase({
+    id: "ud-s1-bedard-debrincat-gaming-pvp-gpvp5",
+    searchQuery: '2024-25 Upper Deck Series 1 Connor Bedard Alex DeBrincat Gaming PVP GPVP-5',
+    player: "Connor Bedard/Alex DeBrincat",
+    playerAliases: ["Alex DeBrincat/Connor Bedard", "Connor Bedard Alex DeBrincat"],
+    setName: "Gaming PVP",
+    cardNumber: "GPVP-5",
+    parallel: "Base",
+    parallelAliases: ["Gaming PVP"],
+    team: null,
+  }),
+  upperDeckCase({
+    id: "ud-s1-troy-terry-base-1",
+    searchQuery: '2024-25 Upper Deck Series 1 Troy Terry 1 single card',
+    player: "Troy Terry",
+    setName: "Base Set",
+    cardNumber: "1",
+    parallel: "Base",
+    team: "Anaheim Ducks",
+  }),
+  upperDeckCase({
+    id: "ud-s1-clayton-keller-base-8",
+    searchQuery: '2024-25 Upper Deck Series 1 Clayton Keller 8 single card',
+    player: "Clayton Keller",
+    setName: "Base Set",
+    cardNumber: "8",
+    parallel: "Base",
+    team: "Arizona Coyotes",
+  }),
+  upperDeckCase({
+    id: "ud-s1-jackson-lacombe-base-2",
+    searchQuery: '2024-25 Upper Deck Series 1 Jackson LaCombe 2 single card',
+    player: "Jackson LaCombe",
+    setName: "Base Set",
+    cardNumber: "2",
+    parallel: "Base",
+    team: "Anaheim Ducks",
+  }),
+];
+
+export const INSTACOMP_EBAY_BENCHMARK_TARGET = 25;

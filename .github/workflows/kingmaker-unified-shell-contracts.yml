@@ -1,0 +1,55 @@
+name: KINGMAKER Unified Shell Contracts
+
+on:
+  pull_request:
+    paths:
+      - "src/app/kingmaker/**"
+      - "src/lib/instacomp-capabilities.ts"
+      - "src/lib/instacomp-evidence-contract.ts"
+      - "src/lib/instacomp-research-contract.ts"
+      - "src/lib/kingmaker-instacomp-boundaries.ts"
+      - "scripts/certify-kingmaker-instacomp-architecture.mjs"
+      - "docs/KINGMAKER_INSTACOMP_ARCHITECTURE.md"
+      - ".github/workflows/kingmaker-unified-shell-contracts.yml"
+  push:
+    paths:
+      - "src/app/kingmaker/**"
+      - "src/lib/instacomp-capabilities.ts"
+      - "src/lib/instacomp-evidence-contract.ts"
+      - "src/lib/instacomp-research-contract.ts"
+      - "src/lib/kingmaker-instacomp-boundaries.ts"
+      - "scripts/certify-kingmaker-instacomp-architecture.mjs"
+      - "docs/KINGMAKER_INSTACOMP_ARCHITECTURE.md"
+      - ".github/workflows/kingmaker-unified-shell-contracts.yml"
+
+jobs:
+  certify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Certify KINGMAKER and InstaComp boundaries
+        run: node scripts/certify-kingmaker-instacomp-architecture.mjs
+      - name: Lint unified shell and contracts
+        run: >-
+          npx eslint
+          src/app/kingmaker
+          src/lib/instacomp-capabilities.ts
+          src/lib/instacomp-evidence-contract.ts
+          src/lib/instacomp-research-contract.ts
+          src/lib/kingmaker-instacomp-boundaries.ts
+          scripts/certify-kingmaker-instacomp-architecture.mjs
+      - name: TypeScript
+        run: npx tsc --noEmit
+      - name: Production build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: placeholder-service-role-key
+          NEXT_PUBLIC_SITE_URL: https://example.com
+        run: npm run build

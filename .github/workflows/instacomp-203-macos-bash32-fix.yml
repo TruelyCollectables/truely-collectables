@@ -1,0 +1,64 @@
+name: InstaComp 203 macOS Bash 3.2 Fix
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-203-macos-bash32-fix.yml"
+      - "scripts/patch-instacomp-203-macos-bash32.py"
+      - "services/instacomp-ai/scripts/run-supervised-203-permanent-uuid.sh"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: instacomp-203-macos-bash32-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  EXPECTED_BRANCH: fix/instacomp-203-macos-bash32-20260808
+
+jobs:
+  patch-test-persist:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Apply macOS Bash 3.2 compatibility patch
+        run: |
+          set -euo pipefail
+          python3 scripts/patch-instacomp-203-macos-bash32.py
+          bash -n services/instacomp-ai/scripts/run-supervised-203-permanent-uuid.sh
+          git diff --check
+
+      - name: Prove no Bash 4 or GNU find dependency remains in archive discovery
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          text = Path('services/instacomp-ai/scripts/run-supervised-203-permanent-uuid.sh').read_text('utf-8')
+          forbidden = ['declare -A', '-maxdepth', 'mapfile ', 'readarray ', '${BASH_VERSINFO[']
+          for marker in forbidden:
+              assert marker not in text, f'Bash 3.2-incompatible marker remains: {marker}'
+          assert 'root.rglob("*.zip")' in text
+          assert 'hashlib.sha256()' in text
+          assert 'All scans.zip' in text
+          assert '621d58db6fe31e15d462a72b649e66a8d742639ce39973570e790bae6d11081a' in text
+          print('PASS macOS Bash 3.2-safe 203 archive discovery')
+          PY
+
+      - name: Persist corrected Mac loader
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add services/instacomp-ai/scripts/run-supervised-203-permanent-uuid.sh
+          if ! git diff --cached --quiet; then
+            git commit -m "Make supervised 203 loader compatible with macOS Bash 3.2 [skip ci]"
+            git push origin "HEAD:$EXPECTED_BRANCH"
+          fi

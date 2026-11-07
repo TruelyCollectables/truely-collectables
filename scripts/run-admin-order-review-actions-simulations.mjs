@@ -1,0 +1,321 @@
+import { readFile } from "node:fs/promises";
+
+const sources = {
+  globalCaseQueue: await readFile(
+    new URL("../src/app/admin/order-review-cases/page.tsx", import.meta.url),
+    "utf8",
+  ),
+  caseQueue: await readFile(
+    new URL("../src/app/admin/order-review-cases/CaseQueueActions.tsx", import.meta.url),
+    "utf8",
+  ),
+  stripeEvidence: await readFile(
+    new URL("../src/app/admin/order-review-cases/StripeEvidenceActions.tsx", import.meta.url),
+    "utf8",
+  ),
+  orderDetailReview: await readFile(
+    new URL(
+      "../src/app/admin/orders/[id]/OrderReviewCasesPanel.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  ),
+  orderDetailPage: await readFile(
+    new URL("../src/app/admin/orders/[id]/page.tsx", import.meta.url),
+    "utf8",
+  ),
+};
+
+const scenarios = [];
+
+function scenario(name, run) {
+  scenarios.push({ name, run });
+}
+
+function assert(condition, message) {
+  if (!condition) throw new Error(message);
+}
+
+scenario("case queue actions expose accessible save and payout feedback", () => {
+  for (const fragment of [
+    "type FeedbackTone",
+    "Saving case...",
+    "Case saved.",
+    "Applying payout resolution...",
+    "ActionMessage",
+    "caseActionRunningRef",
+    "payoutResolutionRunningRef",
+    "Case save is already running.",
+    "Payout resolution is already running.",
+    "No seller payout rows are tied to this case scope.",
+    'aria-busy={busy}',
+    'aria-busy={resolutionBusy}',
+    "aria-disabled={payoutResolutionDisabled}",
+    'aria-live={message.tone === "info" ? "polite" : "assertive"}',
+    'role={message.tone === "error" ? "alert" : "status"}',
+  ]) {
+    assert(
+      sources.caseQueue.includes(fragment),
+      `Expected case queue feedback fragment ${fragment}.`,
+    );
+  }
+});
+
+scenario("case queue submits the visible effective payout action", () => {
+  for (const fragment of [
+    "const effectiveResolutionAction",
+    "selectedResolutionOption?.[0] || resolutionAction",
+    "action: effectiveResolutionAction",
+  ]) {
+    assert(
+      sources.caseQueue.includes(fragment),
+      `Expected effective payout action fragment ${fragment}.`,
+    );
+  }
+
+  assert(
+    sources.caseQueue.indexOf("const effectiveResolutionAction") <
+      sources.caseQueue.indexOf("action: effectiveResolutionAction"),
+    "Expected effective payout action to be derived before being submitted.",
+  );
+});
+
+scenario("stripe evidence actions expose accessible staged and submit feedback", () => {
+  for (const fragment of [
+    "type FeedbackTone",
+    "Generating and staging Stripe evidence...",
+    "Evidence staged in Stripe for review.",
+    "Submitting final evidence to Stripe...",
+    "Evidence submitted to Stripe.",
+    "Type SUBMIT TO STRIPE exactly before final submission.",
+    "evidenceActionRunningRef",
+    "beginSubmitConfirmation",
+    "Stripe evidence action is already running.",
+    "Stage Stripe evidence before final submission.",
+    "Evidence is already",
+    "const stageButtonTitle",
+    "const submitButtonTitle",
+    "const finalSubmitTitle",
+    "const cancelSubmitTitle",
+    "Generate and stage editable Stripe dispute evidence.",
+    "Open the final Stripe evidence submission confirmation.",
+    "Submit final evidence to Stripe and the issuing bank.",
+    "Close this Stripe final-submission confirmation.",
+    "title={stageButtonTitle}",
+    "title={submitButtonTitle}",
+    "title={finalSubmitTitle}",
+    "title={cancelSubmitTitle}",
+    'aria-busy={busy === "stage"}',
+    'aria-busy={busy === "submit"}',
+    "aria-disabled={busy !== null || stageLocked}",
+    "aria-disabled={busy !== null || !canSubmit}",
+    'aria-live={message.tone === "info" ? "polite" : "assertive"}',
+    'role={message.tone === "error" ? "alert" : "status"}',
+  ]) {
+    assert(
+      sources.stripeEvidence.includes(fragment),
+      `Expected Stripe evidence feedback fragment ${fragment}.`,
+    );
+  }
+});
+
+scenario("order detail case opener exposes typed live feedback", () => {
+  for (const fragment of [
+    "type FeedbackTone",
+    "Opening order review case...",
+    "Case opened. Seller payout rows held:",
+    "Add a clear case title before opening review.",
+    "createCaseRunningRef",
+    "Order review case is already opening.",
+    "ActionNotice",
+    'aria-busy={busy}',
+    "aria-disabled={busy || !canCreateCase}",
+    'role={tone === "error" ? "alert" : "status"}',
+    'aria-live={tone === "info" ? "polite" : "assertive"}',
+    "Order review case is opening.",
+    "Open a review case and apply the selected holds.",
+  ]) {
+    assert(
+      sources.orderDetailReview.includes(fragment),
+      `Expected order detail case opener feedback fragment ${fragment}.`,
+    );
+  }
+});
+
+scenario("order detail page keeps linked order records failure-safe", () => {
+  for (const fragment of [
+    "function safeErrorMessage",
+    "function UnavailableNotice",
+    "const evidenceUnavailable = Boolean(evidenceError)",
+    "const payoutLedgerUnavailable = Boolean(payoutLedgerError)",
+    "const platformFeeLedgerUnavailable = Boolean(platformFeeLedgerError)",
+    "const shippingLabelsUnavailable = Boolean(shippingLabelsError)",
+    "const shippingTrackingEventsUnavailable = Boolean(",
+    "const shippingCoverageClaimsUnavailable = Boolean(shippingCoverageClaimsError)",
+    "Platform fee ledger unavailable.",
+    "Seller payout ledger unavailable.",
+    "Shipping label records unavailable.",
+    "Tracking event history unavailable.",
+    "Coverage claim history unavailable.",
+    "Evidence packet history unavailable.",
+    "safeErrorMessage(error)",
+    "safeErrorMessage(orderReviewCasesError)",
+    "safeErrorMessage(orderReviewCaseEventsError)",
+    "error={platformFeeLedgerError}",
+    "error={payoutLedgerError}",
+    "error={shippingLabelsError}",
+    "error={shippingTrackingEventsError}",
+    "error={shippingCoverageClaimsError}",
+    "error={evidenceError}",
+    "cannot prove whether TCOS checkout fee rows exist",
+    "do not release funds or treat this seller queue as clear",
+    "cannot prove whether a label record",
+    "delivery scans, provider events, and LetterTrack evidence cannot be trusted",
+    "claim status cannot be trusted",
+    "chargeback packets and delivery proof cannot be treated as missing",
+  ]) {
+    assert(
+      sources.orderDetailPage.includes(fragment),
+      `Expected order detail unavailable-state fragment ${fragment}.`,
+    );
+  }
+
+  for (const forbidden of [
+    "{payoutLedgerError.message}",
+    "{shippingLabelsError.message}",
+    "{shippingTrackingEventsError.message}",
+    "{shippingCoverageClaimsError.message}",
+    "{evidenceError.message}",
+    "tableError={orderReviewCasesError?.message || null}",
+    "eventsError={orderReviewCaseEventsError?.message || null}",
+  ]) {
+    assert(
+      !sources.orderDetailPage.includes(forbidden),
+      `Order detail page must not render raw error fragment ${forbidden}.`,
+    );
+  }
+
+  for (const [unavailable, empty, label] of [
+    [
+      "Seller payout ledger unavailable.",
+      "No seller payout ledger entries have been created for this order yet.",
+      "seller payout ledger",
+    ],
+    [
+      "Shipping label records unavailable.",
+      "No label record has been prepared yet.",
+      "shipping labels",
+    ],
+    [
+      "Tracking event history unavailable.",
+      "No tracking events have been recorded yet.",
+      "tracking events",
+    ],
+    [
+      "Coverage claim history unavailable.",
+      "No loss/damage coverage claims have been opened.",
+      "coverage claims",
+    ],
+    [
+      "Evidence packet history unavailable.",
+      "No evidence packet has been created for this order yet.",
+      "evidence packets",
+    ],
+  ]) {
+    const unavailableIndex = sources.orderDetailPage.indexOf(unavailable);
+    const emptyIndex = sources.orderDetailPage.indexOf(empty, unavailableIndex);
+
+    assert(unavailableIndex >= 0, `Expected ${label} unavailable state.`);
+    assert(emptyIndex >= 0, `Expected ${label} empty state.`);
+    assert(
+      unavailableIndex < emptyIndex,
+      `Expected ${label} unavailable state to render before its empty state.`,
+    );
+  }
+});
+
+scenario("order detail page uses professional command presentation", () => {
+  for (const fragment of [
+    "Order command desk",
+    "orderCommandPosture",
+    "OrderHeaderStat",
+    "Operator posture",
+    "Checkout payment state for this order.",
+    "Replace simulated shipping proof before treating this order as shipped.",
+    "rounded-[2rem] border border-neutral-900 bg-neutral-950",
+    "bg-white/95 p-6 shadow-sm ring-1 ring-red-950/5",
+  ]) {
+    assert(
+      sources.orderDetailPage.includes(fragment),
+      `Expected order detail presentation fragment ${fragment}.`,
+    );
+  }
+});
+
+scenario("global order review queue uses professional failure-safe presentation", () => {
+  for (const fragment of [
+    "function safeErrorMessage",
+    "Unknown order review case data error.",
+    "replace(/\\s+/g, \" \").trim().slice(0, 220)",
+    "caseContextIssues",
+    "Some Case Context Is Missing",
+    "Treat the affected counts as unavailable instead",
+    "Order totals, payment status, buyer identity, and fulfillment state cannot be treated as verified.",
+    "Payout hold counts and payable totals cannot be treated as complete.",
+    "Chargeback and delivery evidence history cannot be treated as missing or complete.",
+    "Recent status changes and operator notes cannot be trusted as current.",
+    "Stripe dispute packet status and due dates cannot be treated as complete.",
+    "Diagnostic: {issue.diagnostic}",
+    "rounded-[2rem] border border-neutral-900 bg-neutral-950",
+    "shadow-2xl shadow-neutral-950/10",
+    "max-w-[1500px]",
+    "border border-white/15 bg-white/10",
+    "rounded-3xl border border-neutral-200 bg-white/95",
+    "shadow-sm ring-1 ring-black/[0.02]",
+    "rounded-full bg-amber-300",
+    "transition hover:-translate-y-0.5",
+  ]) {
+    assert(
+      sources.globalCaseQueue.includes(fragment),
+      `Expected global order review queue fragment ${fragment}.`,
+    );
+  }
+
+  for (const roughShell of [
+    'bg-[#f4f1ea]',
+    'bg-[#101418]',
+    "max-w-7xl",
+    "rounded-md border border-white/20",
+    "{ordersResult.error?.message",
+    "{payoutLedgerResult.error?.message",
+    "{evidenceResult.error?.message",
+    "{caseEventsResult.error?.message",
+    "{casePacketsResult.error?.message",
+  ]) {
+    assert(
+      !sources.globalCaseQueue.includes(roughShell),
+      `Expected global order review queue to avoid rough or unsafe fragment ${roughShell}.`,
+    );
+  }
+});
+
+const failed = [];
+
+for (const item of scenarios) {
+  try {
+    item.run();
+    console.log(`✓ ${item.name}`);
+  } catch (error) {
+    failed.push({ name: item.name, error });
+    console.error(`✗ ${item.name}`);
+    console.error(error);
+  }
+}
+
+console.log(
+  `Admin order review action simulations: ${scenarios.length - failed.length}/${scenarios.length} passed.`,
+);
+
+if (failed.length > 0) {
+  process.exitCode = 1;
+}

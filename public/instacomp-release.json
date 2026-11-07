@@ -1,0 +1,14 @@
+{
+  "schema": "tcos.instacomp.release.v1",
+  "backendRelease": "evidence-first-95-ai-council-30",
+  "identityThreshold": 0.95,
+  "requiresBackImage": true,
+  "compSearchRequiresConfirmedIdentity": true,
+  "learningRequiresConfirmedIdentity": true,
+  "aiCouncilDefaultReaders": 8,
+  "aiCouncilMaxReaders": 30,
+  "aiCouncilFamilyVoteCap": true,
+  "aiCouncilReserveReaders": true,
+  "aiCouncilCustomProviderSlots": 14,
+  "sourceCommit": "bd6bb33e282fe88daefaf0a0b260cb750cec36da"
+}

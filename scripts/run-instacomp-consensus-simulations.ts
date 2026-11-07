@@ -1,0 +1,634 @@
+import {
+  applyInstaCompConsensusToAi,
+  applyInstaCompRegistryFastLane,
+  buildInstaCompMultiScannerConsensus,
+  buildInstaCompReaderFindingFromAi,
+  decideInstaCompCompSearch,
+  decideInstaCompConsensusEscalation,
+  type InstaCompConsensusReaderFinding,
+} from "../src/lib/instacomp-consensus";
+import type { InstaCompAiResult } from "../src/lib/instacomp";
+
+function assert(condition: unknown, message: string): asserts condition {
+  if (!condition) throw new Error(message);
+}
+
+const baseAi: InstaCompAiResult = {
+  player: "Connor McDavid",
+  year: "2025-26",
+  brand: "Upper Deck",
+  setName: "SP Authentic",
+  cardNumber: "O-8",
+  parallel: "Base",
+  serialNumber: null,
+  team: "Edmonton Oilers",
+  sport: "Hockey",
+  isRookie: false,
+  isAuto: false,
+  isRelic: false,
+  conditionGuess: null,
+  confidence: 0.95,
+  notes: null,
+};
+
+function primary(ai: InstaCompAiResult): InstaCompConsensusReaderFinding {
+  return buildInstaCompReaderFindingFromAi({
+    readerId: "primary",
+    label: "Primary AI vision",
+    kind: "primary_vision",
+    ai,
+    evidence: ["front/back model read"],
+  });
+}
+
+const scenarios = [
+  {
+    name: "obvious complete identity stays on fast lane",
+    run() {
+      const decision = decideInstaCompConsensusEscalation({
+        ai: {
+          ...baseAi,
+          setName: "Upper Deck Extended Series",
+          cardNumber: "656",
+          parallel: null,
+          confidence: 0.97,
+          notes: "Base-like card checked; no variant, serial, autograph, or relic evidence visible.",
+        },
+        externalOcrText: "2025-26 Upper Deck Extended Series Connor McDavid 656 Edmonton Oilers",
+        hasBackImage: true,
+        pairingConfidence: 0.96,
+      });
+
+      assert(decision.speedLane === "fast_lane", "Expected obvious card fast lane");
+      assert(decision.councilMode === "fast_lane_council", "Expected fast council");
+      assert(decision.riskTier === "low", "Expected low-risk fast lane");
+      assert(!decision.runSecondaryVision, "Fast lane must not run second AI reader");
+      assert(decision.reasons.length === 0, "Fast lane should not have escalation reasons");
+      assert(
+        !decision.scannerPlan.includes("secondary_ai_vision"),
+        "Fast lane must not spend the second AI reader",
+      );
+      assert(
+        decision.scannerPlan.includes("catalog_referee_when_available"),
+        "Fast lane must still include catalog referee when available",
+      );
+    },
+  },
+  {
+    name: "copyright season slash does not trigger numbered-card escalation",
+    run() {
+      const decision = decideInstaCompConsensusEscalation({
+        ai: {
+          ...baseAi,
+          setName: "Upper Deck Extended Series",
+          cardNumber: "656",
+          parallel: null,
+          confidence: 0.97,
+          notes: "Back copyright reads 2024/25; no serial stamp visible.",
+        },
+        externalOcrText:
+          "2024/25 Upper Deck authenticated CLC NHLPA Connor McDavid 656",
+        hasBackImage: true,
+        pairingConfidence: 0.96,
+      });
+
+      assert(decision.speedLane === "fast_lane", "Copyright year must stay fast lane");
+      assert(
+        !decision.reasons.includes("serial_numbered_or_numbered_signal"),
+        "Copyright year must not look like a serial-numbered card",
+      );
+    },
+  },
+  {
+    name: "printed variant signal escalates to second AI identity reader",
+    run() {
+      const decision = decideInstaCompConsensusEscalation({
+        ai: {
+          ...baseAi,
+          parallel: "Base",
+          confidence: 0.96,
+          notes: "Primary reader called the card Base.",
+        },
+        externalOcrText: "OUTLIERS CONNOR MCDAVID O-8",
+        hasBackImage: true,
+        pairingConfidence: 0.96,
+      });
+
+      assert(decision.speedLane === "escalated_multi_ai", "Expected escalation lane");
+      assert(decision.councilMode === "full_council", "Expected full council");
+      assert(decision.riskTier === "high", "Expected high-risk variant escalation");
+      assert(decision.runSecondaryVision, "Variant signal must run second AI reader");
+      assert(
+        decision.scannerPlan.includes("secondary_ai_vision"),
+        "Full council must include second AI reader",
+      );
+      assert(
+        decision.reasons.includes("printed_variant_signal_needs_second_reader"),
+        "Expected printed variant escalation reason",
+      );
+    },
+  },
+  {
+    name: "insert card-number prefix cannot fast-lane as generic base",
+    run() {
+      const decision = decideInstaCompConsensusEscalation({
+        ai: {
+          ...baseAi,
+          cardNumber: "C-369",
+          parallel: "Base",
+          confidence: 0.97,
+          notes: "Primary reader called it a normal base card.",
+        },
+        externalOcrText: null,
+        hasBackImage: true,
+        pairingConfidence: 0.96,
+      });
+
+      assert(decision.speedLane === "escalated_multi_ai", "Expected prefix escalation");
+      assert(decision.runSecondaryVision, "Insert prefix must run second AI reader");
+      assert(
+        decision.reasons.includes("insert_card_number_prefix_needs_second_reader"),
+        "Expected insert card-number prefix reason",
+      );
+    },
+  },
+  {
+    name: "named insert card-number prefix can stay fast lane",
+    run() {
+      const decision = decideInstaCompConsensusEscalation({
+        ai: {
+          ...baseAi,
+          cardNumber: "C-369",
+          setName: "Upper Deck Canvas",
+          parallel: "Canvas",
+          confidence: 0.97,
+          notes: "Canvas insert is printed and named by the reader.",
+        },
+        externalOcrText: "UPPER DECK CANVAS C-369",
+        hasBackImage: true,
+        pairingConfidence: 0.96,
+      });
+
+      assert(decision.speedLane === "fast_lane", "Named insert should not pay for second reader");
+      assert(
+        !decision.reasons.includes("insert_card_number_prefix_needs_second_reader"),
+        "Named insert should not include prefix escalation reason",
+      );
+    },
+  },
+  {
+    name: "autograph or relic marker escalates even at high confidence",
+    run() {
+      const decision = decideInstaCompConsensusEscalation({
+        ai: {
+          ...baseAi,
+          parallel: null,
+          isAuto: true,
+          confidence: 0.98,
+          notes: "Autograph issue; signature marker visible on front.",
+        },
+        externalOcrText: "AUTHENTIC AUTOGRAPH",
+        hasBackImage: true,
+        pairingConfidence: 0.96,
+      });
+
+      assert(decision.speedLane === "escalated_multi_ai", "Auto card must escalate");
+      assert(
+        decision.reasons.includes("autograph_or_relic_signal_needs_second_reader"),
+        "Expected autograph/relic escalation reason",
+      );
+    },
+  },
+  {
+    name: "low confidence or missing critical fields escalates to second AI identity reader",
+    run() {
+      const decision = decideInstaCompConsensusEscalation({
+        ai: {
+          player: "Connor McDavid",
+          year: "2025-26",
+          brand: "Upper Deck",
+          setName: null,
+          cardNumber: null,
+          parallel: null,
+          confidence: 0.81,
+          notes: "Exact set and card number uncertain.",
+        },
+        externalOcrText: null,
+        hasBackImage: true,
+        pairingConfidence: 0.9,
+      });
+
+      assert(decision.runSecondaryVision, "Low-confidence incomplete card must escalate");
+      assert(decision.riskTier === "high", "Expected high-risk uncertain identity");
+      assert(
+        decision.reasons.includes("primary_confidence_below_fast_lane"),
+        "Expected low-confidence escalation reason",
+      );
+      assert(decision.reasons.includes("missing_setName"), "Expected missing set reason");
+      assert(decision.reasons.includes("missing_cardNumber"), "Expected missing card reason");
+    },
+  },
+  {
+    name: "catalog referee cannot override conflicting scanner parallel evidence",
+    run() {
+      const consensus = buildInstaCompMultiScannerConsensus({
+        baseIdentity: baseAi,
+        readers: [
+          primary(baseAi),
+          {
+            readerId: "ocr",
+            label: "OCR printed evidence",
+            kind: "ocr_printed_evidence",
+            identity: { parallel: "Base" },
+            confidence: 0.88,
+            evidence: ["OCR did not isolate insert name"],
+          },
+        ],
+        catalogReferee: {
+          status: "catalog_confirmed",
+          sourceLabel: "Fixture Checklist",
+          catalogId: "spa-2025-o-8-outliers",
+          matchExplanation: "Checklist claims O-8 is Outliers.",
+          identity: {
+            player: "Connor McDavid",
+            year: "2025-26",
+            setName: "SP Authentic",
+            cardNumber: "O-8",
+            parallel: "Outliers",
+          },
+        },
+      });
+
+      assert(consensus.status === "review_required", "Conflicting catalog must require review");
+      assert(consensus.finalIdentity.parallel === "Base", "Scanner evidence must remain visible");
+      assert(
+        consensus.catalogReferee.status === "review_required",
+        "Catalog referee must be quarantined",
+      );
+      assert(
+        !consensus.fieldDecisions.some(
+          (decision) =>
+            decision.field === "parallel" &&
+            decision.status === "catalog_referee",
+        ),
+        "Rejected catalog must not decide parallel",
+      );
+    },
+  },
+  {
+    name: "numbered registry match cannot suppress required secondary vision",
+    run() {
+      const baseline = decideInstaCompConsensusEscalation({
+        ai: {
+          ...baseAi,
+          parallel: "Gold Foil",
+          serialNumber: "17/199",
+          confidence: 0.98,
+        },
+        externalOcrText: "17/199",
+        hasBackImage: true,
+        pairingConfidence: 0.96,
+      });
+      const decision = applyInstaCompRegistryFastLane(
+        baseline,
+        "malformed-base-199",
+      );
+
+      assert(baseline.runSecondaryVision, "Numbered card must require full council");
+      assert(
+        decision.runSecondaryVision,
+        "Registry match must not suppress required secondary vision",
+      );
+      assert(
+        decision.councilMode === "full_council",
+        "Numbered registry match must remain full council",
+      );
+      assert(
+        decision.reasons.includes("serial_numbered_or_numbered_signal"),
+        "Numbered-card escalation reason must be preserved",
+      );
+    },
+  },
+  {
+    name: "malformed numbered Base catalog identity is rejected",
+    run() {
+      const numberedAi: InstaCompAiResult = {
+        ...baseAi,
+        parallel: "Gold Foil",
+        serialNumber: "17/199",
+        confidence: 0.98,
+      };
+
+      const consensus = buildInstaCompMultiScannerConsensus({
+        baseIdentity: numberedAi,
+        readers: [
+          primary(numberedAi),
+          {
+            readerId: "serial",
+            label: "Serial vision/OCR",
+            kind: "serial_vision",
+            identity: {
+              parallel: "Gold Foil",
+              serialNumber: "17/199",
+            },
+            confidence: 0.99,
+            evidence: ["foil stamp reads 17/199"],
+          },
+        ],
+        catalogReferee: {
+          status: "catalog_confirmed",
+          sourceLabel: "Malformed Fixture Checklist",
+          catalogId: "malformed-base-199",
+          matchExplanation: "Fixture incorrectly labels numbered card as Base.",
+          identity: {
+            player: "Connor McDavid",
+            year: "2025-26",
+            setName: "SP Authentic",
+            cardNumber: "O-8",
+            parallel: "Base",
+            serialRun: "199",
+          },
+        },
+      });
+
+      assert(
+        consensus.catalogReferee.status === "review_required",
+        "Malformed numbered Base catalog identity must be demoted",
+      );
+      assert(
+        consensus.catalogReferee.matchExplanation?.includes(
+          "cannot be Base with serial run /199",
+        ),
+        "Expected numbered Base rejection reason",
+      );
+      assert(
+        consensus.finalIdentity.parallel === "Gold Foil",
+        "Rejected catalog identity must not overwrite scanner parallel",
+      );
+      assert(
+        !consensus.fieldDecisions.some(
+          (decision) =>
+            decision.field === "parallel" &&
+            decision.status === "catalog_referee",
+        ),
+        "Rejected catalog identity must not act as parallel referee",
+      );
+    },
+  },
+  {
+    name: "fast lane single-reader identity remains blocked",
+    run() {
+      const decision = decideInstaCompConsensusEscalation({
+        ai: {
+          ...baseAi,
+          setName: "Upper Deck Extended Series",
+          cardNumber: "656",
+          parallel: null,
+          confidence: 0.98,
+          notes: "Straightforward card identity.",
+        },
+        externalOcrText: null,
+        hasBackImage: true,
+        pairingConfidence: 0.96,
+      });
+      const consensus = buildInstaCompMultiScannerConsensus({
+        baseIdentity: baseAi,
+        readers: [primary(baseAi)],
+        escalation: decision,
+      });
+
+      assert(consensus.status === "review_required", "Single-reader identity must be blocked");
+      assert(consensus.councilReadiness.status === "warning", "Expected thin-council warning");
+      assert(
+        consensus.councilReadiness.reasons.includes(
+          "fast_lane_single_reader_no_supporting_scanner",
+        ),
+        "Expected visible fast-lane thin evidence reason",
+      );
+      assert(!consensus.trustedForIdentity, "One reader cannot authorize exact identity");
+    },
+  },
+  {
+    name: "comp search requires trusted exact identity",
+    run() {
+      const trusted = decideInstaCompCompSearch({
+        trustedForIdentity: true,
+      });
+      const untrusted = decideInstaCompCompSearch({
+        trustedForIdentity: false,
+      });
+
+      assert(trusted.allowed, "Trusted identity should allow comp search");
+      assert(
+        trusted.reason === "identity_confirmed",
+        "Trusted identity should report confirmation",
+      );
+      assert(!untrusted.allowed, "Untrusted identity must block comp search");
+      assert(
+        untrusted.reason === "identity_review_required",
+        "Blocked search should report identity review",
+      );
+    },
+  },
+  {
+    name: "full council missing second AI reader forces review",
+    run() {
+      const decision = decideInstaCompConsensusEscalation({
+        ai: {
+          ...baseAi,
+          cardNumber: "O-8",
+          parallel: "Base",
+          confidence: 0.96,
+          notes: "Primary reader called the card Base.",
+        },
+        externalOcrText: "OUTLIERS CONNOR MCDAVID O-8",
+        hasBackImage: true,
+        pairingConfidence: 0.96,
+      });
+      const consensus = buildInstaCompMultiScannerConsensus({
+        baseIdentity: baseAi,
+        readers: [primary(baseAi)],
+        escalation: decision,
+      });
+
+      assert(consensus.status === "review_required", "Incomplete full council must need review");
+      assert(
+        consensus.reviewReasons.includes("full_council_missing_second_ai_reader"),
+        "Expected missing second AI reader review reason",
+      );
+      assert(
+        consensus.councilReadiness.missingReaderKinds.includes("secondary_vision"),
+        "Expected missing secondary reader kind",
+      );
+      assert(!consensus.trustedForIdentity, "Incomplete full council cannot be trusted");
+    },
+  },
+  {
+    name: "specific printed parallel cannot beat conflicting base without confirmation",
+    run() {
+      const consensus = buildInstaCompMultiScannerConsensus({
+        baseIdentity: baseAi,
+        readers: [
+          primary(baseAi),
+          {
+            readerId: "clear-cut-ocr",
+            label: "OCR/printed evidence guard",
+            kind: "ocr_printed_evidence",
+            identity: { parallel: "Clear Cut" },
+            confidence: 0.94,
+            weight: 1.1,
+            evidence: ["Back logo says Upper Deck Clear Cut"],
+          },
+        ],
+      });
+
+      assert(consensus.status === "review_required", "Parallel conflict must require review");
+      assert(consensus.finalIdentity.parallel === "Clear Cut", "Candidate observation should remain visible");
+      assert(
+        consensus.fieldDecisions.some(
+          (decision) =>
+            decision.field === "parallel" &&
+            decision.status === "review_required",
+        ),
+        "Expected hard parallel review decision",
+      );
+      assert(!consensus.trustedForIdentity, "Conflicting parallel evidence cannot be trusted");
+    },
+  },
+  {
+    name: "single serial reader preserves candidate but cannot confirm identity",
+    run() {
+      const consensus = buildInstaCompMultiScannerConsensus({
+        baseIdentity: baseAi,
+        readers: [
+          primary(baseAi),
+          {
+            readerId: "serial",
+            label: "Serial vision/OCR",
+            kind: "serial_vision",
+            identity: { serialNumber: "07/50" },
+            confidence: 0.99,
+            evidence: ["foil stamp crop read 07/50"],
+          },
+        ],
+      });
+      const finalAi = applyInstaCompConsensusToAi(baseAi, consensus);
+
+      assert(consensus.status === "review_required", "One serial reader cannot confirm identity");
+      assert(finalAi.serialNumber === "07/50", "Candidate serial should remain visible");
+      assert(finalAi.notes?.includes("needs review"), "Expected review notes trail");
+      assert(!consensus.trustedForIdentity, "Single serial evidence cannot authorize comps");
+    },
+  },
+  {
+    name: "unresolved player disagreement blocks trusted identity",
+    run() {
+      const consensus = buildInstaCompMultiScannerConsensus({
+        baseIdentity: baseAi,
+        readers: [
+          primary(baseAi),
+          {
+            readerId: "second-vision",
+            label: "Second AI vision",
+            kind: "other",
+            identity: { player: "Leon Draisaitl" },
+            confidence: 0.95,
+            evidence: ["second reader saw different printed name"],
+          },
+        ],
+      });
+
+      assert(consensus.status === "review_required", "Expected review");
+      assert(
+        consensus.reviewReasons.includes("multi_scanner_player_disagreement"),
+        "Expected player disagreement reason",
+      );
+      assert(consensus.suggestedQuestion?.includes("player"), "Expected player question");
+    },
+  },
+  {
+    name: "critical card number disagreement cannot be won by weight alone",
+    run() {
+      const consensus = buildInstaCompMultiScannerConsensus({
+        baseIdentity: baseAi,
+        readers: [
+          primary({
+            ...baseAi,
+            cardNumber: "O-8",
+            confidence: 0.99,
+          }),
+          {
+            readerId: "second-vision",
+            label: "Second AI vision",
+            kind: "other",
+            identity: { cardNumber: "0-8" },
+            confidence: 0.5,
+            evidence: ["second reader saw zero-eight instead of letter O-eight"],
+          },
+        ],
+      });
+
+      assert(consensus.status === "review_required", "Expected critical card number review");
+      assert(
+        consensus.reviewReasons.includes("multi_scanner_cardNumber_disagreement"),
+        "Expected card number disagreement reason",
+      );
+    },
+  },
+  {
+    name: "single positive autograph marker preserves candidate but remains blocked",
+    run() {
+      const consensus = buildInstaCompMultiScannerConsensus({
+        baseIdentity: {
+          ...baseAi,
+          isAuto: false,
+        },
+        readers: [
+          primary({
+            ...baseAi,
+            isAuto: false,
+          }),
+          {
+            readerId: "printed-auto-guard",
+            label: "OCR/printed evidence guard",
+            kind: "ocr_printed_evidence",
+            identity: { isAuto: true },
+            confidence: 0.92,
+            evidence: ["front/back text identifies autograph issue"],
+          },
+        ],
+      });
+
+      assert(consensus.status === "review_required", "One positive marker cannot confirm identity");
+      assert(consensus.finalIdentity.isAuto === true, "Autograph candidate should remain visible");
+      assert(
+        consensus.fieldDecisions.some(
+          (decision) =>
+            decision.field === "isAuto" &&
+            decision.status === "positive_marker_over_negative_default",
+        ),
+        "Expected positive marker observation",
+      );
+      assert(!consensus.trustedForIdentity, "Single marker cannot authorize exact identity");
+    },
+  },
+];
+
+const failures: string[] = [];
+
+for (const scenario of scenarios) {
+  try {
+    scenario.run();
+    console.log(`PASS ${scenario.name}`);
+  } catch (error: any) {
+    failures.push(`${scenario.name}: ${error?.message || error}`);
+    console.error(`FAIL ${scenario.name}: ${error?.message || error}`);
+  }
+}
+
+if (failures.length) {
+  console.error(`InstaComp™ consensus simulations failed: ${failures.length}`);
+  process.exit(1);
+}
+
+console.log(`InstaComp™ consensus simulations: ${scenarios.length}/${scenarios.length} passed.`);

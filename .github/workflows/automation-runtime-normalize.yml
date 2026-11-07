@@ -1,0 +1,73 @@
+name: Normalize Automation Runtime Results
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/automation-runtime-normalize.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  normalize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Normalize runtime payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, hashlib, os
+          src='tmp/automation-runtime-results.json'
+          with open(src) as f: data=json.load(f)
+          eps=data.get('endpoints',{})
+          summary={'fetchedAt':data.get('fetchedAt'),'endpoints':{},'allContractsPass':True,'totalResults':0,'totalCoverageRows':0}
+          coverage=[]
+          candidates=[]
+          for name,obj in eps.items():
+            d=obj.get('data') if isinstance(obj.get('data'),dict) else {}
+            cov=d.get('sourceCoverage') or []
+            res=d.get('results') or []
+            all_complete=all((r.get('status')=='COMPLETE') for r in cov)
+            direct_urls=all(str(r.get('listingUrl','')).startswith('https://www.ebay.') or str(r.get('listingUrl','')).startswith('https://ebay.') for r in res)
+            base_pass=(obj.get('httpStatus')==200 and d.get('schema')=='TCOS_NATIVE_EBAY_FEED_V1' and d.get('ok') is True and d.get('nativeEbayUsed') is True and d.get('tokenMode')=='client_credentials' and d.get('successfulQueryCount')==d.get('queryFamilyCount') and d.get('failedQueryCount')==0 and all_complete and direct_urls and (d.get('boundaries') or {}).get('purchaseCapability') is False and (d.get('boundaries') or {}).get('ledgerMutationCapability') is False and (d.get('boundaries') or {}).get('arbitraryQueryAccepted') is False)
+            if name=='wnba': base_pass=base_pass and d.get('queryFamilyCount')==15 and d.get('requiredWnbaFamilyCount')==15 and d.get('requiredWnbaFamiliesExecuted') is True
+            if name=='matvei_michkov_young_guns': base_pass=base_pass and d.get('queryFamilyCount')==8 and d.get('requiredMichkovFamilyCount')==8 and d.get('requiredMichkovFamiliesExecuted') is True
+            if name=='matvei_michkov_opc_platinum': base_pass=base_pass and d.get('queryFamilyCount')==10 and d.get('requiredMichkovOpcPlatinumFamilyCount')==10 and d.get('requiredMichkovOpcPlatinumFamiliesExecuted') is True
+            summary['endpoints'][name]={
+              'httpStatus':obj.get('httpStatus'),'curlExit':obj.get('curlExit'),'schema':d.get('schema'),'ok':d.get('ok'),'nativeEbayUsed':d.get('nativeEbayUsed'),'tokenMode':d.get('tokenMode'),'queryFamilyCount':d.get('queryFamilyCount'),'successfulQueryCount':d.get('successfulQueryCount'),'failedQueryCount':d.get('failedQueryCount'),'allCoverageComplete':all_complete,'directUrlsOnly':direct_urls,'resultCount':len(res),'contractPass':base_pass,'deployment':d.get('deployment'),'errors':d.get('errors') or []
+            }
+            summary['allContractsPass']=summary['allContractsPass'] and bool(base_pass)
+            summary['totalResults']+=len(res)
+            summary['totalCoverageRows']+=len(cov)
+            for r in cov:
+              coverage.append({'endpoint':name,**r})
+            for r in res:
+              candidates.append({'endpoint':name,**r})
+          ids=[]
+          for c in candidates:
+            ids.append(str(c.get('candidateId') or c.get('listingItemId') or c.get('listingUrl') or ''))
+          covkeys=[str(x.get('endpoint'))+'|'+str(x.get('familyId') or x.get('lane') or '') for x in coverage]
+          checksum=hashlib.sha256(('|'.join(sorted(ids))+'||'+'|'.join(sorted(covkeys))).encode()).hexdigest()
+          summary['checksumMaterialSha256']=checksum
+          with open('tmp/automation-runtime-summary.json','w') as f: json.dump(summary,f,indent=2,sort_keys=True)
+          with open('tmp/automation-runtime-coverage.jsonl','w') as f:
+            for x in coverage: f.write(json.dumps(x,separators=(',',':'))+'\n')
+          with open('tmp/automation-runtime-candidates.jsonl','w') as f:
+            for x in candidates: f.write(json.dumps(x,separators=(',',':'))+'\n')
+          PY
+      - name: Commit normalized results
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add tmp/automation-runtime-summary.json tmp/automation-runtime-coverage.jsonl tmp/automation-runtime-candidates.jsonl
+          git commit -m 'Normalize automation runtime results' || exit 0
+          git push origin HEAD:main

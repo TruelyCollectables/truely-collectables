@@ -1,0 +1,114 @@
+name: KINGMAKER Private Pricing Coverage
+
+on:
+  pull_request:
+    paths:
+      - "supabase/migrations/20260804034500_kingmaker_private_pricing_coverage.sql"
+      - "scripts/prepare-kingmaker-private-pricing-coverage-regression.sql"
+      - "scripts/run-kingmaker-private-pricing-coverage-regressions.sql"
+      - "scripts/run-kingmaker-private-pricing-coverage-regressions.ts"
+      - "src/lib/kingmaker-private-pricing-coverage-server.ts"
+      - "src/app/api/instacomp/pricing/coverage/route.ts"
+      - "src/app/admin/instacomp/pricing/_components/private-pricing-coverage.tsx"
+      - "src/app/admin/instacomp/pricing/coverage/page.tsx"
+      - "src/app/admin/instacomp/pricing/page.tsx"
+      - ".github/workflows/kingmaker-private-pricing-coverage.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-private-pricing-coverage:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: kingmaker_private_pricing_coverage_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d kingmaker_private_pricing_coverage_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: kingmaker_private_pricing_coverage_test
+      CHECKLIST_MIGRATION: supabase/migrations/20260725200000_tcos_checklist_registry_core.sql
+      KINGMAKER_MIGRATION: supabase/migrations/20260803030000_kingmaker_intelligence_fusion.sql
+      PRIVATE_PRICING_MIGRATION: supabase/migrations/20260803043000_kingmaker_beckett_price_guides.sql
+      COVERAGE_MIGRATION: supabase/migrations/20260804034500_kingmaker_private_pricing_coverage.sql
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client
+
+      - name: Create Supabase-compatible roles and storage contract
+        run: |
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          do $$ begin create role anon nologin; exception when duplicate_object then null; end $$;
+          do $$ begin create role authenticated nologin; exception when duplicate_object then null; end $$;
+          do $$ begin create role service_role nologin bypassrls; exception when duplicate_object then null; end $$;
+          create schema if not exists storage;
+          create table if not exists storage.buckets (
+            id text primary key,
+            name text not null unique,
+            public boolean not null default false,
+            file_size_limit bigint,
+            allowed_mime_types text[]
+          );
+          SQL
+
+      - name: Apply Registry, KINGMAKER, and coverage migrations
+        run: |
+          psql -v ON_ERROR_STOP=1 --file "$CHECKLIST_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$KINGMAKER_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$PRIVATE_PRICING_MIGRATION"
+          psql -v ON_ERROR_STOP=1 --file "$COVERAGE_MIGRATION"
+
+      - name: Reapply coverage migration to prove idempotence
+        run: psql -v ON_ERROR_STOP=1 --file "$COVERAGE_MIGRATION"
+
+      - name: Isolate synthetic coverage fixtures
+        run: psql -v ON_ERROR_STOP=1 --file scripts/prepare-kingmaker-private-pricing-coverage-regression.sql
+
+      - name: Run aggregate coverage and privacy regression
+        run: psql -v ON_ERROR_STOP=1 --file scripts/run-kingmaker-private-pricing-coverage-regressions.sql
+
+      - name: Install application dependencies
+        run: npm ci
+
+      - name: Run application coverage boundary regression
+        run: node --import tsx scripts/run-kingmaker-private-pricing-coverage-regressions.ts
+
+      - name: Lint private pricing coverage files
+        run: >-
+          npx eslint
+          src/lib/kingmaker-private-pricing-coverage-server.ts
+          src/app/api/instacomp/pricing/coverage/route.ts
+          src/app/admin/instacomp/pricing/_components/private-pricing-coverage.tsx
+          src/app/admin/instacomp/pricing/coverage/page.tsx
+          src/app/admin/instacomp/pricing/page.tsx
+          scripts/run-kingmaker-private-pricing-coverage-regressions.ts
+
+      - name: Type-check application
+        run: npx tsc --noEmit

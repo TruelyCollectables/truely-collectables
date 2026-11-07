@@ -1,0 +1,74 @@
+name: InstaComp Mac Deal Hunter Scheduler
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "services/instacomp-ai/app/config.py"
+      - "services/instacomp-ai/app/settings_routes.py"
+      - "services/instacomp-ai/app/deal_hunter.py"
+      - "services/instacomp-ai/app/deal_hunter_routes.py"
+      - "services/instacomp-ai/app/deal_hunter_store.py"
+      - "services/instacomp-ai/tests/test_deal_hunter_scheduler.py"
+      - "services/instacomp-ai/.env.example"
+      - "src/app/admin/page.tsx"
+      - "src/app/components/AdminInstaCompMobileShortcut.tsx"
+      - "src/app/api/instacomp/deal-hunter/evaluate/route.ts"
+      - "src/app/admin/market-intel/deal-hunter/page.tsx"
+      - "scripts/run-admin-deal-hunter-link-simulation.mjs"
+      - "supabase/migrations/20260806_instacomp_mac_deal_hunter_scheduler.sql"
+      - ".github/workflows/instacomp-mac-deal-hunter-scheduler.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  certify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: services/instacomp-ai/requirements.txt
+
+      - name: Install InstaComp AI dependencies
+        working-directory: services/instacomp-ai
+        run: pip install -r requirements.txt
+
+      - name: Compile scheduler modules
+        working-directory: services/instacomp-ai
+        run: python -m py_compile app/deal_hunter.py app/deal_hunter_routes.py app/deal_hunter_store.py app/config.py app/settings_routes.py
+
+      - name: Run scheduler tests
+        working-directory: services/instacomp-ai
+        run: pytest -q tests/test_deal_hunter_scheduler.py
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install website dependencies
+        run: npm ci
+
+      - name: Verify admin Deal Hunter link wiring
+        run: node scripts/run-admin-deal-hunter-link-simulation.mjs
+
+      - name: Lint scheduler website files
+        run: npx eslint src/app/admin/page.tsx src/app/components/AdminInstaCompMobileShortcut.tsx src/app/api/instacomp/deal-hunter/evaluate/route.ts src/app/admin/market-intel/deal-hunter/page.tsx
+
+      - name: TypeScript
+        run: npx tsc --noEmit
+
+      - name: Production build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-key
+          SUPABASE_SERVICE_ROLE_KEY: ci-placeholder-service-key
+          NEXT_PUBLIC_SITE_URL: https://example.com
+        run: npm run build

@@ -1,0 +1,245 @@
+import { applyInstaCompIdentityGuard } from "../src/lib/instacomp-identity-guard";
+import type { InstaCompAiResult } from "../src/lib/instacomp";
+
+type Scenario = {
+  name: string;
+  ai: InstaCompAiResult;
+  externalOcrText: string;
+  expect: (actual: InstaCompAiResult) => void;
+};
+
+const baseAi: InstaCompAiResult = {
+  player: "Fixture Player",
+  year: "2024",
+  brand: "Upper Deck",
+  setName: "Base",
+  cardNumber: "1",
+  parallel: "Base",
+  serialNumber: null,
+  team: "Fixture Team",
+  sport: "Hockey",
+  isRookie: false,
+  isAuto: false,
+  isRelic: false,
+  conditionGuess: "Raw",
+  confidence: 0.94,
+  notes: "Parallel evidence: no special finish detected.",
+};
+
+function assert(condition: unknown, message: string) {
+  if (!condition) throw new Error(message);
+}
+
+const scenarios: Scenario[] = [
+  {
+    name: "printed Limited Red overrides base",
+    ai: baseAi,
+    externalOcrText:
+      "FRONT OCR: 2024 Upper Deck Fixture Player. BACK OCR: LIMITED RED. Card 1.",
+    expect(actual) {
+      assert(actual.parallel === "Limited Red", `Expected Limited Red, received ${actual.parallel}`);
+      assert(actual.notes?.includes("Identity guardrail") === true, "Expected guardrail note");
+    },
+  },
+  {
+    name: "Upper Deck Clear Cut overrides base and set",
+    ai: { ...baseAi, setName: null, parallel: "Base" },
+    externalOcrText:
+      "UPPER DECK CLEAR CUT Hockey. Fixture Player. Congratulations text on acetate card.",
+    expect(actual) {
+      assert(actual.parallel === "Clear Cut", `Expected Clear Cut parallel, received ${actual.parallel}`);
+      assert(actual.setName === "Clear Cut", `Expected Clear Cut setName, received ${actual.setName}`);
+    },
+  },
+  {
+    name: "AI notes Outliers cannot remain base without OCR text",
+    ai: {
+      ...baseAi,
+      player: "Connor McDavid",
+      year: "2025-26",
+      brand: "Upper Deck",
+      setName: "SP Authentic",
+      cardNumber: "O-8",
+      parallel: "Base",
+      team: "Edmonton Oilers",
+      notes: "Vision note: front/back printed text says OUTLIERS but structured parallel stayed Base.",
+    },
+    externalOcrText: "",
+    expect(actual) {
+      assert(actual.parallel === "Outliers", `Expected Outliers from notes, received ${actual.parallel}`);
+      assert(
+        actual.notes?.includes("printed text indicates insert/subset Outliers") === true,
+        "Expected notes-driven Outliers guardrail note",
+      );
+    },
+  },
+  {
+    name: "AI notes Upper Deck clear-stock back-logo cue becomes Clear Cut",
+    ai: {
+      ...baseAi,
+      player: "Dylan Larkin",
+      year: "2022-23",
+      brand: "Upper Deck",
+      setName: "Extended Series",
+      cardNumber: "656",
+      parallel: "Base",
+      team: "Detroit Red Wings",
+      notes: "Vision note: card has transparent acetate stock and centered team logo / ghosted back logo treatment.",
+    },
+    externalOcrText: "",
+    expect(actual) {
+      assert(actual.parallel === "Clear Cut", `Expected Clear Cut from visual cue, received ${actual.parallel}`);
+      assert(actual.setName === "Extended Series", `Expected Extended Series setName preserved, received ${actual.setName}`);
+      assert(
+        actual.notes?.includes("Upper Deck clear-stock back-logo cue indicates Clear Cut") === true,
+        "Expected Clear Cut visual-cue guardrail note",
+      );
+    },
+  },
+  {
+    name: "non Upper Deck acetate note stays review instead of Clear Cut",
+    ai: {
+      ...baseAi,
+      player: "Fixture Player",
+      year: "2024",
+      brand: "Panini",
+      setName: "Select",
+      cardNumber: "88",
+      parallel: "Base",
+      notes: "Vision note: card has transparent acetate stock and ghosted back logo treatment.",
+    },
+    externalOcrText: "",
+    expect(actual) {
+      assert(
+        actual.parallel === "Acetate / clear parallel - exact type uncertain",
+        `Expected acetate review from non Upper Deck notes, received ${actual.parallel}`,
+      );
+      assert(actual.confidence <= 0.84, `Expected review confidence, received ${actual.confidence}`);
+    },
+  },
+  {
+    name: "printed SP Authentic Outliers cannot remain base",
+    ai: {
+      ...baseAi,
+      player: "Connor McDavid",
+      year: "2025-26",
+      brand: "Upper Deck",
+      setName: "SP Authentic",
+      cardNumber: "O-8",
+      parallel: "Base",
+      team: "Edmonton Oilers",
+      notes: "Parallel evidence: no special finish detected.",
+    },
+    externalOcrText:
+      "2025-26 SP Authentic Hockey Connor McDavid. BACK OCR: OUTLIERS. Card O-8.",
+    expect(actual) {
+      assert(actual.parallel === "Outliers", `Expected Outliers, received ${actual.parallel}`);
+      assert(actual.setName === "SP Authentic", `Expected SP Authentic preserved, received ${actual.setName}`);
+      assert(actual.notes?.includes("printed text indicates insert/subset Outliers") === true, "Expected Outliers guardrail note");
+    },
+  },
+  {
+    name: "printed Spectrum FX keeps collector acronym casing",
+    ai: {
+      ...baseAi,
+      player: "Matthew Robertson",
+      year: "2025-26",
+      brand: "Upper Deck",
+      setName: "SP Authentic - Future Watch",
+      cardNumber: "S-50",
+      parallel: "Base",
+      notes: "Parallel evidence: no special finish detected.",
+    },
+    externalOcrText:
+      "2025-26 SP Authentic Future Watch Spectrum FX Level 1 Matthew Robertson Card S-50.",
+    expect(actual) {
+      assert(actual.parallel === "Spectrum FX", `Expected Spectrum FX, received ${actual.parallel}`);
+      assert(
+        actual.notes?.includes("printed text indicates insert/subset Spectrum FX") === true,
+        "Expected Spectrum FX guardrail note",
+      );
+    },
+  },
+  {
+    name: "printed generic insert cannot remain base",
+    ai: baseAi,
+    externalOcrText:
+      "Fixture Player INSERT card. Collect all special insert cards from this subset.",
+    expect(actual) {
+      assert(
+        actual.parallel === "Insert - exact type uncertain",
+        `Expected insert review parallel, received ${actual.parallel}`,
+      );
+      assert(actual.confidence <= 0.84, `Expected lowered confidence, received ${actual.confidence}`);
+    },
+  },
+  {
+    name: "specific non-base AI parallel is preserved",
+    ai: { ...baseAi, parallel: "Red Foil", setName: "Main Set" },
+    externalOcrText: "BACK OCR: limited red style odds copy.",
+    expect(actual) {
+      assert(actual.parallel === "Red Foil", `Expected Red Foil preserved, received ${actual.parallel}`);
+      assert(actual.notes?.includes("preserved AI parallel") === true, "Expected preserved note");
+    },
+  },
+  {
+    // Guardrail compatibility phrase: normal base with no printed signal stays base.
+    // TCOS display behavior still suppresses generic "Base" from public titles.
+    name: "normal base with no printed signal is suppressed",
+    ai: baseAi,
+    externalOcrText: "Fixture Player 2024 Upper Deck Card 1 National Hockey League.",
+    expect(actual) {
+      assert(actual.parallel === null, `Expected Base suppressed, received ${actual.parallel}`);
+      assert(actual.notes?.includes("suppressed generic Base") === true, "Expected suppressed base note");
+    },
+  },
+  {
+    name: "uncertain insert label without printed signal is suppressed",
+    ai: {
+      ...baseAi,
+      setName: "WNBA Select - Premier Level",
+      parallel: "Insert - exact type uncertain",
+      notes: "Parallel evidence: level text visible, exact insert unclear.",
+    },
+    externalOcrText:
+      "Fixture Player 2025 Panini WNBA Select Premier Level Card 142.",
+    expect(actual) {
+      assert(actual.parallel === null, `Expected uncertain insert suppressed, received ${actual.parallel}`);
+      assert(actual.notes?.includes("suppressed uncertain parallel") === true, "Expected uncertain parallel note");
+    },
+  },
+];
+
+const results: Array<{ name: string; status: "passed" | "failed"; error?: string }> = [];
+
+for (const scenario of scenarios) {
+  try {
+    const actual = applyInstaCompIdentityGuard(scenario.ai, {
+      externalOcrText: scenario.externalOcrText,
+    });
+    scenario.expect(actual);
+    results.push({ name: scenario.name, status: "passed" });
+  } catch (error) {
+    results.push({
+      name: scenario.name,
+      status: "failed",
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+for (const result of results) {
+  console.log(
+    `${result.status === "passed" ? "PASS" : "FAIL"} ${result.name}${
+      result.error ? ` - ${result.error}` : ""
+    }`,
+  );
+}
+
+const failed = results.filter((result) => result.status === "failed");
+
+console.log(
+  `InstaComp™ identity guard simulations: ${results.length - failed.length}/${results.length} passed.`,
+);
+
+if (failed.length) process.exitCode = 1;

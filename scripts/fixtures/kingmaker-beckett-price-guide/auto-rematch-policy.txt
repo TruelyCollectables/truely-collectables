@@ -1,0 +1,1 @@
+Automatic checklist rematching is exercised only with synthetic registry and Beckett rows. Real guide text and pricing values remain private and are never committed to this public repository.

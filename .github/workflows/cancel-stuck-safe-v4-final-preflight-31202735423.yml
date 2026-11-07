@@ -1,0 +1,38 @@
+name: Cancel Stuck Safe v4 Final Preflight 31202735423
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/cancel-stuck-safe-v4-final-preflight-31202735423.yml"
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  cancel:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Cancel only read-only stuck preflight run 31202735423
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          run_id=31202735423
+          url="https://api.github.com/repos/$GITHUB_REPOSITORY/actions/runs/$run_id/cancel"
+          code="$(curl --silent --show-error \
+            --request POST \
+            --header "Authorization: Bearer $GH_TOKEN" \
+            --header "Accept: application/vnd.github+json" \
+            --header "X-GitHub-Api-Version: 2022-11-28" \
+            --output "$RUNNER_TEMP/cancel-body.txt" \
+            --write-out '%{http_code}' \
+            "$url")"
+          if [[ "$code" != "202" && "$code" != "409" ]]; then
+            echo "Cancel request returned HTTP $code" >&2
+            cat "$RUNNER_TEMP/cancel-body.txt" >&2 || true
+            exit 1
+          fi
+          echo "Safe-v4-final run $run_id cancellation accepted/already terminal (HTTP $code)."

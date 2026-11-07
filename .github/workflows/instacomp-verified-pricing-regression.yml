@@ -1,0 +1,42 @@
+name: InstaComp Verified Pricing Regression
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "src/app/api/account/seller/inventory/instacomp-verified/route.ts"
+      - "src/app/api/account/seller/instacomp-pending-identity/route.ts"
+      - "src/app/api/account/seller/inventory/instacomp/route.ts"
+      - "src/app/seller/instacomp-pending/page.tsx"
+      - "scripts/run-instacomp-verified-pricing-regression.ts"
+      - ".github/workflows/instacomp-verified-pricing-regression.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "src/app/api/account/seller/inventory/instacomp-verified/route.ts"
+      - "src/app/api/account/seller/instacomp-pending-identity/route.ts"
+      - "src/app/api/account/seller/inventory/instacomp/route.ts"
+      - "src/app/seller/instacomp-pending/page.tsx"
+      - "scripts/run-instacomp-verified-pricing-regression.ts"
+      - ".github/workflows/instacomp-verified-pricing-regression.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verified-pricing-order:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Enforce Registry verification before marketplace pricing
+        run: npx tsx scripts/run-instacomp-verified-pricing-regression.ts

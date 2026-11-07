@@ -1,0 +1,50 @@
+name: Probe InstaComp Internal Readiness
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/probe-instacomp-internal-readiness.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Probe production internal readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          (async () => {
+            const url = `https://truelycollectables.com/api/instacomp/internal-readiness?probe=${Date.now()}`;
+            const response = await fetch(url, {
+              headers: { Accept: 'application/json' },
+              redirect: 'manual',
+              signal: AbortSignal.timeout(30_000),
+            });
+            const data = await response.json().catch(() => null);
+            console.log(`INTERNAL READINESS status=${response.status}`);
+            for (const key of [
+              'ok','configured','reachable','dnsResolved','dnsRecordCount','dnsFamilies','dnsErrorCode',
+              'internalMemoryReady','checklistReady','localModelReady','app','version','runtimeSourceFingerprint',
+              'reason','networkErrorCode','networkErrorName'
+            ]) {
+              const value = data?.[key];
+              if (value !== undefined) console.log(`INTERNAL READINESS ${key}=${JSON.stringify(value)}`);
+            }
+            if (!data) throw new Error('Readiness returned no JSON payload.');
+            if (response.status !== 200 && response.status !== 503) throw new Error(`Unexpected readiness HTTP ${response.status}.`);
+            if (data.configured !== true) throw new Error(`Internal engine is not configured: ${data.reason || 'unknown'}`);
+            if (data.reachable !== true) throw new Error(`Internal engine is unreachable: ${data.reason || 'unknown'}`);
+            if (data.ok !== true) throw new Error(`Internal engine is not fully ready: ${data.reason || 'unknown'}`);
+            console.log('INTERNAL READINESS PASS: production Worker can reach a fully ready InstaComp internal engine.');
+          })().catch((error) => {
+            console.error(error instanceof Error ? error.message : String(error));
+            process.exit(1);
+          });
+          NODE

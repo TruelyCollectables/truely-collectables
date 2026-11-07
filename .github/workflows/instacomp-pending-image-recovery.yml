@@ -1,0 +1,70 @@
+name: InstaComp Pending Image Recovery
+
+on:
+  pull_request:
+    paths:
+      - "services/instacomp-ai/app/main.py"
+      - "services/instacomp-ai/app/images.py"
+      - "services/instacomp-ai/app/storage.py"
+      - "services/instacomp-ai/tests/test_scan_archive_recovery.py"
+      - "src/lib/instacomp-ai-local.ts"
+      - "src/app/api/account/seller/instacomp-pending/repair-images/route.ts"
+      - "src/app/seller/instacomp-pending/repair/**"
+      - "src/app/kingmaker/pending-repair/**"
+      - "supabase/migrations/20260805154000_instacomp_listing_image_archive.sql"
+      - "scripts/run-instacomp-pending-image-recovery-regressions.ts"
+      - ".github/workflows/instacomp-pending-image-recovery.yml"
+  push:
+    paths:
+      - "services/instacomp-ai/app/main.py"
+      - "services/instacomp-ai/app/images.py"
+      - "services/instacomp-ai/app/storage.py"
+      - "services/instacomp-ai/tests/test_scan_archive_recovery.py"
+      - "src/lib/instacomp-ai-local.ts"
+      - "src/app/api/account/seller/instacomp-pending/repair-images/route.ts"
+      - "src/app/seller/instacomp-pending/repair/**"
+      - "src/app/kingmaker/pending-repair/**"
+      - "supabase/migrations/20260805154000_instacomp_listing_image_archive.sql"
+      - "scripts/run-instacomp-pending-image-recovery-regressions.ts"
+      - ".github/workflows/instacomp-pending-image-recovery.yml"
+
+jobs:
+  certify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: services/instacomp-ai/requirements.txt
+      - run: npm ci
+      - name: Install Mac-service test dependencies
+        run: python -m pip install -r services/instacomp-ai/requirements.txt
+      - name: Mac archive recovery tests
+        working-directory: services/instacomp-ai
+        run: python -m pytest tests/test_scan_archive_recovery.py -q
+      - name: Cross-stack recovery regressions
+        run: node --import tsx scripts/run-instacomp-pending-image-recovery-regressions.ts
+      - name: Lint changed web files
+        run: >-
+          npx eslint
+          src/lib/instacomp-ai-local.ts
+          src/app/api/account/seller/instacomp-pending/repair-images/route.ts
+          src/app/seller/instacomp-pending/repair/page.tsx
+          src/app/kingmaker/pending-repair/page.tsx
+          scripts/run-instacomp-pending-image-recovery-regressions.ts
+      - name: TypeScript
+        run: npx tsc --noEmit
+      - name: Production build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: placeholder-service-role-key
+          NEXT_PUBLIC_SITE_URL: https://example.com
+        run: npm run build

@@ -1,0 +1,74 @@
+name: Supabase Emergency PGRST002 Recovery
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/supabase-emergency-pgrst002-recovery.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      PROJECT_REF: rfdzsoykhnngzdnvzlhz
+    steps:
+      - name: Inspect project, services, PostgREST config, and database schemas
+        shell: bash
+        run: |
+          set -euo pipefail
+          auth="Authorization: Bearer $SUPABASE_ACCESS_TOKEN"
+          api="https://api.supabase.com/v1/projects/$PROJECT_REF"
+
+          echo '--- project status ---'
+          curl -sS --fail-with-body -H "$auth" "$api" -o /tmp/project.json
+          node <<'NODE'
+          const fs=require('fs'); const p=JSON.parse(fs.readFileSync('/tmp/project.json','utf8'));
+          console.log(JSON.stringify({ref:p.ref,name:p.name,status:p.status,region:p.region},null,2));
+          NODE
+
+          echo '--- service health ---'
+          curl -sS --fail-with-body -G -H "$auth" \
+            --data-urlencode 'services=auth,rest,storage,realtime' \
+            --data-urlencode 'timeout_ms=10000' \
+            "$api/health" -o /tmp/health.json || true
+          cat /tmp/health.json 2>/dev/null || true
+          echo
+
+          echo '--- PostgREST config ---'
+          curl -sS --fail-with-body -H "$auth" "$api/postgrest" -o /tmp/postgrest.json
+          node <<'NODE'
+          const fs=require('fs'); const p=JSON.parse(fs.readFileSync('/tmp/postgrest.json','utf8'));
+          console.log(JSON.stringify({db_schema:p.db_schema,max_rows:p.max_rows,db_extra_search_path:p.db_extra_search_path},null,2));
+          NODE
+
+          echo '--- direct database query through Management API ---'
+          curl -sS --fail-with-body -X POST -H "$auth" -H 'Content-Type: application/json' \
+            "$api/database/query" \
+            --data '{"query":"select current_database() as database_name, now() as checked_at, array_agg(schema_name order by schema_name) as schemas from information_schema.schemata where schema_name not like '\''pg_%'\'' and schema_name <> '\''information_schema'\'';","read_only":true}' \
+            -o /tmp/db.json
+          cat /tmp/db.json
+          echo
+
+          echo '--- compare configured exposed schemas to real schemas ---'
+          node <<'NODE'
+          const fs=require('fs');
+          const config=JSON.parse(fs.readFileSync('/tmp/postgrest.json','utf8'));
+          const rows=JSON.parse(fs.readFileSync('/tmp/db.json','utf8'));
+          const row=Array.isArray(rows)?rows[0]:rows;
+          const existing=new Set(Array.isArray(row?.schemas)?row.schemas:[]);
+          const configured=String(config.db_schema||'').split(',').map(x=>x.trim()).filter(Boolean);
+          const missing=configured.filter(x=>!existing.has(x));
+          console.log(JSON.stringify({configured,missing},null,2));
+          fs.writeFileSync('/tmp/missing.json',JSON.stringify(missing));
+          if(missing.length) process.exitCode=42;
+          NODE
+
+      - name: Cleanup
+        if: always()
+        run: rm -f /tmp/project.json /tmp/health.json /tmp/postgrest.json /tmp/db.json /tmp/missing.json

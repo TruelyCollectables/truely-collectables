@@ -1,0 +1,24 @@
+name: Ops CollX Publish Imaged Stock 20260811
+# Production incident kill switch: 2026-08-11
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/ops-collx-publish-imaged-stock-20260811.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ops-collx-publish-imaged-stock-20260811
+  cancel-in-progress: true
+
+jobs:
+  emergency-stop:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Confirm publisher paused for production incident
+        run: echo "CollX production publisher paused during storefront database incident."

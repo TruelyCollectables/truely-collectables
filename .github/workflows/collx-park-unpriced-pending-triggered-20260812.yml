@@ -1,0 +1,77 @@
+name: CollX Park Unpriced Pending Triggered 20260812
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/collx-park-pending-trigger-20260812'
+
+permissions:
+  contents: read
+
+jobs:
+  park-and-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      PROJECT_REF: rfdzsoykhnngzdnvzlhz
+      STORE_ID: 00000000-0000-4000-8000-000000000001
+    steps:
+      - name: Park 144 unpriced CollX cards as draft and certify everything else
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$SUPABASE_ACCESS_TOKEN"
+          python3 - <<'PY'
+          import json, os, subprocess, tempfile, time
+          token=os.environ['SUPABASE_ACCESS_TOKEN']; ref=os.environ['PROJECT_REF']; store=os.environ['STORE_ID']
+          url=f'https://api.supabase.com/v1/projects/{ref}/database/query'
+          def sql(query, read_only, retries=7):
+              last=''
+              for i in range(retries):
+                  f=tempfile.NamedTemporaryFile(delete=False); f.close()
+                  p=subprocess.run(['curl','-sS','--max-time','90','-o',f.name,'-w','%{http_code}','-X','POST',url,
+                    '-H',f'Authorization: Bearer {token}','-H','Content-Type: application/json',
+                    '--data-binary',json.dumps({'query':query,'parameters':[],'read_only':read_only})],capture_output=True,text=True)
+                  raw=open(f.name).read(); os.unlink(f.name); code=(p.stdout or '000')[-3:]
+                  if code in ('200','201'):
+                      return json.loads(raw)
+                  last=f'HTTP {code}: {raw[:1200]}'
+                  if code in ('000','429','500','502','503','504','522','524','544') and i+1<retries:
+                      time.sleep(2*(i+1)); continue
+                  break
+              raise SystemExit(last)
+          target=f"p.store_id='{store}'::uuid and p.sku>='COLLX-' and p.sku<'COLLY' and p.ebay_item_id is null and p.archived_at is null and p.quantity>0 and p.price<=0"
+          mutate=f'''with target as (select p.id,p.sku,p.quantity from public.products p where {target}),
+          guard as (select count(*)::int rows,coalesce(sum(quantity),0)::int units,
+            count(*) filter (where exists(select 1 from public.inventory_items ii where ii.store_id='{store}'::uuid and (ii.legacy_product_id=target.id or (ii.legacy_product_id is null and ii.sku=target.sku))))::int bridged from target),
+          upd as (update public.inventory_items ii set status='draft',updated_at=now() from target t,guard g
+            where g.rows=144 and g.units=144 and g.bridged=144 and ii.store_id='{store}'::uuid
+              and (ii.legacy_product_id=t.id or (ii.legacy_product_id is null and ii.sku=t.sku)) returning ii.id)
+          select g.rows as target_rows,g.units as target_units,g.bridged as bridged_rows,(select count(*) from upd)::int as inventory_rows_updated from guard g;'''
+          m=sql(mutate,False); print('COLLX_PENDING_MUTATION='+json.dumps(m,sort_keys=True))
+          mr=(m or [{}])[0]
+          if [int(mr.get(k) or 0) for k in ('target_rows','target_units','bridged_rows')] != [144,144,144]:
+              raise SystemExit('Safety guard failed; no approved mutation certified')
+          verify=f'''with collx as (select * from public.products p where p.store_id='{store}'::uuid and p.sku>='COLLX-' and p.sku<'COLLY' and p.ebay_item_id is null),
+          eligible as (select id,sku,quantity from collx where archived_at is null and quantity>0 and price>0 and nullif(btrim(image_url),'') is not null),
+          pending as (select id,sku,quantity from collx where archived_at is null and quantity>0 and price<=0)
+          select
+          (select count(*) from collx)::int total_rows,(select coalesce(sum(greatest(quantity,0)),0) from collx)::int total_units,
+          (select count(*) from collx where archived_at is not null)::int archived_rows,(select coalesce(sum(greatest(quantity,0)),0) from collx where archived_at is not null)::int archived_units,
+          (select count(*) from eligible)::int eligible_rows,(select coalesce(sum(quantity),0) from eligible)::int eligible_units,
+          (select count(*) from pending)::int pending_rows,(select coalesce(sum(quantity),0) from pending)::int pending_units,
+          (select count(*) from pending p where exists(select 1 from public.inventory_items ii where ii.store_id='{store}'::uuid and (ii.legacy_product_id=p.id or (ii.legacy_product_id is null and ii.sku=p.sku)) and ii.status='draft'))::int pending_draft_rows,
+          (select count(*) from eligible e where exists(select 1 from public.inventory_items ii where ii.store_id='{store}'::uuid and (ii.legacy_product_id=e.id or (ii.legacy_product_id is null and ii.sku=e.sku)) and ii.status='active'))::int eligible_active_rows,
+          (select count(*) from eligible e where not exists(select 1 from public.inventory_items ii where ii.store_id='{store}'::uuid and (ii.legacy_product_id=e.id or (ii.legacy_product_id is null and ii.sku=e.sku))))::int eligible_missing_bridge_rows,
+          (select count(*) from eligible e where exists(select 1 from public.inventory_items ii where ii.store_id='{store}'::uuid and (ii.legacy_product_id=e.id or (ii.legacy_product_id is null and ii.sku=e.sku)) and ii.status<>'active'))::int eligible_has_nonactive_bridge_rows,
+          (select count(*) from collx where archived_at is null and quantity<=0)::int active_zero_qty_rows,
+          (select count(*) from collx where archived_at is null and quantity>0 and price>0 and nullif(btrim(image_url),'') is null)::int missing_front_rows;'''
+          v=sql(verify,True); print('COLLX_PENDING_VERIFY='+json.dumps(v,sort_keys=True)); r=(v or [{}])[0]
+          expected={'total_rows':6155,'total_units':6315,'archived_rows':740,'archived_units':0,'eligible_rows':5271,'eligible_units':6171,'pending_rows':144,'pending_units':144,'pending_draft_rows':144,'eligible_active_rows':5271,'eligible_missing_bridge_rows':0,'eligible_has_nonactive_bridge_rows':0,'active_zero_qty_rows':0,'missing_front_rows':0}
+          bad=[f'{k}={r.get(k)} expected {want}' for k,want in expected.items() if int(r.get(k) or 0)!=want]
+          if bad: raise SystemExit('Verification failed: '+'; '.join(bad))
+          print('COLLX_PENDING_PARK=SUCCESS')
+          PY

@@ -1,0 +1,117 @@
+name: InstaComp OpenCV namespace repair
+
+on:
+  push:
+    branches:
+      - main
+      - fix/instacomp-opencv-namespace-conflict
+    paths:
+      - ".github/workflows/instacomp-opencv-namespace-repair.yml"
+      - "services/instacomp-ai/scripts/ensure-runtime-dependencies.sh"
+      - "services/instacomp-ai/requirements.txt"
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-opencv-namespace-repair.yml"
+      - "services/instacomp-ai/scripts/ensure-runtime-dependencies.sh"
+      - "services/instacomp-ai/requirements.txt"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  repair-opencv-namespace:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Create canonical InstaComp runtime
+        run: |
+          set -euo pipefail
+          python -m venv services/instacomp-ai/.venv
+          bash services/instacomp-ai/scripts/ensure-runtime-dependencies.sh \
+            services/instacomp-ai/.venv/bin/python \
+            | tee /tmp/instacomp-opencv-baseline.log
+          grep -q 'PASS InstaComp runtime dependencies synchronized' /tmp/instacomp-opencv-baseline.log
+          services/instacomp-ai/.venv/bin/python - <<'PY'
+          import cv2
+          import importlib.metadata as metadata
+          import numpy
+
+          assert cv2.__version__ == "4.12.0", cv2.__version__
+          assert numpy.__version__ == "2.2.6", numpy.__version__
+          assert metadata.version("opencv-python-headless") == "4.12.0.88"
+          try:
+              metadata.version("opencv-python")
+          except metadata.PackageNotFoundError:
+              pass
+          else:
+              raise AssertionError("opencv-python conflict unexpectedly installed at baseline")
+          print("PASS canonical OpenCV baseline")
+          PY
+
+      - name: Reproduce and repair competing cv2 provider three times
+        run: |
+          set -euo pipefail
+          for run in 1 2 3; do
+            echo "=== OpenCV conflict repair cycle ${run}/3 ==="
+            services/instacomp-ai/.venv/bin/python -m pip install \
+              --disable-pip-version-check \
+              --no-deps \
+              --force-reinstall \
+              'opencv-python==4.11.0.86' >/dev/null
+
+            services/instacomp-ai/.venv/bin/python - <<'PY'
+          import cv2
+          import importlib.metadata as metadata
+
+          assert metadata.version("opencv-python-headless") == "4.12.0.88"
+          assert metadata.version("opencv-python") == "4.11.0.86"
+          assert cv2.__version__ == "4.11.0", cv2.__version__
+          print("PASS reproduced competing OpenCV namespace: metadata headless=4.12.0.88 but import cv2=4.11.0")
+          PY
+
+            bash services/instacomp-ai/scripts/ensure-runtime-dependencies.sh \
+              services/instacomp-ai/.venv/bin/python \
+              | tee "/tmp/instacomp-opencv-repair-${run}.log"
+
+            grep -q 'Removing conflicting OpenCV distributions' "/tmp/instacomp-opencv-repair-${run}.log"
+            grep -q 'Removing opencv-python==4.11.0.86' "/tmp/instacomp-opencv-repair-${run}.log"
+            grep -q 'PASS InstaComp runtime dependencies synchronized' "/tmp/instacomp-opencv-repair-${run}.log"
+
+            services/instacomp-ai/.venv/bin/python - <<'PY'
+          import cv2
+          import importlib.metadata as metadata
+          import numpy
+
+          assert cv2.__version__ == "4.12.0", cv2.__version__
+          assert numpy.__version__ == "2.2.6", numpy.__version__
+          assert metadata.version("opencv-python-headless") == "4.12.0.88"
+          try:
+              metadata.version("opencv-python")
+          except metadata.PackageNotFoundError:
+              pass
+          else:
+              raise AssertionError("conflicting opencv-python distribution survived repair")
+          print("PASS competing cv2 provider removed and canonical runtime restored")
+          PY
+          done
+
+      - name: Prove repaired runtime is idempotent
+        run: |
+          set -euo pipefail
+          bash services/instacomp-ai/scripts/ensure-runtime-dependencies.sh \
+            services/instacomp-ai/.venv/bin/python \
+            | tee /tmp/instacomp-opencv-idempotent.log
+          grep -q 'PASS InstaComp runtime dependencies synchronized' /tmp/instacomp-opencv-idempotent.log
+          if grep -q 'Synchronizing InstaComp runtime dependencies' /tmp/instacomp-opencv-idempotent.log; then
+            echo 'OpenCV namespace repair was not idempotent.' >&2
+            exit 1
+          fi
+          echo 'PASS repaired OpenCV runtime remains stable without another reinstall'

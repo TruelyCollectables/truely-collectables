@@ -1,0 +1,62 @@
+name: KINGMAKER Phases 24-29 Operational Trust
+
+on:
+  pull_request:
+    paths:
+      - 'src/lib/kingmaker-phases-24-29-operational-trust.ts'
+      - 'scripts/run-kingmaker-phases-24-29-operational-trust-regressions.ts'
+      - 'supabase/migrations/20260803190000_kingmaker_phases_24_29_operational_trust.sql'
+      - '.github/workflows/kingmaker-phases-24-29-operational-trust.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  certify:
+    runs-on: ubuntu-24.04
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ci-placeholder-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: ci-placeholder-service-role-key
+      ADMIN_PASSWORD: ci-placeholder-admin-password
+      ADMIN_SESSION_SECRET: ci-placeholder-admin-session-secret-at-least-32-chars
+      STRIPE_SECRET_KEY: sk_test_placeholder
+      STRIPE_WEBHOOK_SECRET: whsec_placeholder
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Phases 24-29 regressions
+        run: node --import tsx scripts/run-kingmaker-phases-24-29-operational-trust-regressions.ts
+      - name: Migration security
+        run: |
+          set -euo pipefail
+          file='supabase/migrations/20260803190000_kingmaker_phases_24_29_operational_trust.sql'
+          test "$(grep -Eic 'enable row level security' "$file")" -ge 2
+          test "$(grep -Eic 'revoke all .* from anon, authenticated' "$file")" -ge 2
+          test "$(grep -Eic 'grant all .* to service_role' "$file")" -ge 2
+          ! grep -Eiq 'grant .* to (anon|authenticated)' "$file"
+          grep -Fq "unique (certification_id, evidence_id)" "$file"
+          grep -Fq "unique (certification_id, artifact_digest)" "$file"
+      - name: Dependency security
+        run: node scripts/run-dependency-security-audit.mjs
+      - name: Lint
+        run: npx eslint src/lib/kingmaker-phases-24-29-operational-trust.ts scripts/run-kingmaker-phases-24-29-operational-trust-regressions.ts
+      - name: TypeScript
+        run: npx tsc --noEmit
+      - name: Diff integrity
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            git diff --check "${{ github.event.pull_request.base.sha }}" "${{ github.sha }}"
+          else
+            git diff --check HEAD^ HEAD
+          fi
+      - name: Production build
+        run: npm run build

@@ -1,0 +1,183 @@
+name: InstaComp Hockey Final Five Now
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/hockey-final-five-now-trigger"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: instacomp-hockey-final-five-now-production
+  cancel-in-progress: true
+
+jobs:
+  finish-final-five:
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 240
+    env:
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      VERIFIED_HARVEST_ROOT: /home/runner/work/_temp/hockey-final-five/base
+      DOWNLOADED_CHECKLIST_CORPUS_ROOT: /home/runner/work/_temp/hockey-final-five/corpus
+      THE_CUP_CERTIFIED_PLAN_DIR: /home/runner/work/_temp/hockey-final-five/cup/the-cup-layout-plans
+      THE_CUP_MANAGEMENT_RECEIPT: /home/runner/work/_temp/hockey-final-five/the-cup-management.json
+      TOPPS_HOCKEY_SOURCE_ROOT: /home/runner/work/_temp/hockey-final-five/topps
+      TOPPS_HOCKEY_RECEIPT: /home/runner/work/_temp/hockey-final-five/topps-production.json
+      UPPER_DECK_SUPPLEMENT_RECEIPT: /home/runner/work/_temp/hockey-final-five/upper-deck-supplements.json
+      CHECKLIST_MANAGEMENT_QUERY_ATTEMPTS: '4'
+      CHECKLIST_REGISTRY_SET_CHUNK: '20'
+      CHECKLIST_REGISTRY_CARD_CHUNK: '20'
+      CHECKLIST_REGISTRY_PARALLEL_CHUNK: '20'
+      CHECKLIST_REGISTRY_IDENTITY_CHUNK: '30'
+      CHECKLIST_REGISTRY_UPLOAD_ATTEMPTS: '4'
+      UPPER_DECK_SUPPLEMENT_DELAY_MS: '0'
+      UPPER_DECK_SUPPLEMENT_ATTEMPTS: '4'
+      STATUS_BRANCH: ops/hockey-final-five-status
+
+    steps:
+      - name: Checkout certified Hockey recovery branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/instacomp-target-checklists-20260816
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Install deterministic source readers
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m pip install --disable-pip-version-check openpyxl xlrd pypdf
+          python3 -c 'import openpyxl, xlrd, pypdf; print("source readers ready")'
+
+      - name: Resolve Production Supabase credentials
+        run: node scripts/instacomp-target-checklists/resolve-production-supabase.mjs
+
+      - name: Download immutable original harvest
+        uses: actions/download-artifact@v4
+        with:
+          name: exhaustive-hockey-wnba-31924171342
+          path: /home/runner/work/_temp/hockey-final-five/base
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: 31924171342
+
+      - name: Download complete immutable source corpus
+        uses: actions/download-artifact@v4
+        with:
+          name: requested-hockey-wnba-source-corpus-complete-31992954544
+          path: /home/runner/work/_temp/hockey-final-five/corpus
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: 31992954544
+
+      - name: Download certified The Cup plan
+        uses: actions/download-artifact@v4
+        with:
+          name: instacomp-the-cup-layout-recovery-31976115218
+          path: /home/runner/work/_temp/hockey-final-five/cup
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: 31976115218
+
+      - name: Prove immutable inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d "$VERIFIED_HARVEST_ROOT/output/sources"
+          test -n "$(find "$VERIFIED_HARVEST_ROOT/output/sources" -maxdepth 1 -type f -name 'hockey_2022-23_upper-deck_the-cup-nhl__*' -print -quit)"
+          test "$(find "$DOWNLOADED_CHECKLIST_CORPUS_ROOT" -type f -path '*/sources/*' | wc -l | tr -d ' ')" = '192'
+          jq -e '.exactSetKey == "hockey|2022-23|upper-deck|the-cup-nhl" and .status == "validated"' /home/runner/work/_temp/hockey-final-five/cup/the-cup-layout-recovery-receipt.json
+
+      - name: Patch certified recovery writer and parsers
+        run: |
+          set -euo pipefail
+          python3 scripts/instacomp-target-checklists/patch-upper-deck-recovery-parser.py
+          python3 scripts/instacomp-target-checklists/patch-final-six-production.py
+
+      - name: Repair 2022-23 The Cup in Production
+        run: node scripts/instacomp-target-checklists/apply-certified-the-cup-management.mjs
+
+      - name: Stage official Topps Hockey sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$TOPPS_HOCKEY_SOURCE_ROOT"
+          copy_pdf(){ local pattern="$1" dest="$2" src; src="$(find "$DOWNLOADED_CHECKLIST_CORPUS_ROOT" -type f -name "$pattern" | head -1)"; test -n "$src"; cp "$src" "$TOPPS_HOCKEY_SOURCE_ROOT/$dest.pdf"; python3 scripts/instacomp-target-checklists/pdf-to-layout-text.py "$TOPPS_HOCKEY_SOURCE_ROOT/$dest.pdf" "$TOPPS_HOCKEY_SOURCE_ROOT/$dest.txt"; test -s "$TOPPS_HOCKEY_SOURCE_ROOT/$dest.txt"; }
+          copy_pdf '*hockey_2021_topps_nhl-stickers.pdf' '2021-nhl-stickers'
+          copy_pdf '*hockey_2022-23_topps_nhl-sticker-album.pdf' '2022-23-nhl-sticker-album'
+          copy_pdf '*hockey_2022-23_topps_chrome-nhl-stickers.pdf' '2022-23-chrome-nhl-stickers'
+          copy_pdf '*hockey_2024-25_topps_nhl-sticker-collection.pdf' '2024-25-nhl-sticker-collection'
+          copy_pdf '*hockey_2025-26_topps_nhl-sticker-collection.pdf' '2025-26-nhl-sticker-collection'
+
+      - name: Repair official Topps Hockey in Production
+        run: node --import tsx scripts/instacomp-target-checklists/apply-official-topps-hockey-management.ts
+
+      - name: Repair Upper Deck downloaded supplements in Production
+        run: node --import tsx scripts/instacomp-target-checklists/apply-downloaded-upper-deck-supplements-management.ts
+
+      - name: Build final-five receipt
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          root=/home/runner/work/_temp/hockey-final-five
+          node - <<'NODE'
+          const fs = require('node:fs');
+          const root = '/home/runner/work/_temp/hockey-final-five';
+          const read = (name) => { try { return JSON.parse(fs.readFileSync(`${root}/${name}`, 'utf8')); } catch { return null; } };
+          const cup = read('the-cup-management.json');
+          const topps = read('topps-production.json');
+          const ud = read('upper-deck-supplements.json');
+          const ice = Array.isArray(ud?.results) ? ud.results.find((r) => String(r?.sourceUrl || '').includes('/2022-23-ice-checklist/')) : null;
+          const receipt = {
+            schema: 'tcos.hockeyFinalFiveNow.v1',
+            completedAt: new Date().toISOString(),
+            triggerSha: process.env.GITHUB_SHA,
+            runId: process.env.GITHUB_RUN_ID,
+            theCup: cup,
+            topps,
+            ice,
+          };
+          const failures = [];
+          if (!cup || !['already_live','persisted'].includes(String(cup.status || ''))) failures.push('theCup');
+          const neededTopps = new Set(['2021-nhl-stickers','2024-25-nhl-sticker-collection','2025-26-nhl-sticker-collection']);
+          const toppsRows = Array.isArray(topps?.results) ? topps.results.filter((r) => neededTopps.has(String(r?.key || ''))) : [];
+          if (toppsRows.length !== 3 || toppsRows.some((r) => !['already_live','persisted'].includes(String(r?.status || '')))) failures.push('topps');
+          if (!ice || !['already_live','persisted'].includes(String(ice.status || ''))) failures.push('ice');
+          receipt.gate = { passed: failures.length === 0, failures };
+          fs.writeFileSync(`${root}/final-five-receipt.json`, JSON.stringify(receipt, null, 2) + '\n');
+          console.log(JSON.stringify(receipt, null, 2));
+          if (failures.length) process.exitCode = 2;
+          NODE
+
+      - name: Publish final-five status receipt
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          root=/home/runner/work/_temp/hockey-final-five
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch --orphan final-five-status-tmp
+          git rm -rf . >/dev/null 2>&1 || true
+          mkdir -p data/ops
+          cp "$root/final-five-receipt.json" data/ops/hockey-final-five-latest.json 2>/dev/null || printf '%s\n' '{"gate":{"passed":false,"failures":["receipt_missing"]}}' > data/ops/hockey-final-five-latest.json
+          cp "$root/the-cup-management.json" data/ops/hockey-final-five-the-cup.json 2>/dev/null || true
+          cp "$root/topps-production.json" data/ops/hockey-final-five-topps.json 2>/dev/null || true
+          cp "$root/upper-deck-supplements.json" data/ops/hockey-final-five-upper-deck.json 2>/dev/null || true
+          git add data/ops
+          git commit -m "ops(checklists): publish final-five hockey receipt [skip ci]"
+          git push --force origin "HEAD:${STATUS_BRANCH}"
+
+      - name: Cleanup protected files
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/hockey-final-five" .env.local .env.production.local .vercel

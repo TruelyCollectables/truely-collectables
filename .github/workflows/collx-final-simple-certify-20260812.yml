@@ -1,0 +1,71 @@
+name: CollX Final Simple Certify 20260812
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/collx-final-simple-certify-20260812.yml'
+      - 'ops/collx-final-simple-certify-20260812.trigger'
+
+permissions:
+  contents: read
+
+jobs:
+  certify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      PROJECT_REF: rfdzsoykhnngzdnvzlhz
+      STORE_ID: 00000000-0000-4000-8000-000000000001
+    steps:
+      - name: Certify pending and live CollX inventory with simple queries
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$SUPABASE_ACCESS_TOKEN"
+          python3 - <<'PY'
+          import json, os, subprocess, tempfile, time
+          token=os.environ['SUPABASE_ACCESS_TOKEN']; ref=os.environ['PROJECT_REF']; store=os.environ['STORE_ID']
+          url=f'https://api.supabase.com/v1/projects/{ref}/database/query'
+          def sql(q, retries=8):
+              last=''
+              for i in range(retries):
+                  f=tempfile.NamedTemporaryFile(delete=False); f.close()
+                  p=subprocess.run(['curl','-sS','--max-time','60','-o',f.name,'-w','%{http_code}','-X','POST',url,'-H',f'Authorization: Bearer {token}','-H','Content-Type: application/json','--data-binary',json.dumps({'query':q,'parameters':[],'read_only':True})],capture_output=True,text=True)
+                  raw=open(f.name).read(); os.unlink(f.name); code=(p.stdout or '000')[-3:]
+                  if code in ('200','201'): return json.loads(raw)
+                  last=f'HTTP {code}: {raw[:1000]}'
+                  if code in ('000','429','500','502','503','504','522','524','544') and i+1<retries:
+                      time.sleep(2*(i+1)); continue
+                  break
+              raise SystemExit(last)
+          base=f"store_id='{store}'::uuid and sku>='COLLX-' and sku<'COLLY' and ebay_item_id is null"
+          metrics=sql(f'''select count(*)::int total_rows,coalesce(sum(greatest(quantity,0)),0)::int total_units,
+            count(*) filter(where archived_at is not null)::int archived_rows,
+            coalesce(sum(greatest(quantity,0)) filter(where archived_at is not null),0)::int archived_units,
+            count(*) filter(where archived_at is null and quantity>0 and price<=0)::int pending_rows,
+            coalesce(sum(quantity) filter(where archived_at is null and quantity>0 and price<=0),0)::int pending_units,
+            count(*) filter(where archived_at is null and quantity>0 and price>0 and nullif(btrim(image_url),'') is not null)::int eligible_rows,
+            coalesce(sum(quantity) filter(where archived_at is null and quantity>0 and price>0 and nullif(btrim(image_url),'') is not null),0)::int eligible_units,
+            count(*) filter(where archived_at is null and quantity<=0)::int zero_qty_rows,
+            count(*) filter(where archived_at is null and quantity>0 and price>0 and nullif(btrim(image_url),'') is null)::int missing_front_rows
+            from public.products where {base};''')
+          print('COLLX_FINAL_PRODUCT_METRICS='+json.dumps(metrics,sort_keys=True))
+          pending=sql(f'''select count(distinct p.id)::int pending_draft_rows
+            from public.products p join public.inventory_items ii on ii.store_id=p.store_id and (ii.legacy_product_id=p.id or (ii.legacy_product_id is null and ii.sku=p.sku))
+            where p.{base} and p.archived_at is null and p.quantity>0 and p.price<=0 and ii.status='draft';''')
+          print('COLLX_FINAL_PENDING_DRAFT='+json.dumps(pending,sort_keys=True))
+          active=sql(f'''select count(distinct p.id)::int eligible_active_rows
+            from public.products p join public.inventory_items ii on ii.store_id=p.store_id and (ii.legacy_product_id=p.id or (ii.legacy_product_id is null and ii.sku=p.sku))
+            where p.{base} and p.archived_at is null and p.quantity>0 and p.price>0 and nullif(btrim(p.image_url),'') is not null and ii.status='active';''')
+          print('COLLX_FINAL_ELIGIBLE_ACTIVE='+json.dumps(active,sort_keys=True))
+          m=(metrics or [{}])[0]; d=(pending or [{}])[0]; a=(active or [{}])[0]
+          expected={'total_rows':6155,'total_units':6315,'archived_rows':740,'archived_units':0,'pending_rows':127,'pending_units':127,'eligible_rows':5288,'eligible_units':6188,'zero_qty_rows':0,'missing_front_rows':0}
+          bad=[f'{k}={m.get(k)} expected {v}' for k,v in expected.items() if int(m.get(k) or 0)!=v]
+          if int(d.get('pending_draft_rows') or 0)!=127: bad.append(f"pending_draft_rows={d.get('pending_draft_rows')} expected 127")
+          if int(a.get('eligible_active_rows') or 0)!=5288: bad.append(f"eligible_active_rows={a.get('eligible_active_rows')} expected 5288")
+          if bad: raise SystemExit('FINAL CERTIFICATION FAILED: '+'; '.join(bad))
+          print('COLLX_FINAL_CERTIFY=SUCCESS')
+          PY

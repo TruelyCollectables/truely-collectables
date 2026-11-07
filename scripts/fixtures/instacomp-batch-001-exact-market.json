@@ -1,0 +1,185 @@
+{
+  "schema": "tcos.instacompExactMarketFixture.v1",
+  "cards": [
+    {
+      "id": "batch-001-card-01",
+      "exactTitle": "2012 Onyx Platinum Prospects Justin Nicolino Authentic Game Used Relics #PPGU14 068/100",
+      "ai": {
+        "player": "Justin Nicolino",
+        "year": "2012",
+        "brand": "Onyx Authenticated",
+        "setName": "Onyx Platinum Prospects Authentic Game Used Relics",
+        "cardNumber": "PPGU14",
+        "parallel": "Base memorabilia issue, serial-numbered /100",
+        "serialNumber": "068/100",
+        "gradingCompany": null,
+        "gradeValue": null,
+        "certificationNumber": null,
+        "team": "Toronto Blue Jays",
+        "sport": "Baseball",
+        "isRookie": false,
+        "isAuto": false,
+        "isRelic": true,
+        "conditionGuess": "raw",
+        "confidence": 1,
+        "notes": null
+      },
+      "exactTitles": [
+        "2012 Onyx Platinum Prospects Justin Nicolino Game Used Relic #PPGU14 12/100",
+        "Justin Nicolino 2012 Onyx Platinum Prospects PPGU14 Jersey /100"
+      ],
+      "wrongDenominator": "2012 Onyx Platinum Prospects Justin Nicolino Game Used Relic #PPGU14 12/199",
+      "wrongParallel": "2012 Onyx Platinum Prospects Justin Nicolino Autograph #PPGU14 12/100"
+    },
+    {
+      "id": "batch-001-card-02",
+      "exactTitle": "2025 Panini Select Shedeur Sanders Rookie Swatches Red Prizm #RSW-SSS",
+      "ai": {
+        "player": "Shedeur Sanders",
+        "year": "2025",
+        "brand": "Panini",
+        "setName": "Panini Select Rookie Swatches",
+        "cardNumber": "RSW-SSS",
+        "parallel": "Red Prizm",
+        "serialNumber": null,
+        "gradingCompany": null,
+        "gradeValue": null,
+        "certificationNumber": null,
+        "team": "Cleveland Browns",
+        "sport": "Football",
+        "isRookie": true,
+        "isAuto": false,
+        "isRelic": true,
+        "conditionGuess": "raw",
+        "confidence": 1,
+        "notes": null
+      },
+      "exactTitles": [
+        "2025 Panini Select Rookie Swatches Red Prizm Shedeur Sanders #RSW-SSS RC",
+        "2025 Select Shedeur Sanders #RSW-SSS Red Prizm Rookie Jersey"
+      ],
+      "wrongDenominator": "2025 Panini Select Shedeur Sanders Rookie Swatches Red Prizm #RSW-SSS 4/125",
+      "wrongParallel": "2025 Panini Select Shedeur Sanders Rookie Swatches Blue Prizm #RSW-SSS"
+    },
+    {
+      "id": "batch-001-card-03",
+      "exactTitle": "2023 Panini National Treasures Tank Bigsby Crossover Rookie Patch Autographs #CRPA-TBI 33/99",
+      "ai": {
+        "player": "Tank Bigsby",
+        "year": "2023",
+        "brand": "Panini",
+        "setName": "Panini National Treasures Crossover Rookie Patch Autographs",
+        "cardNumber": "CRPA-TBI",
+        "parallel": "Base /99",
+        "serialNumber": "33/99",
+        "gradingCompany": null,
+        "gradeValue": null,
+        "certificationNumber": null,
+        "team": "Jacksonville Jaguars",
+        "sport": "Football",
+        "isRookie": true,
+        "isAuto": true,
+        "isRelic": true,
+        "conditionGuess": "raw",
+        "confidence": 1,
+        "notes": null
+      },
+      "exactTitles": [
+        "2023 National Treasures Tank Bigsby Crossover Rookie Patch Auto #CRPA-TBI 11/99",
+        "Tank Bigsby 2023 Panini National Treasures RPA CRPA-TBI /99"
+      ],
+      "wrongDenominator": "2023 National Treasures Tank Bigsby Crossover Rookie Patch Auto #CRPA-TBI 11/199",
+      "wrongParallel": "2023 National Treasures Tank Bigsby Crossover Rookie Patch Auto Gold #CRPA-TBI 11/25"
+    },
+    {
+      "id": "batch-001-card-04",
+      "exactTitle": "2023 Panini Spectra Tank Bigsby Rookie Autographs Neon Green Prizm #RAU-TBI 23/35",
+      "ai": {
+        "player": "Tank Bigsby",
+        "year": "2023",
+        "brand": "Panini",
+        "setName": "Panini Spectra Rookie Autographs",
+        "cardNumber": "RAU-TBI",
+        "parallel": "Neon Green Prizm",
+        "serialNumber": "23/35",
+        "gradingCompany": null,
+        "gradeValue": null,
+        "certificationNumber": null,
+        "team": "Jacksonville Jaguars",
+        "sport": "Football",
+        "isRookie": true,
+        "isAuto": true,
+        "isRelic": false,
+        "conditionGuess": "raw",
+        "confidence": 1,
+        "notes": null
+      },
+      "exactTitles": [
+        "2023 Panini Spectra Tank Bigsby Rookie Auto Neon Green #RAU-TBI 4/35",
+        "Tank Bigsby 2023 Spectra RAU-TBI Neon Green Prizm Auto /35"
+      ],
+      "wrongDenominator": "2023 Panini Spectra Tank Bigsby Rookie Auto Neon Green #RAU-TBI 4/75",
+      "wrongParallel": "2023 Panini Spectra Tank Bigsby Rookie Auto Neon Blue Prizm #RAU-TBI 4/35"
+    },
+    {
+      "id": "batch-001-card-05",
+      "exactTitle": "1989 Topps Gary Sheffield Future Star #343 PSA 10 Cert 06436232",
+      "ai": {
+        "player": "Gary Sheffield",
+        "year": "1989",
+        "brand": "Topps",
+        "setName": "Topps Future Star",
+        "cardNumber": "343",
+        "parallel": "Base",
+        "serialNumber": null,
+        "gradingCompany": "PSA",
+        "gradeValue": "10",
+        "certificationNumber": "06436232",
+        "team": "Milwaukee Brewers",
+        "sport": "Baseball",
+        "isRookie": true,
+        "isAuto": false,
+        "isRelic": false,
+        "conditionGuess": "graded",
+        "confidence": 1,
+        "notes": null
+      },
+      "exactTitles": [
+        "1989 Topps Gary Sheffield Future Star #343 PSA 10",
+        "Gary Sheffield 1989 Topps #343 Future Stars PSA GEM MINT 10"
+      ],
+      "wrongDenominator": "1989 Topps Gary Sheffield Future Star #343 Gold 12/50 PSA 10",
+      "wrongParallel": "1989 Topps Gary Sheffield Future Star #343 PSA 9"
+    },
+    {
+      "id": "batch-001-card-06",
+      "exactTitle": "2023 Panini Mosaic Tank Bigsby In Focus Signatures Choice Fusion Red & Yellow #IF-TB PSA 9 Cert 84704110",
+      "ai": {
+        "player": "Tank Bigsby",
+        "year": "2023",
+        "brand": "Panini",
+        "setName": "Panini Mosaic In Focus Signatures",
+        "cardNumber": "IF-TB",
+        "parallel": "Choice Fusion Red & Yellow Prizm",
+        "serialNumber": null,
+        "gradingCompany": "PSA",
+        "gradeValue": "9",
+        "certificationNumber": "84704110",
+        "team": "Jacksonville Jaguars",
+        "sport": "Football",
+        "isRookie": true,
+        "isAuto": true,
+        "isRelic": false,
+        "conditionGuess": "graded",
+        "confidence": 1,
+        "notes": null
+      },
+      "exactTitles": [
+        "2023 Mosaic Tank Bigsby In Focus Signatures Choice Fusion Red Yellow Auto #IF-TB PSA 9",
+        "Tank Bigsby 2023 Panini Mosaic IF-TB Choice Fusion Red & Yellow Auto PSA MINT 9"
+      ],
+      "wrongDenominator": "2023 Mosaic Tank Bigsby In Focus Signatures Choice Fusion Red Yellow #IF-TB 3/10 PSA 9",
+      "wrongParallel": "2023 Mosaic Tank Bigsby In Focus Signatures Choice Fusion Pink #IF-TB PSA 9"
+    }
+  ]
+}

@@ -1,0 +1,69 @@
+name: TCOS Profit Hunter GPT Actions
+
+on:
+  push:
+    branches:
+      - feature/tcos-profit-hunter-gpt-actions-20260729
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "src/app/api/tcos-profit-hunter/actions/**"
+      - "src/lib/tcos-profit-hunter-action-*.mjs"
+      - "scripts/run-tcos-profit-hunter-actions-simulations.ts"
+      - ".github/workflows/tcos-profit-hunter-gpt-actions.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/tcos-profit-hunter-gpt-actions-20260729
+          fetch-depth: 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install exact dependencies
+        run: npm ci
+      - name: Run permanent GPT Actions regressions
+        run: node --import tsx scripts/run-tcos-profit-hunter-actions-simulations.ts
+      - name: Lint GPT Actions paths
+        run: >-
+          npx eslint
+          src/lib/tcos-profit-hunter-action-service.mjs
+          src/lib/tcos-profit-hunter-action-http.mjs
+          src/app/api/tcos-profit-hunter/actions/status/route.js
+          src/app/api/tcos-profit-hunter/actions/search/route.js
+          src/app/api/tcos-profit-hunter/actions/verify/route.js
+          src/app/api/tcos-profit-hunter/actions/openapi/route.js
+          scripts/run-tcos-profit-hunter-actions-simulations.ts
+      - name: Build production application
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+          SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+          ADMIN_PASSWORD: build-only-placeholder-password
+          ADMIN_SESSION_SECRET: build-only-placeholder-admin-session-secret
+          TCOS_CONNECTOR_TOKEN: build-only-placeholder-connector-token
+          INSTACOMP_SERVICE_TOKEN: build-only-placeholder-instacomp-token
+          INSTACOMP_BASE_URL: https://truelycollectables.com
+          OPENAI_API_KEY: build-only-placeholder-openai-key
+          SERPAPI_API_KEY: build-only-placeholder-serpapi-key
+          NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+          STRIPE_SECRET_KEY: sk_test_build_only_placeholder
+          NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only_placeholder
+          STRIPE_WEBHOOK_SECRET: whsec_build_only_placeholder
+          EBAY_CLIENT_ID: build-only-placeholder-client-id
+          EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
+          EBAY_ENVIRONMENT: production
+          TCOS_LIVE_PAYMENTS_ENABLED: "false"
+          TCOS_SHIPPING_PURCHASE_MODE: dry_run
+          TCOS_LIVE_SHIPPING_ENABLED: "false"
+        run: npm run build

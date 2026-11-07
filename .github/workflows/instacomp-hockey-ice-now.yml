@@ -1,0 +1,98 @@
+name: InstaComp Hockey Ice Now
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/hockey-ice-now-trigger"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: instacomp-hockey-final-five-now-production
+  cancel-in-progress: true
+
+jobs:
+  finish-ice:
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 90
+    env:
+      GH_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      DOWNLOADED_CHECKLIST_CORPUS_ROOT: /home/runner/work/_temp/hockey-ice/corpus
+      UPPER_DECK_SUPPLEMENT_RECEIPT: /home/runner/work/_temp/hockey-ice/receipt.json
+      CHECKLIST_REGISTRY_SET_CHUNK: '50'
+      CHECKLIST_REGISTRY_CARD_CHUNK: '50'
+      CHECKLIST_REGISTRY_PARALLEL_CHUNK: '50'
+      CHECKLIST_REGISTRY_IDENTITY_CHUNK: '100'
+      CHECKLIST_REGISTRY_UPLOAD_ATTEMPTS: '4'
+      UPPER_DECK_SUPPLEMENT_DELAY_MS: '0'
+      UPPER_DECK_SUPPLEMENT_ATTEMPTS: '4'
+      STATUS_BRANCH: ops/hockey-ice-status
+
+    steps:
+      - name: Checkout certified Hockey recovery branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/instacomp-target-checklists-20260816
+          fetch-depth: 1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Resolve Production Supabase credentials
+        run: node scripts/instacomp-target-checklists/resolve-production-supabase.mjs
+
+      - name: Download immutable source corpus
+        uses: actions/download-artifact@v4
+        with:
+          name: requested-hockey-wnba-source-corpus-complete-31992954544
+          path: /home/runner/work/_temp/hockey-ice/corpus
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: 31992954544
+
+      - name: Prove corpus and patch Ice parser
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(find "$DOWNLOADED_CHECKLIST_CORPUS_ROOT" -type f -path '*/sources/*' | wc -l | tr -d ' ')" = '192'
+          python3 scripts/instacomp-target-checklists/patch-upper-deck-recovery-parser.py
+          python3 scripts/instacomp-target-checklists/patch-final-six-production.py
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('scripts/instacomp-target-checklists/apply-downloaded-upper-deck-supplements-management.ts')
+          s=p.read_text()
+          s=s.replace('const targets = targetsFromReceipts();', "const targets = targetsFromReceipts().filter((target) => target.sourceUrl.includes('/2022-23-ice-checklist/'));")
+          s=s.replace('if (targets.length < 50) throw new Error(`Expected at least 50 downloaded Upper Deck HTML supplements, found ${targets.length}.`);', 'if (targets.length !== 1) throw new Error(`Expected exactly one 2022-23 Ice source, found ${targets.length}.`);')
+          p.write_text(s)
+          PY
+
+      - name: Finish 2022-23 Upper Deck Ice
+        run: node --import tsx scripts/instacomp-target-checklists/apply-downloaded-upper-deck-supplements-management.ts
+
+      - name: Publish Ice receipt
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch --orphan hockey-ice-status-tmp
+          git rm -rf . >/dev/null 2>&1 || true
+          mkdir -p data/ops
+          cp "$UPPER_DECK_SUPPLEMENT_RECEIPT" data/ops/hockey-ice-latest.json 2>/dev/null || printf '%s\n' '{"failedCount":1,"unresolvedCount":1}' > data/ops/hockey-ice-latest.json
+          git add data/ops
+          git commit -m "ops(checklists): publish Ice recovery receipt [skip ci]"
+          git push --force origin "HEAD:${STATUS_BRANCH}"
+
+      - name: Cleanup
+        if: always()
+        run: rm -rf "$RUNNER_TEMP/hockey-ice" .env.local .env.production.local .vercel

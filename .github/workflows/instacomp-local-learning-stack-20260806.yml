@@ -1,0 +1,102 @@
+name: InstaComp Local Learning Stack 20260806
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-local-learning-stack-20260806.yml"
+      - "scripts/fix-instacomp-apple-vision-compiler.py"
+      - "scripts/fix-instacomp-local-learning-patcher.py"
+      - "scripts/fix-instacomp-local-learning-runtime.py"
+      - "scripts/fix-instacomp-legacy-training-receipts.py"
+      - "scripts/patch-instacomp-local-learning-stack.py"
+      - "scripts/patch-instacomp-training-dataset-format.py"
+      - "services/instacomp-ai/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: instacomp-local-learning-stack-20260806-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apply-and-test:
+    name: certify-current-source
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify current source contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "certifying $(git rev-parse HEAD)"
+          git diff --check
+          grep -q 'class LocalVisionEvidence' services/instacomp-ai/app/models.py
+          grep -q 'training_examples' services/instacomp-ai/app/storage.py
+          grep -q 'local_vision: dict | None = None' services/instacomp-ai/app/storage.py
+          grep -q 'legacy_scan_checklist_receipt_missing' services/instacomp-ai/app/training.py
+          grep -q 'swiftc was not found' services/instacomp-ai/app/apple_vision.py
+          grep -q 'analyze_local_vision' services/instacomp-ai/app/main.py
+          grep -q 'deterministic_local_evidence' services/instacomp-ai/app/ollama.py
+          grep -q 'opencv-python-headless' services/instacomp-ai/requirements.txt
+          grep -q '"type": "image"' services/instacomp-ai/app/training.py
+          grep -q 'install_serial_evidence_guard()' services/instacomp-ai/app/__init__.py
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: services/instacomp-ai/requirements.txt
+
+      - name: Install, compile, and run complete Mac-service suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          pip install -r services/instacomp-ai/requirements.txt
+          python -m compileall services/instacomp-ai/app services/instacomp-ai/tests
+          PYTHONPATH=services/instacomp-ai pytest -q services/instacomp-ai/tests
+
+  native-apple-vision:
+    needs: apply-and-test
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Confirm current candidate
+        shell: bash
+        run: echo "certifying $(git rev-parse HEAD)"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: services/instacomp-ai/requirements.txt
+
+      - name: Compile native Apple Vision and run local-learning acceptance
+        shell: bash
+        run: |
+          set -euo pipefail
+          pip install -r services/instacomp-ai/requirements.txt
+          PYTHONPATH=services/instacomp-ai pytest -q \
+            services/instacomp-ai/tests/test_apple_vision_native.py \
+            services/instacomp-ai/tests/test_local_learning_stack.py \
+            services/instacomp-ai/tests/test_ollama_structured_vision.py \
+            services/instacomp-ai/tests/test_ollama_parser_resilience.py \
+            services/instacomp-ai/tests/test_serial_evidence_guard.py
+
+      - name: Prove real serial reading stays enabled on native Apple Vision path
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'SERIAL_STAMP_LINE_RE' services/instacomp-ai/app/serial_evidence_guard.py
+          grep -q 'clean_exact' services/instacomp-ai/app/serial_evidence_guard.py
+          grep -q 'visible_denominator=denominator' services/instacomp-ai/app/serial_evidence_guard.py
+          echo "PASS native Apple Vision path retains genuine physical serial-number evidence"

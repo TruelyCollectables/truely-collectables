@@ -1,0 +1,74 @@
+name: Harden Cloudflare Migration Probes and Rerun
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/cloudflare-harden-probes-trigger'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: truely-cloudflare-probe-hardening
+  cancel-in-progress: false
+
+jobs:
+  harden-and-rerun:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Add bounded retries to transient Cloudflare and baseline probes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+          p = Path('.github/workflows/cloudflare-complete-migration-v2.yml')
+          s = p.read_text()
+          replacements = {
+              'curl -L -sS --max-time 45': 'curl -L -sS --retry 4 --retry-all-errors --retry-delay 2 --retry-max-time 180 --max-time 45',
+              'curl -L --fail-with-body -sS --max-time 45': 'curl -L --fail-with-body -sS --retry 4 --retry-all-errors --retry-delay 2 --retry-max-time 180 --max-time 45',
+              'curl -L -sS --max-time 35': 'curl -L -sS --retry 4 --retry-all-errors --retry-delay 2 --retry-max-time 150 --max-time 35',
+          }
+          changed = 0
+          for old, new in replacements.items():
+              count = s.count(old)
+              if count:
+                  s = s.replace(old, new)
+                  changed += count
+                  print(f'hardened {count} occurrence(s): {old}')
+          if changed == 0:
+              print('Probe retry hardening already present; no text replacement needed.')
+          p.write_text(s)
+          PY
+
+      - name: Commit hardening if needed
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- .github/workflows/cloudflare-complete-migration-v2.yml; then
+            echo 'V2 already hardened.'
+          else
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add .github/workflows/cloudflare-complete-migration-v2.yml
+            git commit -m 'Retry transient Cloudflare migration probes'
+            git push origin HEAD:main
+          fi
+
+      - name: Dispatch hardened migration
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sleep 3
+          gh workflow run cloudflare-complete-migration-v2.yml --repo "$GITHUB_REPOSITORY" --ref main
+          echo 'Hardened Cloudflare migration dispatched.'

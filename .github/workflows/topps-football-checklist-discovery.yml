@@ -1,0 +1,73 @@
+name: Topps Football Checklist Discovery
+run-name: Topps Football Checklist Discovery — ${{ github.event_name }}
+
+on:
+  workflow_dispatch: {}
+  schedule:
+    - cron: "17 15 * * *"
+  push:
+    branches:
+      - main
+    paths:
+      - "scripts/discover-topps-football-checklists.ts"
+      - ".github/workflows/topps-football-checklist-discovery.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: topps-football-checklist-discovery
+  cancel-in-progress: false
+
+jobs:
+  discover:
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 60
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      TOPPS_FOOTBALL_MAX_PRODUCTS: "100"
+      TOPPS_FOOTBALL_DISCOVERY_OUTPUT: .checklist-discovery/topps-football-discovery.json
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Discover official Topps football checklists
+        run: node --import tsx scripts/discover-topps-football-checklists.ts
+      - name: Publish discovery summary
+        if: always()
+        run: |
+          node --input-type=module <<'NODE'
+          import { existsSync, readFileSync } from 'node:fs';
+          const path = process.env.TOPPS_FOOTBALL_DISCOVERY_OUTPUT;
+          if (!path || !existsSync(path)) {
+            console.log('Topps football discovery receipt was not created.');
+            process.exit(0);
+          }
+          const receipt = JSON.parse(readFileSync(path, 'utf8'));
+          const failed = (receipt.results || []).filter((row) => row.status === 'failed').length;
+          const noAsset = (receipt.results || []).filter((row) => row.status === 'no_checklist_asset').length;
+          const lines = [
+            '# Topps Football Checklist Discovery',
+            '',
+            `**Product pages scanned:** ${receipt.productCount ?? 0}`,
+            `**Checklist assets discovered:** ${receipt.discoveredCount ?? 0}`,
+            `**Pages without checklist assets:** ${noAsset}`,
+            `**Failed pages:** ${failed}`,
+            '',
+            'Discovered assets are cataloged in Production as Topps / Football and held for deterministic football parser validation before Registry import.',
+          ];
+          await import('node:fs').then(({ writeFileSync }) => writeFileSync(process.env.GITHUB_STEP_SUMMARY, `${lines.join('\n')}\n`, { flag: 'a' }));
+          NODE
+      - name: Upload Topps football discovery receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: topps-football-checklist-discovery-receipt
+          path: .checklist-discovery/topps-football-discovery.json
+          if-no-files-found: error
+          retention-days: 90

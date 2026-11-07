@@ -1,0 +1,700 @@
+import { NextResponse } from "next/server";
+import Stripe from "stripe";
+import {
+  calculateShipping,
+  getShippingCoverage,
+  isShippingMethod,
+  resolveShippingMethod,
+  SHIPPING_RULES,
+  type ShippingMethod,
+} from "../../../lib/shipping";
+import {
+  InventoryEngine,
+  InventoryEngineError,
+  InventoryRepository,
+} from "../../../modules/inventory";
+import {
+  TERMS_OF_SERVICE_VERSION,
+  hasAcceptedTerms,
+} from "../../../lib/legal";
+import { BUYER_PROTECTION_POLICY_VERSION } from "../../../lib/buyer-protection";
+import { resolveBuyerProtectionSelection } from "../../../lib/buyer-protection-server";
+import { metadataSafeIdentity } from "../../../lib/client-identity";
+import { recordTermsAcceptance } from "../../../lib/tos-acceptance";
+import { getActiveStoreId } from "../../../lib/stores";
+import { getAuthenticatedAccountFromRequest } from "../../../lib/account-auth";
+import { trustedRequestOrigin } from "../../../lib/site-origin";
+import {
+  checkPublicEndpointRateLimit,
+  publicEndpointRateLimitPolicies,
+  publicEndpointRateLimitResponse,
+} from "../../../lib/public-endpoint-rate-limit";
+import {
+  encodeCartMetadata,
+  STRIPE_CART_METADATA_MAX_LENGTH,
+} from "../../../lib/checkout-cart-metadata";
+import { createSupabaseServerClient } from "../../../lib/supabase-server";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  attachCheckoutTosEvidence,
+  checkoutRequestFingerprint,
+  claimCheckoutAttempt,
+  completeCheckoutAttempt,
+  failCheckoutAttempt,
+  isCheckoutAttemptId,
+} from "../../../lib/checkout-attempts";
+import {
+  attachStripeSessionToCheckoutReservation,
+  CHECKOUT_RESERVATION_MINUTES,
+  releaseCheckoutReservation,
+  reserveCheckoutInventory,
+} from "../../../lib/checkout-inventory-reservations";
+import { getStripePaymentRuntime } from "../../../lib/live-payment-launch";
+import {
+  listingPromotionFromMetadata,
+  normalizeListingCouponCode,
+  resolveCartListingCoupon,
+  roundedMoney,
+} from "../../../lib/listing-promotions";
+import { loadLiveStoreSales, resolveStoreSale } from "../../../lib/store-sales";
+
+export const dynamic = "force-dynamic";
+
+export async function POST(request: Request) {
+  let checkoutJournal:
+    | {
+        supabase: SupabaseClient;
+        stripe: Stripe;
+        rowId: string;
+        storeId: string;
+        checkoutAttemptId: string;
+        reservationCreated: boolean;
+        stripeSessionId: string | null;
+      }
+    | null = null;
+
+  try {
+    const supabase = createSupabaseServerClient({ admin: true });
+    const storeId = getActiveStoreId();
+    const stripeRuntime = await getStripePaymentRuntime({
+      storeId,
+      supabase,
+    });
+    if (!stripeRuntime.allowed || !stripeRuntime.stripeKey) {
+      return NextResponse.json(
+        { error: stripeRuntime.reason },
+        { status: 503 },
+      );
+    }
+    const stripe = new Stripe(stripeRuntime.stripeKey);
+    const checkoutInventoryEngine = new InventoryEngine(
+      storeId,
+      new InventoryRepository(storeId, supabase),
+      supabase,
+    );
+
+    const body = await request.json();
+    const account = await getAuthenticatedAccountFromRequest(request);
+
+    const cart = checkoutInventoryEngine.normalizeCartItems(body.cart);
+    const cartMetadata = encodeCartMetadata(cart);
+    const requestedShippingMethod = body.shippingMethod as ShippingMethod;
+    const tosAccepted = hasAcceptedTerms(body.tosAccepted);
+    const tosVersion = String(body.tosVersion || TERMS_OF_SERVICE_VERSION);
+    const checkoutAttemptId = String(body.checkoutAttemptId || "");
+    const submittedCoupon = String(body.couponCode || "").trim();
+    const couponCode = normalizeListingCouponCode(submittedCoupon);
+
+    if (submittedCoupon && !couponCode) {
+      return NextResponse.json(
+        { error: "Coupon code format is invalid", retryable: false },
+        { status: 400 },
+      );
+    }
+
+    if (!isCheckoutAttemptId(checkoutAttemptId)) {
+      return NextResponse.json(
+        { error: "A valid checkout attempt ID is required", retryable: false },
+        { status: 400 },
+      );
+    }
+
+    if (!tosAccepted) {
+      return NextResponse.json(
+        { error: "Terms of Service must be accepted before checkout" },
+        { status: 400 },
+      );
+    }
+
+    if (cartMetadata.length > STRIPE_CART_METADATA_MAX_LENGTH) {
+      return NextResponse.json(
+        {
+          error:
+            "Cart has too many unique items for checkout. Please split this into smaller orders.",
+        },
+        { status: 400 },
+      );
+    }
+
+    const rateLimit = await checkPublicEndpointRateLimit({
+      request,
+      ...publicEndpointRateLimitPolicies.checkout,
+      subjectKey: account?.id || null,
+    });
+
+    if (!rateLimit.allowed) {
+      const blocked = publicEndpointRateLimitResponse(rateLimit);
+      return NextResponse.json(blocked.body, { status: blocked.status });
+    }
+
+    const clientIdentity = rateLimit.identity;
+
+    if (!isShippingMethod(requestedShippingMethod)) {
+      return NextResponse.json(
+        { error: "Invalid shipping method" },
+        { status: 400 },
+      );
+    }
+
+    const inventoryItems =
+      await checkoutInventoryEngine.requireAvailableCartItems(cart);
+    const inventoryMetadataResult = await supabase
+      .from("inventory_items")
+      .select("legacy_product_id,metadata")
+      .eq("store_id", storeId)
+      .in(
+        "legacy_product_id",
+        cart.map((item) => item.id),
+      );
+
+    if (inventoryMetadataResult.error) {
+      throw inventoryMetadataResult.error;
+    }
+
+    const promotionByProductId = new Map(
+      (inventoryMetadataResult.data || []).map((item: any) => [
+        Number(item.legacy_product_id),
+        listingPromotionFromMetadata(item.metadata),
+      ]),
+    );
+    const storeSales = await loadLiveStoreSales({ supabase, storeId });
+    const automaticFreeShippingProductIds = new Set(
+      [...promotionByProductId.entries()]
+        .filter(([, promotion]) => promotion.automaticFreeShipping)
+        .map(([productId]) => productId),
+    );
+    const automaticFreeShippingApplies =
+      cart.length > 0 &&
+      cart.every((item) => automaticFreeShippingProductIds.has(item.id));
+    const couponDecision = resolveCartListingCoupon({
+      couponCode,
+      productIds: cart.map((item) => item.id),
+      promotionByProductId,
+    });
+    const discountCouponProductIds = couponDecision.discountProductIds;
+    const discountCouponApplies = couponDecision.discountApplies;
+    const freeShippingCouponApplies = couponDecision.freeShippingApplies;
+
+    if (!couponDecision.valid) {
+      return NextResponse.json(
+        {
+          error: couponDecision.error,
+          retryable: false,
+        },
+        { status: 400 },
+      );
+    }
+
+    const freeShippingPromoApplies =
+      automaticFreeShippingApplies || freeShippingCouponApplies;
+
+    const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = [];
+    let subtotal = 0;
+    let itemCount = 0;
+    let couponDiscountTotal = 0;
+    let automaticSaleDiscountTotal = 0;
+
+    for (const cartItem of cart) {
+      const product = inventoryItems.find(
+        (item) => item.legacyProductId === cartItem.id,
+      );
+
+      if (!product) {
+        return NextResponse.json(
+          { error: `Product ${cartItem.id} not found` },
+          { status: 404 },
+        );
+      }
+
+      const promotion = promotionByProductId.get(cartItem.id);
+      const listingOriginalPrice =
+        promotion?.onSale && promotion.originalPrice
+          ? Number(promotion.originalPrice)
+          : Number(product.price);
+      const storeSale = resolveStoreSale({
+        campaigns: storeSales,
+        candidate: {
+          productId: product.legacyProductId,
+          title: product.title,
+          player: product.player,
+          section: product.storefrontSection,
+          price: listingOriginalPrice,
+        },
+      });
+      const listingDiscountPercent = promotion?.onSale
+        ? Number(promotion.discountPercent || 0)
+        : 0;
+      const normalPrice =
+        storeSale.campaign && storeSale.discountPercent > listingDiscountPercent
+          ? storeSale.price
+          : Number(product.price);
+      automaticSaleDiscountTotal += Math.max(0, listingOriginalPrice - normalPrice) * cartItem.quantity;
+      const couponPercent =
+        couponCode &&
+        promotion?.discountCouponCode === couponCode &&
+        discountCouponProductIds.has(cartItem.id)
+          ? promotion.discountCouponPercent
+          : 0;
+      const price = couponPercent > 0
+        ? Math.max(0.01, roundedMoney(normalPrice * (1 - couponPercent / 100)))
+        : normalPrice;
+
+      subtotal += price * cartItem.quantity;
+      couponDiscountTotal += (normalPrice - price) * cartItem.quantity;
+      itemCount += cartItem.quantity;
+
+      lineItems.push({
+        price_data: {
+          currency: "usd",
+          product_data: {
+            name: product.title,
+            images: product.imageUrl ? [product.imageUrl] : [],
+            metadata: {
+              legacy_product_id: String(product.legacyProductId),
+              sku: product.sku || "",
+              coupon_code: couponPercent > 0 ? couponCode || "" : "",
+              coupon_discount_percent: String(couponPercent || 0),
+              automatic_sale_campaign_id:
+                storeSale.campaign && storeSale.discountPercent > listingDiscountPercent
+                  ? storeSale.campaign.id
+                  : "",
+              automatic_sale_discount_percent: String(
+                storeSale.campaign && storeSale.discountPercent > listingDiscountPercent
+                  ? storeSale.discountPercent
+                  : listingDiscountPercent,
+              ),
+            },
+          },
+          unit_amount: Math.round(price * 100),
+        },
+        quantity: cartItem.quantity,
+      });
+    }
+
+    const shippingPolicy = resolveShippingMethod({
+      requestedMethod: requestedShippingMethod,
+      itemCount,
+      subtotal,
+    });
+    const shippingMethod = shippingPolicy.method;
+    const baseShippingAmount = calculateShipping({
+      itemCount,
+      subtotal,
+      method: shippingMethod,
+    });
+    const shippingAmount = freeShippingPromoApplies ? 0 : baseShippingAmount;
+
+    const shippingRule = SHIPPING_RULES[shippingMethod];
+    const shippingName = shippingRule.name;
+    const shippingCoverage = getShippingCoverage({
+      method: shippingMethod,
+      subtotal,
+    });
+    if (shippingCoverage.requiresManualHighValueCoverage) {
+      return NextResponse.json(
+        {
+          error:
+            "Orders above the standard USPS merchandise-insurance maximum require a manual full-value shipping and insurance arrangement before checkout. Contact Truely Collectables support.",
+          manualHighValueCoverageRequired: true,
+        },
+        { status: 409 },
+      );
+    }
+    const buyerProtection = await resolveBuyerProtectionSelection({
+      supabase,
+      storeId,
+      accountId: account?.id || null,
+      shippingMethod,
+      itemSubtotal: subtotal,
+      shippingAmount,
+      itemCount,
+      requestedSelected: body.buyerProtectionSelected === true,
+      requestedPreferenceMode: body.buyerProtectionPreferenceMode,
+      termsAccepted: body.buyerProtectionTermsAccepted === true,
+      declineAcknowledged:
+        body.buyerProtectionDeclineAcknowledged === true,
+      policyVersion:
+        body.buyerProtectionPolicyVersion || BUYER_PROTECTION_POLICY_VERSION,
+      identity: clientIdentity,
+    });
+
+    lineItems.push({
+      price_data: {
+        currency: "usd",
+        product_data: {
+          name:
+            shippingAmount === 0 ? `${shippingName} - FREE` : shippingName,
+          metadata: {
+            tcos_line_type: "shipping",
+          },
+        },
+        unit_amount: Math.round(shippingAmount * 100),
+      },
+      quantity: 1,
+    });
+
+    if (shippingCoverage.buyerCharge > 0) {
+      lineItems.push({
+        price_data: {
+          currency: "usd",
+          product_data: {
+            name: "Mandatory Full-Value Shipping Insurance",
+            description: `Required for this order because the item subtotal exceeds $1,000. Full declared-value carrier insurance is required before shipment.`,
+            metadata: {
+              tcos_line_type: "mandatory_shipping_insurance",
+              coverage_amount: shippingCoverage.fullValueCoverageAmount.toFixed(2),
+              fee_source: shippingCoverage.insuranceFeeSource || "",
+            },
+          },
+          unit_amount: Math.round(shippingCoverage.buyerCharge * 100),
+        },
+        quantity: 1,
+      });
+    }
+
+    if (buyerProtection.selected) {
+      lineItems.push({
+        price_data: {
+          currency: "usd",
+          product_data: {
+            name: "Truely Collectables Shipment Protection",
+            description:
+              "Optional reimbursement program for a qualifying Tracked Card Letter order of $20.00 or less. Approved carrier loss or damage reimbursement is limited to the protected item subtotal up to $20. Shipping and the protection fee are excluded.",
+            metadata: {
+              tcos_line_type: "buyer_protection",
+              policy_version: buyerProtection.policyVersion || "",
+            },
+          },
+          unit_amount: Math.round(buyerProtection.feeAmount * 100),
+        },
+        quantity: 1,
+      });
+    }
+
+    const origin = trustedRequestOrigin(request);
+    const stripeIdempotencyKey = `tcos_checkout_${storeId}_${checkoutAttemptId}`;
+    const baseMetadata = {
+      store_id: storeId,
+      account_id: account?.id || "",
+      checkout_attempt_id: checkoutAttemptId,
+      cart: cartMetadata,
+      requested_shipping_method: requestedShippingMethod,
+      shipping_method: shippingMethod,
+      shipping_name: shippingName,
+      shipping_amount: shippingAmount.toFixed(2),
+      shipping_policy_reason: shippingPolicy.reason || "",
+      free_shipping_promo_applied: freeShippingPromoApplies ? "true" : "false",
+      coupon_code: couponCode || "",
+      coupon_discount_total: roundedMoney(couponDiscountTotal).toFixed(2),
+      automatic_sale_discount_total: roundedMoney(automaticSaleDiscountTotal).toFixed(2),
+      discount_coupon_applied: discountCouponApplies ? "true" : "false",
+      free_shipping_coupon_applied: freeShippingCouponApplies ? "true" : "false",
+      base_shipping_amount: baseShippingAmount.toFixed(2),
+      standard_envelope_estimated_oz: String(
+        shippingPolicy.standardEnvelope.estimatedOunces,
+      ),
+      standard_envelope_eligible: shippingPolicy.standardEnvelope.eligible
+        ? "true"
+        : "false",
+      shipping_coverage_provider: shippingCoverage.provider,
+      shipping_coverage_required: shippingCoverage.required ? "true" : "false",
+      shipping_coverage_seller_protected: shippingCoverage.sellerProtected
+        ? "true"
+        : "false",
+      shipping_coverage_status: shippingCoverage.status,
+      shipping_coverage_type: shippingCoverage.coverageType,
+      shipping_coverage_amount: shippingCoverage.coveredAmount.toFixed(2),
+      shipping_coverage_buyer_charge:
+        shippingCoverage.buyerCharge.toFixed(2),
+      shipping_coverage_additional_required: shippingCoverage.additionalCoverageRequired
+        ? "true"
+        : "false",
+      shipping_coverage_full_value_amount:
+        shippingCoverage.fullValueCoverageAmount.toFixed(2),
+      shipping_coverage_additional_payer: shippingCoverage.additionalCoveragePayer,
+      shipping_coverage_fee_source: shippingCoverage.insuranceFeeSource || "",
+      buyer_protection_selected: buyerProtection.selected ? "true" : "false",
+      buyer_protection_fee: buyerProtection.feeAmount.toFixed(2),
+      buyer_protection_fee_base: buyerProtection.feeBase.toFixed(2),
+      buyer_protection_covered_amount:
+        buyerProtection.coveredAmount.toFixed(2),
+      buyer_protection_policy_version: buyerProtection.policyVersion || "",
+      buyer_protection_terms_accepted_at:
+        buyerProtection.termsAcceptedAt || "",
+      buyer_protection_consent_source: buyerProtection.consentSource || "",
+      buyer_protection_preference_mode: buyerProtection.preferenceMode,
+      buyer_protection_decline_acknowledged_at:
+        buyerProtection.declineAcknowledgedAt || "",
+      buyer_protection_decline_consent_source:
+        buyerProtection.declineConsentSource || "",
+      subtotal: subtotal.toFixed(2),
+      item_count: String(itemCount),
+      tos_accepted: "true",
+      tos_version: tosVersion,
+    };
+    const successUrl = `${origin}/success?type=cart&session_id={CHECKOUT_SESSION_ID}`;
+    const cancelUrl = `${origin}/cart`;
+    const requestFingerprint = checkoutRequestFingerprint({
+      mode: "payment",
+      payment_method_types: ["card"],
+      allow_promotion_codes: true,
+      customer_creation: "always",
+      customer_email: account?.email || null,
+      line_items: lineItems,
+      shipping_address_collection: { allowed_countries: ["US"] },
+      metadata: baseMetadata,
+      success_url: successUrl,
+      cancel_url: cancelUrl,
+    });
+    const claim = await claimCheckoutAttempt({
+      supabase,
+      storeId,
+      checkoutAttemptId,
+      accountId: account?.id || null,
+      requestFingerprint,
+      stripeIdempotencyKey,
+      identityMetadata: metadataSafeIdentity(clientIdentity),
+    });
+
+    if (!claim.fingerprintMatches) {
+      return NextResponse.json(
+        {
+          error:
+            "This checkout attempt no longer matches the current cart. Start checkout again.",
+          retryable: false,
+        },
+        { status: 409 },
+      );
+    }
+
+    if (claim.requestStatus === "session_created" && claim.stripeSessionId) {
+      const existingSession = await stripe.checkout.sessions.retrieve(
+        claim.stripeSessionId,
+      );
+
+      if (existingSession.url && existingSession.status === "open") {
+        return NextResponse.json({
+          url: existingSession.url,
+          replayed: true,
+          checkoutAttemptId,
+        });
+      }
+
+      return NextResponse.json(
+        {
+          error: "The previous Checkout Session is no longer available.",
+          retryable: false,
+        },
+        { status: 409 },
+      );
+    }
+
+    if (!claim.claimed) {
+      return NextResponse.json(
+        {
+          error:
+            "This checkout attempt is already being created. Try again in a moment.",
+          retryable: true,
+          retryAfterSeconds: 2,
+        },
+        { status: 409, headers: { "Retry-After": "2" } },
+      );
+    }
+
+    checkoutJournal = {
+      supabase,
+      stripe,
+      rowId: claim.rowId,
+      storeId,
+      checkoutAttemptId,
+      reservationCreated: false,
+      stripeSessionId: null,
+    };
+    let tosAcceptanceEventId = claim.tosAcceptanceEventId;
+
+    if (!tosAcceptanceEventId) {
+      const { data: existingAcceptance, error: existingAcceptanceError } =
+        await supabase
+          .from("tos_acceptance_events")
+          .select("id")
+          .eq("store_id", storeId)
+          .eq("context_type", "checkout")
+          .eq("context_id", checkoutAttemptId)
+          .order("created_at", { ascending: true })
+          .limit(1)
+          .maybeSingle();
+
+      if (existingAcceptanceError) throw existingAcceptanceError;
+
+      tosAcceptanceEventId = existingAcceptance?.id
+        ? String(existingAcceptance.id)
+        : await recordTermsAcceptance(supabase, {
+            contextType: "checkout",
+            contextId: checkoutAttemptId,
+            tosKind: "buyer",
+            tosVersion,
+            identity: clientIdentity,
+            storeId,
+          });
+
+      await attachCheckoutTosEvidence({
+        supabase,
+        rowId: claim.rowId,
+        tosAcceptanceEventId,
+      });
+    }
+
+    const reservation = await reserveCheckoutInventory({
+      supabase,
+      storeId,
+      checkoutAttemptId,
+      cart,
+      ttlMinutes: CHECKOUT_RESERVATION_MINUTES,
+    });
+    checkoutJournal.reservationCreated = true;
+    const stripeExpiresAt = Math.floor(Date.now() / 1000) + 31 * 60;
+
+    if (stripeExpiresAt >= reservation.expiresAtUnix) {
+      throw new Error(
+        "The inventory reservation does not safely cover the Stripe payment window.",
+      );
+    }
+
+    const session = await stripe.checkout.sessions.create(
+      {
+        mode: "payment",
+        payment_method_types: ["card"],
+        allow_promotion_codes: true,
+        customer_creation: "always",
+        ...(account?.email ? { customer_email: account.email } : {}),
+        client_reference_id: checkoutAttemptId,
+        line_items: lineItems,
+        shipping_address_collection: {
+          allowed_countries: ["US"],
+        },
+        metadata: {
+          ...baseMetadata,
+          inventory_reservation_expires_at: reservation.expiresAt,
+          tos_accepted_at: claim.tosAcceptedAt,
+          tos_acceptance_event_id: tosAcceptanceEventId,
+          ...claim.identityMetadata,
+        },
+        expires_at: stripeExpiresAt,
+        success_url: successUrl,
+        cancel_url: cancelUrl,
+      },
+      {
+        idempotencyKey: stripeIdempotencyKey,
+      },
+    );
+
+    checkoutJournal.stripeSessionId = session.id;
+
+    if (!session.url) {
+      throw new Error("Stripe did not return a hosted Checkout URL");
+    }
+
+    await attachStripeSessionToCheckoutReservation({
+      supabase,
+      storeId,
+      checkoutAttemptId,
+      stripeSessionId: session.id,
+    });
+
+    await completeCheckoutAttempt({
+      supabase,
+      rowId: claim.rowId,
+      stripeSessionId: session.id,
+    });
+
+    return NextResponse.json({
+      url: session.url,
+      replayed: false,
+      checkoutAttemptId,
+      reservationExpiresAt: reservation.expiresAt,
+    });
+  } catch (error: any) {
+    if (checkoutJournal) {
+      let reservationMayBeReleased = checkoutJournal.stripeSessionId === null;
+
+      if (checkoutJournal.stripeSessionId) {
+        try {
+          const session = await checkoutJournal.stripe.checkout.sessions.retrieve(
+            checkoutJournal.stripeSessionId,
+          );
+
+          if (session.status === "open") {
+            await checkoutJournal.stripe.checkout.sessions.expire(session.id);
+            reservationMayBeReleased = true;
+          } else if (session.status === "complete") {
+            reservationMayBeReleased = false;
+          } else {
+            reservationMayBeReleased = true;
+          }
+        } catch {
+          reservationMayBeReleased = false;
+          console.error(
+            "Orphaned Stripe Checkout Session could not be safely inspected or expired",
+          );
+        }
+      }
+
+      if (checkoutJournal.reservationCreated && reservationMayBeReleased) {
+        try {
+          await releaseCheckoutReservation({
+            supabase: checkoutJournal.supabase,
+            storeId: checkoutJournal.storeId,
+            checkoutAttemptId: checkoutJournal.checkoutAttemptId,
+          });
+        } catch {
+          console.error("Checkout inventory reservation could not be released");
+        }
+      }
+
+      try {
+        await failCheckoutAttempt({
+          supabase: checkoutJournal.supabase,
+          rowId: checkoutJournal.rowId,
+          error,
+        });
+      } catch {
+        console.error("Checkout attempt failure could not be journaled");
+      }
+    }
+
+    if (error instanceof InventoryEngineError) {
+      return NextResponse.json(
+        { error: error.message, retryable: false },
+        { status: error.statusCode },
+      );
+    }
+
+    return NextResponse.json(
+      {
+        error: error.message || "Checkout failed",
+        retryable: Boolean(checkoutJournal),
+      },
+      { status: 500 },
+    );
+  }
+}

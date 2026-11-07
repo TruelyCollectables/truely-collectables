@@ -1,0 +1,3971 @@
+"use client";
+
+export const dynamic = "force-dynamic";
+
+import Link from "next/link";
+import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useRouter } from "next/navigation";
+import { getKingmakerLocalSession as getFreshAccountSession } from "../kingmaker-session";
+import { buildInstaCompRegistryExactTitle } from "../../../lib/instacomp-canonical-title";
+
+type CardIdentity = {
+  sport?: string | null;
+  league?: string | null;
+  year?: string | null;
+  manufacturer?: string | null;
+  brand?: string | null;
+  product?: string | null;
+  setName?: string | null;
+  subset?: string | null;
+  player?: string | null;
+  team?: string | null;
+  cardNumber?: string | null;
+  parallel?: string | null;
+  variation?: string | null;
+  notes?: string | null;
+  serialNumber?: string | null;
+  isRookie?: boolean;
+  isAuto?: boolean;
+  isRelic?: boolean;
+  inscription?: boolean;
+  inscriptionText?: string | null;
+  memorabiliaType?: string | null;
+};
+
+type CompEvidence = {
+  title?: string | null;
+  price?: number | null;
+  url?: string | null;
+  sourceLabel?: string | null;
+  soldAt?: string | null;
+  listedAt?: string | null;
+};
+
+type CenteringEstimate = {
+  measurable?: boolean;
+  left_percent?: number | null;
+  right_percent?: number | null;
+  top_percent?: number | null;
+  bottom_percent?: number | null;
+  horizontal_ratio?: string | null;
+  vertical_ratio?: string | null;
+  confidence?: number | null;
+  method?: string | null;
+  warning?: string | null;
+  horizontal_measurable?: boolean;
+  vertical_measurable?: boolean;
+  horizontal_confidence?: number | null;
+  vertical_confidence?: number | null;
+  design_classification?: string | null;
+};
+
+type PriceGuidePoint = {
+  timestamp: number;
+  value: number;
+};
+
+type PriceGuideSnapshot = {
+  source?: string | null;
+  sourceAuthority?: string | null;
+  listingUrl?: string | null;
+  cardTitle?: string | null;
+  grade?: string | null;
+  period?: string | null;
+  medianSoldPrice?: number | null;
+  lastSoldPrice?: number | null;
+  lastSoldDate?: string | null;
+  soldPriceLow?: number | null;
+  soldPriceHigh?: number | null;
+  sellerCount?: number | null;
+  listingCount?: number | null;
+  soldCount?: number | null;
+  weeklyMedianSeries?: PriceGuidePoint[];
+  quantitySoldSeries?: PriceGuidePoint[];
+  capturedAt?: string | null;
+  identityVerified?: boolean;
+};
+
+type PhysicalInventoryMember = {
+  inventoryItemId: string;
+  scanId?: string | null;
+  cardUuid?: string | null;
+  identity?: CardIdentity | null;
+  frontImageUrl?: string | null;
+  backImageUrl?: string | null;
+  inventoryLifecycle?: {
+    state?: string | null;
+    disposition?: string | null;
+    receivedAt?: string | null;
+    scanId?: string | null;
+  } | null;
+};
+
+type PendingCard = {
+  inventoryItemId: string;
+  title: string;
+  description?: string | null;
+  category?: string | null;
+  condition?: string | null;
+  sku: string | null;
+  price?: number | null;
+  quantity?: number;
+  commercialGroup?: {
+    mergeable: boolean;
+    memberInventoryItemIds: string[];
+    members?: PhysicalInventoryMember[];
+    pendingRows: number;
+    pendingQuantity: number;
+    activeRows: number;
+    totalQuantity: number;
+  } | null;
+  frontImageUrl: string | null;
+  backImageUrl: string | null;
+  storedImageCount: number;
+  activationReadiness?: { ready?: boolean; blockers?: string[] } | null;
+  listingReadiness?: {
+    ready: boolean;
+    coreReady: boolean;
+    websiteReady: boolean;
+    ebayReady: boolean;
+    mercariReady: boolean;
+    blockers: string[];
+    checks: Array<{ code: string; label: string; ready: boolean }>;
+    acquisitionSource?: string | null;
+    registryIdentityId?: string | null;
+  } | null;
+  websiteInventory?: {
+    current: boolean;
+    quantity: number;
+    productIds: number[];
+    products: Array<{ id: number; title?: string | null; quantity: number; price: number }>;
+    linkedProductId?: number | null;
+    linkedProductTitle?: string | null;
+    linkedProductSellable?: boolean;
+    linkedMatchStatus?: "exact" | "mismatch" | "uncertain" | "none";
+    linkedMismatchReason?: string | null;
+  } | null;
+  duplicateProtection?: {
+    required: boolean;
+    resolvedAsSeparate: boolean;
+    matchKey?: string | null;
+    uniquePhysicalCopy: boolean;
+    existingActiveCount: number;
+    existingQuantity: number;
+    matches: Array<{
+      inventoryItemId: string;
+      legacyProductId?: number | null;
+      title: string;
+      sku?: string | null;
+      price: number;
+      quantity: number;
+      imageUrl?: string | null;
+      ebayItemId?: string | null;
+    }>;
+  } | null;
+  inventoryLifecycle?: {
+    state?: string | null;
+    disposition?: string | null;
+    receivedAt?: string | null;
+    scanId?: string | null;
+  } | null;
+  instaComp: {
+    verifiedCsvLocked?: boolean;
+    scanId?: string | null;
+    cardUuid?: string | null;
+    pricingGroupKey?: string | null;
+    duplicateGroup?: {
+      totalRows: number;
+      totalQuantity: number;
+      pendingRows: number;
+      activeRows: number;
+      listedProductIds: number[];
+    } | null;
+    pricingStatus: string;
+    serialNumber?: string | null;
+    identitySummary?: string | null;
+    identityReadout?: string | null;
+    identityTrace?: {
+      schema?: string | null;
+      elapsedMs?: number | null;
+      failureStage?: string | null;
+      stages?: Array<{
+        stage?: string | null;
+        status?: string | null;
+        detail?: string | null;
+        reasons?: string[];
+        registryIdentityId?: string | null;
+        registryFingerprintSha256?: string | null;
+        attempts?: Array<{
+          phase?: string | null;
+          label?: string | null;
+          brand?: string | null;
+          setName?: string | null;
+          status?: string | null;
+          candidateCount?: number | null;
+          reasons?: string[];
+          identityId?: string | null;
+          elapsedMs?: number | null;
+        }>;
+      }>;
+    } | null;
+    suggestedPrice?: number | null;
+    listingPrice?: number | null;
+    listingPriceSource?: string | null;
+    channelPricing?: {
+      ebayPrice: number;
+      ebayEstimatedFees: number;
+      ebayEstimatedNet: number;
+      websitePrice: number;
+      websiteEstimatedFees: number;
+      websiteEstimatedNet: number;
+      customerSavings: number;
+      customerSavingsPercent: number;
+      netDifference: number;
+      websiteStatus?: string | null;
+      ebayStatus?: string | null;
+      ebayCardCondition?: string | null;
+      ebayCategoryId?: string | null;
+      ebayLastError?: string | null;
+      ebayLastAttemptAt?: string | null;
+      mercariPrice?: number | null;
+      mercariStatus?: string | null;
+      mercariItemId?: string | null;
+      mercariItemUrl?: string | null;
+      mercariSourceListingId?: string | null;
+      mercariAccount?: string | null;
+      calculatedFrom?: string | null;
+    } | null;
+    reliableSoldCompCount?: number;
+    centering?: {
+      front?: CenteringEstimate | null;
+      back?: CenteringEstimate | null;
+    } | null;
+    imageOrientation?: {
+      verified: boolean;
+      status?: string | null;
+      source?: string | null;
+      frontRotation?: number;
+      backRotation?: number;
+      reason?: string | null;
+    } | null;
+    soldCompEvidence?: CompEvidence[];
+    activeCompetition?: CompEvidence[];
+    priceGuide?: PriceGuideSnapshot | null;
+    priceGuideCheckedAt?: string | null;
+    priceGuideStatus?: string | null;
+    priceGuideMessage?: string | null;
+    priceGuideCoverage?: {
+      source?: string | null;
+      label?: string | null;
+      status?: string | null;
+      resultCount?: number | null;
+      message?: string | null;
+      searchUrl?: string | null;
+    } | null;
+    identity?: CardIdentity | null;
+    gradingCompany?: string | null;
+    gradingGrade?: string | null;
+  };
+};
+
+type PurchaseMatchRecord = {
+  acquisitionItemId: number;
+  purchaseId: string;
+  source: string;
+  purchaseDate?: string | null;
+  title?: string | null;
+  seller?: string | null;
+  orderNumber?: string | null;
+  sourceLot?: string | null;
+  listingUrl?: string | null;
+  allocatedCost: number;
+  serialFamily?: string | null;
+  parallel?: string | null;
+  status?: string | null;
+};
+
+type PurchaseMatchState = {
+  status: "no_match" | "scan_required" | "possible_match" | "pending_purchase" | "received" | "linked_existing" | string;
+  inventoryItemId?: string | null;
+  scanId?: string | null;
+  inventoryState?: string | null;
+  disposition?: string | null;
+  receiptMode?: string | null;
+  linkedAt?: string | null;
+  confidence?: number | null;
+  reason?: string | null;
+  match?: PurchaseMatchRecord | null;
+};
+
+type JobStatus = {
+  status: string;
+  stage: string | null;
+  error: string | null;
+  errorCode: string | null;
+  identityComplete: boolean;
+  manualIdentityLocked: boolean;
+  selectedParallel: string | null;
+  candidateParallels: string[];
+  visualColor: string | null;
+  visualPattern: string | null;
+  visualSerial: string | null;
+  visualConfidence: number;
+  parallelEvidence: string | null;
+};
+
+type EditState = {
+  title: string;
+  description: string;
+  category: string;
+  condition: string;
+  sport: string;
+  league: string;
+  year: string;
+  manufacturer: string;
+  brand: string;
+  product: string;
+  setName: string;
+  subset: string;
+  player: string;
+  team: string;
+  cardNumber: string;
+  parallel: string;
+  variation: string;
+  printRun: string;
+  isRookie: boolean;
+  isAuto: boolean;
+  isRelic: boolean;
+  inscription: boolean;
+  inscriptionText: string;
+  memorabiliaType: string;
+};
+
+type LocalStage = "waiting" | "scanning" | "complete" | "review" | "failed" | "locked";
+type PendingQueue = "listings" | "verification" | "redo_pending_resale";
+type ListingFolder =
+  | "receipt"
+  | "pending"
+  | "website"
+  | "ebay"
+  | "mercari"
+  | "both"
+  | "website_mercari"
+  | "ebay_mercari"
+  | "all3"
+  | "investment";
+type CountedListingFolder = Exclude<ListingFolder, "receipt">;
+type MasterListingsCountSnapshot = {
+  queueCounts: { listings: number; verification: number; redo_pending_resale: number };
+  folderCounts: Record<CountedListingFolder, number>;
+  savedAt: number;
+};
+const MASTER_LISTINGS_COUNTS_CACHE_KEY =
+  "kingmaker_master_listings_counts_v1";
+
+function readMasterListingsCountCache(): MasterListingsCountSnapshot | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(MASTER_LISTINGS_COUNTS_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as MasterListingsCountSnapshot;
+    if (
+      !parsed ||
+      typeof parsed.savedAt !== "number" ||
+      Date.now() - parsed.savedAt > 60 * 60 * 1000
+    ) {
+      return null;
+    }
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+function writeMasterListingsCountCache(
+  queueCounts: MasterListingsCountSnapshot["queueCounts"],
+  folderCounts: MasterListingsCountSnapshot["folderCounts"],
+) {
+  if (typeof window === "undefined") return;
+  try {
+    window.sessionStorage.setItem(
+      MASTER_LISTINGS_COUNTS_CACHE_KEY,
+      JSON.stringify({ queueCounts, folderCounts, savedAt: Date.now() }),
+    );
+  } catch {
+    // Counts cache is a resilience aid only.
+  }
+}
+
+type ChannelAction = "publish-website" | "publish-ebay" | "publish-mercari" | "publish-website-mercari" | "publish-all-3";
+type MergeEbayStrategy = "keep_one" | "increase_existing";
+
+function queueFromLocation(): PendingQueue | null {
+  if (typeof window === "undefined") return "listings";
+  const queue = new URLSearchParams(window.location.search).get("queue");
+  if (queue === "verification" || queue === "listings" || queue === "redo_pending_resale") return queue;
+  return null;
+}
+
+function folderFromLocation(): ListingFolder {
+  if (typeof window === "undefined") return "pending";
+  const folder = new URLSearchParams(window.location.search).get("folder");
+  return (
+    folder === "receipt" ||
+    folder === "website" ||
+    folder === "ebay" ||
+    folder === "mercari" ||
+    folder === "both" ||
+    folder === "website_mercari" ||
+    folder === "ebay_mercari" ||
+    folder === "all3" ||
+    folder === "investment"
+      ? folder
+      : "pending"
+  );
+}
+
+function message(error: unknown) {
+  return error instanceof Error ? error.message : "The operation failed.";
+}
+
+function hasValidPair(card: PendingCard) {
+  return Boolean(card.frontImageUrl && card.backImageUrl && card.frontImageUrl !== card.backImageUrl);
+}
+
+function physicalMembersForCard(card: PendingCard): PhysicalInventoryMember[] {
+  if (card.commercialGroup?.members?.length) {
+    const members = card.commercialGroup.members.flatMap((member) => {
+      const inventoryItemId = String(member?.inventoryItemId || "").trim();
+      if (!inventoryItemId) return [];
+      return [{
+        ...member,
+        inventoryItemId,
+        // Grouped copies share one exact Registry identity. Do not duplicate the
+        // full identity blob on every physical member in the API payload.
+        identity: member.identity || card.instaComp.identity || null,
+      }];
+    });
+    if (members.length) return members;
+  }
+  return [{
+    inventoryItemId: String(card.inventoryItemId || "").trim(),
+    scanId: card.instaComp.scanId || null,
+    cardUuid: card.instaComp.cardUuid || null,
+    identity: card.instaComp.identity || null,
+    inventoryLifecycle: card.inventoryLifecycle || null,
+  }];
+}
+
+function displayPattern(value: string | null) {
+  return value ? value.replace(/_/g, " ") : "—";
+}
+
+function parallelLabel(card: PendingCard, job?: JobStatus) {
+  const explicit =
+    job?.selectedParallel ||
+    card.instaComp.identity?.parallel ||
+    null;
+  return explicit?.trim() || "Parallel review required";
+}
+
+function money(value: unknown) {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0
+    ? number.toLocaleString("en-US", { style: "currency", currency: "USD" })
+    : "—";
+}
+
+const COMP_ADJUSTMENTS = [-25, -20, -15, -10, -5, 0, 5, 10, 15, 20, 25] as const;
+const BULK_PRICE_CONCURRENCY = 5;
+const MARKET_PRICE_CONCURRENCY = 3;
+const AUTO_MARKET_BATCH_SIZE = 3;
+
+async function runWithConcurrency<T>(
+  items: T[],
+  concurrency: number,
+  worker: (item: T) => Promise<void>,
+) {
+  let nextIndex = 0;
+  const runners = Array.from(
+    { length: Math.min(Math.max(1, concurrency), Math.max(1, items.length)) },
+    async () => {
+      while (nextIndex < items.length) {
+        const item = items[nextIndex++];
+        await worker(item);
+      }
+    },
+  );
+  await Promise.all(runners);
+}
+
+function compAdjustedPrice(value: unknown, adjustmentPercent: number) {
+  const suggested = Number(value);
+  return Number.isFinite(suggested) && suggested > 0
+    ? Math.max(0.01, Math.round(suggested * (1 + adjustmentPercent / 100) * 100) / 100)
+    : null;
+}
+
+function standardizedTitle(edit: EditState) {
+  return buildInstaCompRegistryExactTitle({
+    year: edit.year,
+    manufacturer: edit.manufacturer,
+    brand: edit.brand,
+    product: edit.product,
+    setName: edit.setName,
+    subset: edit.subset,
+    cardNumber: edit.cardNumber,
+    player: edit.player,
+    team: edit.team,
+    parallel: edit.parallel,
+    variation: edit.variation,
+    serialNumber: edit.printRun,
+  });
+}
+
+function identityEditChanged(card: PendingCard, edit: EditState) {
+  const original = initialEdit(card);
+  const fields: Array<keyof EditState> = [
+    "sport", "league", "year", "manufacturer", "brand", "product", "setName",
+    "subset", "player", "team", "cardNumber", "parallel", "variation", "printRun",
+    "isRookie", "isAuto", "isRelic", "inscription", "inscriptionText", "memorabiliaType",
+  ];
+  return fields.some((field) => edit[field] !== original[field]);
+}
+
+function initialEdit(card: PendingCard): EditState {
+  const identity = card.instaComp.identity || {};
+  return {
+    title: card.title,
+    description: card.description || "",
+    category: card.category || "Trading Card Singles",
+    condition: card.condition || "Ungraded",
+    sport: identity.sport || "",
+    league: identity.league || "",
+    year: identity.year || "",
+    manufacturer: identity.manufacturer || "",
+    brand: identity.brand || identity.manufacturer || "",
+    product: identity.product || "",
+    setName: identity.setName || "",
+    subset: identity.subset || "",
+    player: identity.player || "",
+    team: identity.team || "",
+    cardNumber: identity.cardNumber || "",
+    parallel: identity.parallel || "",
+    variation: identity.variation || "",
+    printRun: identity.serialNumber || card.instaComp.serialNumber || "",
+    isRookie: identity.isRookie === true,
+    isAuto: identity.isAuto === true,
+    isRelic: identity.isRelic === true,
+    inscription: identity.inscription === true,
+    inscriptionText: identity.inscriptionText || "",
+    memorabiliaType: identity.memorabiliaType || "",
+  };
+}
+
+function CardImageInspector({
+  title,
+  side,
+  url,
+  centering,
+  orientationVerified,
+  rotating,
+  onRotate,
+}: {
+  title: string;
+  side: "front" | "back";
+  url: string | null;
+  centering?: CenteringEstimate | null;
+  orientationVerified: boolean;
+  rotating: boolean;
+  onRotate: () => void;
+}) {
+  const [zoom, setZoom] = useState(1);
+  const [dragging, setDragging] = useState(false);
+  const viewportRef = useRef<HTMLDivElement | null>(null);
+  const dragRef = useRef<{
+    pointerId: number;
+    startX: number;
+    startY: number;
+    scrollLeft: number;
+    scrollTop: number;
+  } | null>(null);
+  const zoomOut = () => setZoom((value) => Math.max(1, Math.round((value - 0.5) * 2) / 2));
+  const zoomIn = () => setZoom((value) => Math.min(5, Math.round((value + 0.5) * 2) / 2));
+  const resetZoom = () => {
+    setZoom(1);
+    viewportRef.current?.scrollTo({ left: 0, top: 0 });
+  };
+  const beginPan = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (zoom <= 1 || event.button !== 0 || event.pointerType === "touch") return;
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    dragRef.current = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      scrollLeft: viewport.scrollLeft,
+      scrollTop: viewport.scrollTop,
+    };
+    viewport.setPointerCapture(event.pointerId);
+    setDragging(true);
+    event.preventDefault();
+  };
+  const panImage = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current;
+    const viewport = viewportRef.current;
+    if (!drag || !viewport || drag.pointerId !== event.pointerId) return;
+    viewport.scrollLeft = drag.scrollLeft - (event.clientX - drag.startX);
+    viewport.scrollTop = drag.scrollTop - (event.clientY - drag.startY);
+    event.preventDefault();
+  };
+  const endPan = (event: ReactPointerEvent<HTMLDivElement>) => {
+    const viewport = viewportRef.current;
+    if (dragRef.current?.pointerId !== event.pointerId) return;
+    if (viewport?.hasPointerCapture(event.pointerId)) viewport.releasePointerCapture(event.pointerId);
+    dragRef.current = null;
+    setDragging(false);
+  };
+  const horizontalMeasured =
+    centering?.horizontal_measurable === true ||
+    (typeof centering?.left_percent === "number" &&
+      typeof centering?.right_percent === "number");
+  const verticalMeasured =
+    centering?.vertical_measurable === true ||
+    (typeof centering?.top_percent === "number" &&
+      typeof centering?.bottom_percent === "number");
+  const measured = horizontalMeasured && verticalMeasured && centering?.measurable === true;
+  const ratio = (first: number | null | undefined, second: number | null | undefined) =>
+    typeof first === "number" && typeof second === "number"
+      ? `${Math.round(first)} / ${Math.round(second)}`
+      : "—";
+
+  return (
+    <figure className="rounded-xl border-2 border-neutral-800 bg-neutral-100 p-3">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <figcaption className={`text-xs font-black uppercase tracking-wider ${orientationVerified ? "text-emerald-800" : "text-red-800"}`}>
+          Card {side} · {orientationVerified ? "orientation verified from Mac archive" : "orientation review required"}
+        </figcaption>
+        <div className="flex flex-wrap items-center gap-1" aria-label={`${side} image controls`}>
+          <button type="button" onClick={zoomOut} disabled={zoom <= 1} className="min-h-10 rounded-lg border border-neutral-400 bg-white px-3 font-black disabled:opacity-40" aria-label={`Zoom out ${side}`}>−</button>
+          <span className="min-w-14 text-center text-xs font-black">{Math.round(zoom * 100)}%</span>
+          <button type="button" onClick={zoomIn} disabled={zoom >= 5} className="min-h-10 rounded-lg border border-neutral-400 bg-white px-3 font-black disabled:opacity-40" aria-label={`Zoom in ${side}`}>+</button>
+          <button type="button" onClick={resetZoom} disabled={zoom === 1} className="min-h-10 rounded-lg border border-neutral-400 bg-white px-3 text-xs font-black disabled:opacity-40">Reset</button>
+          <button type="button" onClick={onRotate} disabled={!url || rotating} className="min-h-10 rounded-lg bg-sky-800 px-3 text-xs font-black text-white disabled:opacity-40">
+            {rotating ? "Rotating…" : "Rotate 90°"}
+          </button>
+        </div>
+      </div>
+      <div
+        ref={viewportRef}
+        className={`relative h-[28rem] w-full overflow-auto rounded-lg bg-white ${zoom > 1 ? (dragging ? "cursor-grabbing" : "cursor-grab") : ""}`}
+        onPointerDown={beginPan}
+        onPointerMove={panImage}
+        onPointerUp={endPan}
+        onPointerCancel={endPan}
+      >
+        {url ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={url}
+            loading="lazy"
+            decoding="async"
+            alt={`${title} ${side}`}
+            draggable={false}
+            className={zoom === 1 ? "mx-auto max-h-full max-w-full object-contain" : "block h-auto max-w-none select-none object-contain"}
+            style={zoom === 1 ? undefined : { width: `${zoom * 100}%` }}
+            onDoubleClick={zoomIn}
+          />
+        ) : (
+          <div className="flex h-full items-center justify-center font-black text-red-800">{side.toUpperCase()} MISSING</div>
+        )}
+      </div>
+      <div className="mt-3 rounded-lg border-2 border-neutral-800 bg-white p-3">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs font-black uppercase tracking-wider">CENTERING ESTIMATE · {side.toUpperCase()}</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className={`rounded-full px-2 py-1 text-[11px] font-black ${
+              measured
+                ? "bg-emerald-100 text-emerald-900"
+                : horizontalMeasured || verticalMeasured
+                  ? "bg-amber-100 text-amber-900"
+                  : "bg-neutral-200 text-neutral-700"
+            }`}>
+              {measured
+                ? "2-axis confident"
+                : horizontalMeasured || verticalMeasured
+                  ? "partial only"
+                  : "not confidently measurable"}
+            </span>
+            {typeof centering?.confidence === "number" ? (
+              <span className="text-xs font-bold text-neutral-600">Confidence {Math.round(centering.confidence * 100)}%</span>
+            ) : null}
+          </div>
+        </div>
+        <div className="mt-3 grid grid-cols-2 gap-3">
+          <div className={`rounded-lg p-3 text-center ${horizontalMeasured ? "bg-neutral-100" : "bg-amber-50"}`}>
+            <p className="text-[11px] font-black uppercase tracking-wider text-neutral-600">LEFT / RIGHT</p>
+            <p className="mt-1 text-2xl font-black">
+              {horizontalMeasured
+                ? ratio(centering?.left_percent, centering?.right_percent)
+                : "No reliable frame"}
+            </p>
+            {horizontalMeasured ? (
+              <p className="mt-1 text-xs font-bold text-neutral-600">
+                Left {centering?.left_percent?.toFixed(1)}% · Right {centering?.right_percent?.toFixed(1)}%
+              </p>
+            ) : (
+              <p className="mt-1 text-xs font-bold text-amber-900">Horizontal border evidence was not strong enough.</p>
+            )}
+          </div>
+          <div className={`rounded-lg p-3 text-center ${verticalMeasured ? "bg-neutral-100" : "bg-amber-50"}`}>
+            <p className="text-[11px] font-black uppercase tracking-wider text-neutral-600">TOP / BOTTOM</p>
+            <p className="mt-1 text-2xl font-black">
+              {verticalMeasured
+                ? ratio(centering?.top_percent, centering?.bottom_percent)
+                : "No reliable frame"}
+            </p>
+            {verticalMeasured ? (
+              <p className="mt-1 text-xs font-bold text-neutral-600">
+                Top {centering?.top_percent?.toFixed(1)}% · Bottom {centering?.bottom_percent?.toFixed(1)}%
+              </p>
+            ) : (
+              <p className="mt-1 text-xs font-bold text-amber-900">Vertical border evidence was not strong enough.</p>
+            )}
+          </div>
+        </div>
+        <p className="mt-2 text-xs font-semibold text-neutral-600">
+          {centering?.design_classification || "unknown design"} · estimated from the physical card edges and detected printed frame. InstaComp reports only axes it can measure confidently. InstaComp will not invent a centering number when the border/frame cannot be measured confidently; this is not a grading guarantee.
+        </p>
+      </div>
+      <p className="mt-2 text-xs font-semibold text-neutral-600">
+        Use + / − to inspect borders and small print; while zoomed, grab and drag to pan.
+      </p>
+    </figure>
+  );
+}
+
+function Field({
+  label,
+  value,
+  onChange,
+  placeholder,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+}) {
+  return (
+    <label className="text-sm font-bold">
+      {label}
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+        className="mt-1 w-full rounded-lg border-2 border-neutral-300 bg-white p-2 text-neutral-950 focus:border-neutral-950 focus:outline-none"
+      />
+    </label>
+  );
+}
+
+export default function KingmakerPendingPage({
+  initialQueue,
+  initialFolder = "pending",
+  initialCards = [],
+  initialLoaded = false,
+  initialQueueCounts = { listings: 0, verification: 0, redo_pending_resale: 0 },
+  initialFolderCounts = {
+    pending: 0,
+    website: 0,
+    ebay: 0,
+    mercari: 0,
+    both: 0,
+    website_mercari: 0,
+    ebay_mercari: 0,
+    all3: 0,
+    investment: 0,
+  },
+}: {
+  initialQueue: PendingQueue;
+  initialFolder?: ListingFolder;
+  initialCards?: PendingCard[];
+  initialLoaded?: boolean;
+  initialQueueCounts?: { listings: number; verification: number; redo_pending_resale: number };
+  initialFolderCounts?: Record<CountedListingFolder, number>;
+}) {
+  const [cards, setCards] = useState<PendingCard[]>(initialCards);
+  const [queueCounts, setQueueCounts] = useState(initialQueueCounts);
+  const [folderCounts, setFolderCounts] = useState(initialFolderCounts);
+  const [countsLoaded, setCountsLoaded] = useState(initialLoaded);
+  const [jobs, setJobs] = useState<Record<string, JobStatus>>({});
+  const [localStage, setLocalStage] = useState<Record<string, LocalStage>>({});
+  const [localError, setLocalError] = useState<Record<string, string>>({});
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [edits, setEdits] = useState<Record<string, EditState>>({});
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkCategory, setBulkCategory] = useState("");
+  const [bulkCondition, setBulkCondition] = useState("");
+  const [bulkEbayCardCondition, setBulkEbayCardCondition] = useState("");
+  const [manualPrices, setManualPrices] = useState<Record<string, string>>({});
+  const [mergeEbayStrategy, setMergeEbayStrategy] =
+    useState<MergeEbayStrategy>("keep_one");
+  const [channelPriceEdits, setChannelPriceEdits] = useState<Record<string, { website: string; ebay: string; mercari: string }>>({});
+  const [channelConditionEdits, setChannelConditionEdits] = useState<Record<string, string>>({});
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [pageError, setPageError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [purchaseMatches, setPurchaseMatches] = useState<Record<string, PurchaseMatchState>>({});
+  const [priceGuideSweepNonce, setPriceGuideSweepNonce] = useState(0);
+  const priceGuideAttemptedRef = useRef<Set<string>>(new Set());
+  const priceGuideWorkerRunningRef = useRef(false);
+  const [marketSweepNonce, setMarketSweepNonce] = useState(0);
+  const marketAttemptedRef = useRef<Set<string>>(new Set());
+  const marketWorkerRunningRef = useRef(false);
+  const skipInitialCardsReloadRef = useRef(initialLoaded);
+  const purchaseMatchSignatureRef = useRef("");
+  const [renderLimit, setRenderLimit] = useState(24);
+  const router = useRouter();
+  const [queue, setQueue] = useState<PendingQueue>(initialQueue);
+  const [folder, setFolder] = useState<ListingFolder>(initialFolder);
+
+  const refreshPriceGuide = useCallback(async (
+    card: PendingCard,
+    force = false,
+    accessTokenOverride = "",
+  ) => {
+    let accessToken = accessTokenOverride;
+    if (!accessToken) {
+      const session = await getFreshAccountSession(5 * 60, false);
+      accessToken = session?.access_token || "";
+    }
+    if (!accessToken) throw new Error("Seller login is required.");
+
+    setCards((current) => current.map((row) =>
+      row.inventoryItemId === card.inventoryItemId
+        ? {
+            ...row,
+            instaComp: {
+              ...row.instaComp,
+              priceGuideStatus: "checking",
+              priceGuideMessage: "Checking eBay Price Guide automatically…",
+            },
+          }
+        : row,
+    ));
+
+    try {
+      const response = await fetch("/api/account/seller/instacomp-price-guide", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ inventoryItemId: card.inventoryItemId, force }),
+        cache: "no-store",
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data?.ok !== true) {
+        throw new Error(String(data?.error || data?.detail || "eBay Price Guide check failed."));
+      }
+      const coverage = data?.priceGuideCoverage && typeof data.priceGuideCoverage === "object"
+        ? data.priceGuideCoverage
+        : null;
+      setCards((current) => current.map((row) =>
+        row.inventoryItemId === card.inventoryItemId
+          ? {
+              ...row,
+              instaComp: {
+                ...row.instaComp,
+                priceGuide: data?.priceGuide && typeof data.priceGuide === "object" ? data.priceGuide : null,
+                priceGuideCheckedAt: String(data?.checkedAt || new Date().toISOString()),
+                priceGuideStatus: String(coverage?.status || (data?.priceGuide ? "live" : "no_matches")),
+                priceGuideMessage: String(
+                  coverage?.message ||
+                  (data?.priceGuide
+                    ? "eBay Price Guide snapshot captured."
+                    : "eBay Price Guide checked — no exact-card dataset is available."),
+                ),
+                priceGuideCoverage: coverage,
+              },
+            }
+          : row,
+      ));
+      return data;
+    } catch (error) {
+      setCards((current) => current.map((row) =>
+        row.inventoryItemId === card.inventoryItemId
+          ? {
+              ...row,
+              instaComp: {
+                ...row.instaComp,
+                priceGuideStatus: "error",
+                priceGuideMessage: message(error),
+              },
+            }
+          : row,
+      ));
+      throw error;
+    }
+  }, []);
+
+  useEffect(() => {
+    const queueFromUrl = queueFromLocation();
+    if (queueFromUrl) setQueue(queueFromUrl);
+    setFolder(folderFromLocation());
+  }, []);
+
+  useEffect(() => {
+    if (initialLoaded) return;
+    const cached = readMasterListingsCountCache();
+    if (!cached) return;
+    setQueueCounts({ ...cached.queueCounts, redo_pending_resale: Number(cached.queueCounts.redo_pending_resale || 0) });
+    setFolderCounts(cached.folderCounts);
+    setCountsLoaded(true);
+  }, [initialLoaded]);
+
+  const load = useCallback(async (activeQueue: PendingQueue, activeFolder: ListingFolder = folderFromLocation()) => {
+    const requestedFolder = activeQueue === "verification" || activeQueue === "redo_pending_resale" || activeFolder === "receipt" ? "pending" : activeFolder;
+    setLoading(true);
+    setPageError("");
+    let accessTokenHint: string | null = null;
+    if (typeof window !== "undefined") {
+      (window as any).__kingmakerPendingDebug = {
+        queue: activeQueue,
+          folder: requestedFolder,
+          stage: "starting",
+          itemCount: null,
+          queueCounts: null,
+          accessTokenHint: null,
+        };
+      }
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      const accessToken = session?.access_token?.trim() || null;
+      if (!accessToken) {
+        throw new Error("KINGMAKER admin session is required.");
+      }
+      accessTokenHint = accessToken.slice(-8);
+      const headers = { Authorization: `Bearer ${accessToken}` };
+      if (typeof window !== "undefined") {
+        (window as any).__kingmakerPendingDebug = {
+          queue: activeQueue,
+          folder: requestedFolder,
+          stage: "fetching",
+          itemCount: null,
+          queueCounts: null,
+          accessTokenHint,
+        };
+      }
+      const locationParams =
+        typeof window !== "undefined"
+          ? new URLSearchParams(window.location.search)
+          : new URLSearchParams();
+      const batch = locationParams.get("batch");
+      const focus = locationParams.get("focus");
+      const extraParams = `${batch ? `&batch=${encodeURIComponent(batch)}` : ""}${focus ? `&focus=${encodeURIComponent(focus)}` : ""}`;
+      const [cardsResult, statusResult] = await Promise.allSettled([
+        fetch(`/api/account/seller/instacomp-pending?queue=${activeQueue}&folder=${requestedFolder}&surface=kingmaker${extraParams}`, { headers, cache: "no-store" }),
+        fetch("/api/account/seller/inventory/instacomp-job-status", { headers, cache: "no-store" }),
+      ]);
+      const cardsResponse = cardsResult.status === "fulfilled" ? cardsResult.value : null;
+      const statusResponse = statusResult.status === "fulfilled" ? statusResult.value : null;
+      const cardsData = cardsResponse ? await cardsResponse.json().catch(() => ({})) : {};
+      const statusData = statusResponse ? await statusResponse.json().catch(() => ({})) : {};
+      if (!cardsResponse) throw new Error("Could not load pending cards.");
+      if (!cardsResponse.ok) throw new Error(cardsData.error || "Could not load pending cards.");
+      if (statusResponse && !statusResponse.ok) {
+        setJobs({});
+      } else {
+        setJobs(statusData.statuses && typeof statusData.statuses === "object" ? statusData.statuses : {});
+      }
+      setCards(Array.isArray(cardsData.items) ? cardsData.items : []);
+      const nextQueueCounts = {
+        listings: Math.max(0, Number(cardsData.queueCounts?.listings || 0)),
+        verification: Math.max(0, Number(cardsData.queueCounts?.verification || 0)),
+        redo_pending_resale: Math.max(0, Number(cardsData.queueCounts?.redo_pending_resale || 0)),
+      };
+      const nextFolderCounts: Record<CountedListingFolder, number> = {
+        pending: Math.max(0, Number(cardsData.folderCounts?.pending || 0)),
+        website: Math.max(0, Number(cardsData.folderCounts?.website || 0)),
+        ebay: Math.max(0, Number(cardsData.folderCounts?.ebay || 0)),
+        mercari: Math.max(0, Number(cardsData.folderCounts?.mercari || 0)),
+        both: Math.max(0, Number(cardsData.folderCounts?.both || 0)),
+        website_mercari: Math.max(0, Number(cardsData.folderCounts?.website_mercari || 0)),
+        ebay_mercari: Math.max(0, Number(cardsData.folderCounts?.ebay_mercari || 0)),
+        all3: Math.max(0, Number(cardsData.folderCounts?.all3 || 0)),
+        investment: Math.max(0, Number(cardsData.folderCounts?.investment || 0)),
+      };
+      setQueueCounts(nextQueueCounts);
+      setFolderCounts(nextFolderCounts);
+      setCountsLoaded(true);
+      writeMasterListingsCountCache(nextQueueCounts, nextFolderCounts);
+      if (typeof window !== "undefined") {
+        (window as any).__kingmakerPendingDebug = {
+          queue: activeQueue,
+          folder: requestedFolder,
+          stage: "loaded",
+          itemCount: Array.isArray(cardsData.items) ? cardsData.items.length : -1,
+          queueCounts: {
+            listings: Math.max(0, Number(cardsData.queueCounts?.listings || 0)),
+            verification: Math.max(0, Number(cardsData.queueCounts?.verification || 0)),
+            redo_pending_resale: Math.max(0, Number(cardsData.queueCounts?.redo_pending_resale || 0)),
+          },
+          accessTokenHint,
+        };
+      }
+      setSelectedIds((current) => {
+        const available = new Set((Array.isArray(cardsData.items) ? cardsData.items : []).map((card: PendingCard) => card.inventoryItemId));
+        return new Set([...current].filter((id) => available.has(id)));
+      });
+    } catch (error) {
+      const errorMessage = message(error);
+      const aborted =
+        /AbortError|operation was aborted|aborted|timeout/i.test(errorMessage);
+      if (typeof window !== "undefined") {
+        (window as any).__kingmakerPendingDebug = {
+          queue: activeQueue,
+          folder: requestedFolder,
+          stage: "error",
+          error: errorMessage,
+          itemCount: null,
+          queueCounts: null,
+          accessTokenHint,
+        };
+      }
+      setPageError(
+        aborted
+          ? "Master Listings refresh timed out. Existing inventory counts were preserved; reload to retry."
+          : errorMessage,
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (skipInitialCardsReloadRef.current) {
+      skipInitialCardsReloadRef.current = false;
+      const initialQueueCount = initialQueueCounts[queue];
+      const hydrationMismatch =
+        initialLoaded && initialCards.length === 0 && initialQueueCount > 0;
+
+      // A non-zero server queue count with no hydrated rows is not an empty
+      // queue. Force one authenticated client reload instead of preserving a
+      // stale badge beside a false "No cards" state.
+      if (hydrationMismatch) {
+        void load(queue, folder);
+        return;
+      }
+
+      setLoading(false);
+      void (async () => {
+        try {
+          const session = await getFreshAccountSession(5 * 60, false);
+          if (!session?.access_token) return;
+          const response = await fetch(
+            "/api/account/seller/inventory/instacomp-job-status",
+            {
+              headers: { Authorization: "Bearer " + session.access_token },
+              cache: "no-store",
+            },
+          );
+          const data = await response.json().catch(() => ({}));
+          if (response.ok) {
+            setJobs(
+              data.statuses && typeof data.statuses === "object"
+                ? data.statuses
+                : {},
+            );
+          }
+        } catch {
+          // Job badges are additive; first paint must not depend on them.
+        }
+      })();
+      return;
+    }
+    void load(queue, folder);
+  }, [
+    folder,
+    initialCards.length,
+    initialLoaded,
+    initialQueueCounts.listings,
+    initialQueueCounts.verification,
+    initialQueueCounts.redo_pending_resale,
+    load,
+    queue,
+  ]);
+
+  useEffect(() => {
+    setRenderLimit(24);
+  }, [queue, folder]);
+
+  useEffect(() => {
+    if (priceGuideWorkerRunningRef.current) return;
+    const eligible = cards
+      .filter((card) => {
+        const identity = card.instaComp.identity || {};
+        const priceGuideStatus = String(
+          card.instaComp.priceGuideStatus ||
+            card.instaComp.priceGuideCoverage?.status ||
+            "",
+        );
+        const oneYearGuide =
+          String(card.instaComp.priceGuide?.period || "")
+            .trim()
+            .toLowerCase() === "1 year";
+        const terminalStatus =
+          (priceGuideStatus === "live" && oneYearGuide) ||
+          ["no_matches", "identity_mismatch"].includes(priceGuideStatus);
+        return Boolean(
+          card.inventoryItemId &&
+            identity.player &&
+            identity.year &&
+            identity.cardNumber &&
+            !terminalStatus &&
+            !priceGuideAttemptedRef.current.has(card.inventoryItemId),
+        );
+      })
+      .slice(0, 6);
+    if (!eligible.length) return;
+
+    const timer = window.setTimeout(() => {
+      priceGuideWorkerRunningRef.current = true;
+      for (const card of eligible) {
+        priceGuideAttemptedRef.current.add(card.inventoryItemId);
+      }
+      void (async () => {
+        try {
+          const session = await getFreshAccountSession(5 * 60, false);
+          const accessToken = session?.access_token || "";
+          if (!accessToken) return;
+          for (const card of eligible) {
+            try {
+              await refreshPriceGuide(card, false, accessToken);
+            } catch {
+              // Retry stays available on the card.
+            }
+            await new Promise((resolve) => window.setTimeout(resolve, 125));
+          }
+        } catch {
+          // Background price-guide work never blocks Pending.
+        } finally {
+          priceGuideWorkerRunningRef.current = false;
+          setPriceGuideSweepNonce((value) => value + 1);
+        }
+      })();
+    }, 1200);
+
+    return () => window.clearTimeout(timer);
+  }, [cards, priceGuideSweepNonce, refreshPriceGuide]);
+
+  useEffect(() => {
+    if (queue !== "listings" || marketWorkerRunningRef.current) return;
+    const eligible = cards
+      .filter(
+        (card) =>
+          card.instaComp.pricingStatus === "identity_complete_pricing_pending" &&
+          hasValidPair(card) &&
+          !marketAttemptedRef.current.has(card.inventoryItemId),
+      )
+      .slice(0, AUTO_MARKET_BATCH_SIZE);
+    if (!eligible.length) return;
+
+    const timer = window.setTimeout(() => {
+      marketWorkerRunningRef.current = true;
+      for (const card of eligible) {
+        marketAttemptedRef.current.add(card.inventoryItemId);
+      }
+      void (async () => {
+        try {
+          const session = await getFreshAccountSession(5 * 60, false);
+          const accessToken = session?.access_token || "";
+          if (!accessToken) return;
+          await runWithConcurrency(
+            eligible,
+            MARKET_PRICE_CONCURRENCY,
+            async (card) => {
+              try {
+                await fetch("/api/account/seller/inventory/instacomp-fast-market", {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${accessToken}`,
+                  },
+                  body: JSON.stringify({ inventoryItemId: card.inventoryItemId }),
+                });
+              } catch {
+                // Manual retry remains available; never spin on one failed card.
+              }
+            },
+          );
+          await load("listings");
+        } catch {
+          // Background pricing must never block Pending Listings.
+        } finally {
+          marketWorkerRunningRef.current = false;
+          setMarketSweepNonce((value) => value + 1);
+        }
+      })();
+    }, 1600);
+
+    return () => window.clearTimeout(timer);
+  }, [cards, load, marketSweepNonce, queue]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const eligible = cards
+      .flatMap((card) => physicalMembersForCard(card))
+      .filter((member) =>
+        Boolean(member.inventoryItemId && member.scanId),
+      );
+    if (!eligible.length) {
+      purchaseMatchSignatureRef.current = "";
+      setPurchaseMatches({});
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const signature = eligible
+      .map((member) =>
+        [
+          member.cardUuid,
+          member.inventoryItemId,
+          member.scanId,
+          member.identity?.year,
+          member.identity?.player,
+          member.identity?.cardNumber,
+          member.identity?.parallel,
+        ]
+          .map((value) => String(value || "").trim().toLowerCase())
+          .join("~"),
+      )
+      .sort()
+      .join("|");
+    if (purchaseMatchSignatureRef.current === signature) {
+      return () => {
+        cancelled = true;
+      };
+    }
+    purchaseMatchSignatureRef.current = signature;
+
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const session = await getFreshAccountSession(5 * 60, false);
+          if (!session?.access_token) {
+            if (purchaseMatchSignatureRef.current === signature) {
+              purchaseMatchSignatureRef.current = "";
+            }
+            return;
+          }
+          const allResults: any[] = [];
+          for (let index = 0; index < eligible.length && !cancelled; index += 50) {
+            const batch = eligible.slice(index, index + 50);
+            const response = await fetch("/api/account/seller/instacomp-purchase-match", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: "Bearer " + session.access_token,
+              },
+              body: JSON.stringify({
+                items: batch.map((member) => ({
+                  cardUuid: member.cardUuid || "",
+                  inventoryItemId: member.inventoryItemId,
+                  scanId: member.scanId,
+                  identity: member.identity,
+                })),
+              }),
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok || data.ok !== true || !Array.isArray(data.results)) {
+              throw new Error(String(data.error || data.detail || "Purchase matching failed."));
+            }
+            allResults.push(...data.results);
+            if (index + 50 < eligible.length) {
+              await new Promise((resolve) => window.setTimeout(resolve, 150));
+            }
+          }
+          if (cancelled) return;
+          const next: Record<string, PurchaseMatchState> = {};
+          for (const row of allResults) {
+            if (row?.inventoryItemId) {
+              next[String(row.inventoryItemId)] = row as PurchaseMatchState;
+            }
+          }
+          setPurchaseMatches(next);
+          void load(queue, folder);
+          const pending = allResults.filter(
+            (row: any) => row?.status === "pending_purchase",
+          );
+          if (pending.length) {
+            setNotice(
+              "PURCHASE MATCH FOUND — " +
+                pending.length +
+                " scanned physical card" +
+                (pending.length === 1 ? "" : "s") +
+                " waiting to be received.",
+            );
+          }
+        } catch {
+          if (purchaseMatchSignatureRef.current === signature) {
+            purchaseMatchSignatureRef.current = "";
+          }
+          // Acquisition matching is additive and never blocks normal work.
+        }
+      })();
+    }, 900);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [cards, folder, load, queue]);
+
+  async function receivePurchase(
+    card: PendingCard,
+    member: PhysicalInventoryMember,
+    disposition: "resale" | "investment_stash",
+  ) {
+    const purchase = purchaseMatches[member.inventoryItemId] || null;
+    const acquisitionItemId = Number(purchase?.match?.acquisitionItemId || 0);
+    if (!member.scanId || acquisitionItemId <= 0) {
+      setPageError("RECEIVE BLOCKED: this physical copy does not have a verified scan + purchase reservation.");
+      return;
+    }
+    setBusyId(member.inventoryItemId);
+    setPageError("");
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      if (!session?.access_token) throw new Error("Seller login is required.");
+      const response = await fetch("/api/account/seller/instacomp-purchase-receive", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          cardUuid: member.cardUuid || card.instaComp.cardUuid || "",
+          inventoryItemId: member.inventoryItemId,
+          scanId: member.scanId,
+          acquisitionItemId,
+          disposition,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.ok !== true || data.status !== "received") {
+        throw new Error(data.error || data.detail || "Could not receive the matched purchase.");
+      }
+      setPurchaseMatches((current) => ({
+        ...current,
+        [member.inventoryItemId]: {
+          ...purchase!,
+          status: "received",
+          disposition,
+          inventoryState: data.inventoryState,
+          match: data.match || purchase?.match,
+        },
+      }));
+      setNotice(
+        `${card.title}: RECEIVED · ${data.match?.source || purchase?.match?.source || "Purchase"} · ${money(data.match?.allocatedCost || purchase?.match?.allocatedCost)} cost · ${disposition === "investment_stash" ? "INVESTMENT STASH" : "RESALE INVENTORY"}.`,
+      );
+      await load(queue, folderFromLocation());
+    } catch (error) {
+      setPageError(message(error));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function linkExistingPurchase(
+    card: PendingCard,
+    member: PhysicalInventoryMember,
+  ) {
+    const purchase = purchaseMatches[member.inventoryItemId] || null;
+    const acquisitionItemId = Number(purchase?.match?.acquisitionItemId || 0);
+    if (!member.scanId || acquisitionItemId <= 0) {
+      setPageError("LINK BLOCKED: this physical copy does not have a verified scan + purchase reservation.");
+      return;
+    }
+    setBusyId(member.inventoryItemId);
+    setPageError("");
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      if (!session?.access_token) throw new Error("Seller login is required.");
+      const response = await fetch("/api/account/seller/instacomp-purchase-link", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          cardUuid: member.cardUuid || card.instaComp.cardUuid || "",
+          inventoryItemId: member.inventoryItemId,
+          scanId: member.scanId,
+          acquisitionItemId,
+          disposition: "resale",
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.ok !== true || data.status !== "linked_existing") {
+        throw new Error(data.error || data.detail || "Could not link the purchase to existing inventory.");
+      }
+      setPurchaseMatches((current) => ({
+        ...current,
+        [member.inventoryItemId]: {
+          ...purchase!,
+          status: "linked_existing",
+          disposition: data.disposition || "resale",
+          inventoryState: data.inventoryState || "resale_ready",
+          receiptMode: "linked_existing",
+          linkedAt: data.linkedAt || null,
+          match: data.match || purchase?.match,
+        },
+      }));
+      setNotice(
+        `${card.title}: PURCHASE LINKED TO EXISTING INVENTORY · quantity unchanged · ${money(data.match?.allocatedCost || purchase?.match?.allocatedCost)} cost basis attached.`,
+      );
+      await load(queue, folderFromLocation());
+    } catch (error) {
+      setPageError(message(error));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function moveInventoryDisposition(
+    card: PendingCard,
+    member: PhysicalInventoryMember,
+    disposition: "resale" | "investment_stash",
+  ) {
+    setBusyId(member.inventoryItemId);
+    setPageError("");
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      if (!session?.access_token) throw new Error("Seller login is required.");
+      const response = await fetch("/api/account/seller/instacomp-inventory-disposition", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ inventoryItemId: member.inventoryItemId, disposition }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.success !== true) throw new Error(data.error || "Could not move inventory.");
+      setNotice(`${card.title}: moved to ${disposition === "investment_stash" ? "Investment Stash" : "Resale Pending"}.`);
+      await load(queue, folderFromLocation());
+    } catch (error) {
+      setPageError(message(error));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  function setEditValue<K extends keyof EditState>(id: string, key: K, value: EditState[K]) {
+    setEdits((current) => ({
+      ...current,
+      [id]: { ...(current[id] || initialEdit(cards.find((card) => card.inventoryItemId === id)!)), [key]: value },
+    }));
+  }
+
+  function beginEdit(card: PendingCard) {
+    setEditingId(card.inventoryItemId);
+    setEdits((current) => ({ ...current, [card.inventoryItemId]: initialEdit(card) }));
+  }
+
+  async function saveEdit(card: PendingCard) {
+    const edit = edits[card.inventoryItemId];
+    if (!edit) return;
+    const identityEdited = identityEditChanged(card, edit);
+    if (identityEdited && !edit.parallel.trim()) {
+      setPageError("Blank no longer means Base. Enter Base or the exact checklist parallel.");
+      return;
+    }
+    const finalTitle = edit.title.trim() ? edit.title : standardizedTitle(edit);
+    if (!finalTitle) {
+      setPageError("The corrected card needs enough identity fields to build a listing title.");
+      return;
+    }
+    setBusyId(card.inventoryItemId);
+    setPageError("");
+    setNotice(`Running InstaComp on ${card.title}…`);
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      if (!session?.access_token) throw new Error("Seller login is required.");
+      const response = await fetch("/api/account/seller/inventory/instacomp-card-edit", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          inventoryItemId: card.inventoryItemId,
+          ...edit,
+          title: finalTitle,
+          identityEdited,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.success !== true) throw new Error(data.error || "Could not save the card correction.");
+      setEditingId(null);
+      if (identityEdited) {
+        setLocalStage((current) => ({ ...current, [card.inventoryItemId]: "locked" }));
+      }
+      setNotice(
+        !identityEdited
+          ? `${finalTitle}: listing title/details saved exactly. Checklist identity unchanged.`
+          : data.learningStatus === "stored"
+            ? `${finalTitle}: correction locked and trusted InstaComp lesson stored.`
+            : `${finalTitle}: correction locked. Learning receipt: ${data.learningStatus || "pending"}.`,
+      );
+      await load(queue || queueFromLocation());
+    } catch (error) {
+      setPageError(message(error));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function saveManualPrice(card: PendingCard) {
+    const raw = String(manualPrices[card.inventoryItemId] || "").trim();
+    if (!/^\d+(?:\.\d{1,2})?$/.test(raw)) {
+      setPageError("Manual price must be a positive dollar amount with no more than 2 decimal places.");
+      return;
+    }
+    const selectedPrice = Number(raw);
+    if (!Number.isFinite(selectedPrice) || selectedPrice <= 0) {
+      setPageError("Manual price must be greater than $0.00.");
+      return;
+    }
+    await savePrice(card, selectedPrice, "kingmaker_manual");
+  }
+
+  async function saveChannelPrices(card: PendingCard) {
+    const current = channelPriceEdits[card.inventoryItemId];
+    const websiteRaw = String(current?.website ?? card.instaComp.channelPricing?.websitePrice ?? "").trim();
+    const ebayRaw = String(current?.ebay ?? card.instaComp.channelPricing?.ebayPrice ?? "").trim();
+    const mercariRaw = String(current?.mercari ?? card.instaComp.channelPricing?.mercariPrice ?? card.instaComp.channelPricing?.ebayPrice ?? "").trim();
+    const websitePrice = Number(websiteRaw);
+    const ebayPrice = Number(ebayRaw);
+    const mercariPrice = Number(mercariRaw);
+    const cardCondition = String(
+      channelConditionEdits[card.inventoryItemId] ?? card.instaComp.channelPricing?.ebayCardCondition ?? "",
+    ).trim();
+    if (!Number.isFinite(websitePrice) || websitePrice <= 0 || !Number.isFinite(ebayPrice) || ebayPrice <= 0 || !Number.isFinite(mercariPrice) || mercariPrice <= 0) {
+      setPageError("Enter positive Website, eBay, and Mercari prices. Each marketplace publishes its own exact seller price.");
+      return;
+    }
+    setBusyId(card.inventoryItemId);
+    setPageError("");
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      if (!session?.access_token) throw new Error("Seller login is required.");
+      const response = await fetch("/api/account/seller/instacomp-pending/channel", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          action: "save",
+          inventoryItemId: card.inventoryItemId,
+          websitePrice,
+          ebayPrice,
+          mercariPrice,
+          cardCondition: cardCondition || undefined,
+          manualChannelPrices: true,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.success !== true) throw new Error(data.error || data.errors?.join("; ") || "Could not save channel prices.");
+      setChannelPriceEdits((state) => ({
+        ...state,
+        [card.inventoryItemId]: { website: String(data.websitePrice || websitePrice), ebay: String(data.ebayPrice || ebayPrice), mercari: String(data.mercariPrice || mercariPrice) },
+      }));
+      setChannelConditionEdits((state) => ({
+        ...state,
+        [card.inventoryItemId]: String(data.cardCondition || cardCondition || ""),
+      }));
+      setNotice(`${card.title}: seller channel prices locked · Website ${money(data.websitePrice || websitePrice)} · eBay ${money(data.ebayPrice || ebayPrice)} · Mercari ${money(data.mercariPrice || mercariPrice)}${cardCondition ? ` · Card Condition ${cardCondition}` : ""}.`);
+      await load(queue, folderFromLocation());
+    } catch (error) {
+      setPageError(message(error));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function rotateStoredImage(card: PendingCard, side: "front" | "back") {
+    if (!hasValidPair(card) || !card.frontImageUrl || !card.backImageUrl) {
+      setPageError("A distinct stored front and back are required before rotating a card image.");
+      return;
+    }
+    const busyKey = `${card.inventoryItemId}:rotate:${side}`;
+    setBusyId(busyKey);
+    setPageError("");
+    setNotice("");
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      if (!session?.access_token) throw new Error("Seller login is required.");
+
+      const loadImageFile = async (url: string, name: string) => {
+        const imageResponse = await fetch(url, { cache: "no-store" });
+        if (!imageResponse.ok) throw new Error(`Stored image returned HTTP ${imageResponse.status}.`);
+        const blob = await imageResponse.blob();
+        if (!blob.type.startsWith("image/")) throw new Error("Stored card image did not return image bytes.");
+        return new File([blob], name, { type: blob.type || "image/jpeg" });
+      };
+      const rotateClockwise90 = async (file: File, name: string) => {
+        const bitmap = await createImageBitmap(file);
+        try {
+          const canvas = document.createElement("canvas");
+          canvas.width = bitmap.height;
+          canvas.height = bitmap.width;
+          const context = canvas.getContext("2d");
+          if (!context) throw new Error("Browser image rotation is unavailable.");
+          context.translate(canvas.width / 2, canvas.height / 2);
+          context.rotate(Math.PI / 2);
+          context.drawImage(bitmap, -bitmap.width / 2, -bitmap.height / 2);
+          const outputType = file.type === "image/png" ? "image/png" : "image/jpeg";
+          const blob = await new Promise<Blob>((resolve, reject) => {
+            canvas.toBlob(
+              (value) => value ? resolve(value) : reject(new Error("Could not encode rotated card image.")),
+              outputType,
+              0.95,
+            );
+          });
+          return new File([blob], name, { type: outputType });
+        } finally {
+          bitmap.close();
+        }
+      };
+
+      let [frontImage, backImage] = await Promise.all([
+        loadImageFile(card.frontImageUrl, "front.jpg"),
+        loadImageFile(card.backImageUrl, "back.jpg"),
+      ]);
+      if (side === "front") frontImage = await rotateClockwise90(frontImage, "front-rotated.jpg");
+      else backImage = await rotateClockwise90(backImage, "back-rotated.jpg");
+
+      const form = new FormData();
+      form.set("inventoryItemId", card.inventoryItemId);
+      form.set("rotatedSide", side);
+      form.set("frontImage", frontImage);
+      form.set("backImage", backImage);
+      const response = await fetch("/api/account/seller/inventory/instacomp-image-rotate", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${session.access_token}` },
+        body: form,
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.success !== true) throw new Error(data.error || "Could not rotate the stored image.");
+      setNotice(`${card.title}: ${side} pixels rotated 90° clockwise and persisted.`);
+      await load(queue || queueFromLocation());
+    } catch (error) {
+      setPageError(message(error));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function acceptVerification(card: PendingCard) {
+    if (!hasValidPair(card)) {
+      setPageError("A distinct stored front and back are required before accepting this card.");
+      return;
+    }
+    const busyKey = `${card.inventoryItemId}:accept-verification`;
+    setBusyId(busyKey);
+    setPageError("");
+    setNotice("");
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      if (!session?.access_token) throw new Error("Seller login is required.");
+      const response = await fetch("/api/account/seller/instacomp-pending/accept-verification", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({ inventoryItemId: card.inventoryItemId }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.success !== true) throw new Error(data.error || "Could not accept verification.");
+      setNotice(`${card.title}: accepted and moved to Pending Listings.`);
+      await load(queue || queueFromLocation());
+    } catch (error) {
+      setPageError(message(error));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function savePrice(card: PendingCard, price: number, source: string) {
+    setBusyId(card.inventoryItemId);
+    setPageError("");
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      if (!session?.access_token) throw new Error("Seller login is required.");
+      const response = await fetch("/api/account/seller/instacomp-scan/price", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ inventoryItemId: card.inventoryItemId, price, source, applyGroup: true }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Could not save listing price.");
+      setNotice(
+        `${money(price)} saved${Number(data.updatedCount || 1) > 1 ? ` across ${data.updatedCount} exact-card matches` : ""}.`,
+      );
+      await load(queue || queueFromLocation());
+    } catch (error) {
+      setPageError(message(error));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function runInstaComp(card: PendingCard) {
+    setBusyId(card.inventoryItemId);
+    setPageError("");
+    setNotice("");
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      if (!session?.access_token) throw new Error("Seller login is required.");
+      const response = await fetch("/api/account/seller/inventory/instacomp-fast-market", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ inventoryItemId: card.inventoryItemId }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.success !== true) {
+        throw new Error(data.error || "InstaComp pricing failed.");
+      }
+      const suggestion = Number(data.suggestedPrice || 0);
+      setNotice(
+        suggestion > 0
+          ? `${card.title}: InstaComp ${money(suggestion)} from ${Number(data.reliableSoldCompCount || 0)} exact eBay sold comp${Number(data.reliableSoldCompCount || 0) === 1 ? "" : "s"}${data.activeSearchSkipped === true ? " · active search skipped" : " · official eBay active checked"}${data.draftPriceSaved === true ? ` · draft price saved${Number(data.priceUpdatedCount || 0) > 1 ? ` across ${data.priceUpdatedCount} exact copies` : ""}` : " · existing draft price preserved"}.`
+          : `${card.title}: no pricing-eligible exact eBay sold comp passed; seller pricing is required.`,
+      );
+      await load(queue || queueFromLocation());
+    } catch (error) {
+      setPageError(message(error));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function runSelectedInstaComp() {
+    const selected = cards.filter((card) => selectedIds.has(card.inventoryItemId));
+    if (!selected.length) {
+      setPageError("Select one or more exact-card groups first.");
+      return;
+    }
+    setBusyId("bulk");
+    setPageError("");
+    setNotice(`Running InstaComp on ${selected.length} selected group${selected.length === 1 ? "" : "s"}…`);
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      if (!session?.access_token) throw new Error("Seller login is required.");
+      let priced = 0;
+      let noMarket = 0;
+      const failures: string[] = [];
+      await runWithConcurrency(
+        selected,
+        MARKET_PRICE_CONCURRENCY,
+        async (card) => {
+          const response = await fetch("/api/account/seller/inventory/instacomp-fast-market", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${session.access_token}`,
+            },
+            body: JSON.stringify({ inventoryItemId: card.inventoryItemId }),
+          });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok || data.success !== true) {
+            failures.push(`${card.title}: ${data.error || "failed"}`);
+            return;
+          }
+          const suggestion = Number(data.suggestedPrice || 0);
+          if (suggestion > 0) {
+            priced += 1;
+          } else {
+            noMarket += 1;
+          }
+        },
+      );
+      setNotice(`InstaComp finished: ${priced} priced, ${noMarket} no-exact-sold-market, ${failures.length} failed.`);
+      if (failures.length) setPageError(failures.slice(0, 3).join(" · "));
+      await load(queue || queueFromLocation());
+    } catch (error) {
+      setPageError(message(error));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function reconcileCurrentWebsiteInventory(
+    targets: PendingCard[],
+    ebayStrategy: MergeEbayStrategy = mergeEbayStrategy,
+  ) {
+    if (!targets.length) {
+      setPageError("Select one or more Pending cards first.");
+      return;
+    }
+    const ebayPolicyText =
+      ebayStrategy === "increase_existing"
+        ? "The existing eBay listing quantity will increase to the owned quantity; no duplicate eBay listing will be created."
+        : "The existing eBay listing stays at quantity 1/reserve while website quantity increases; no duplicate eBay listing will be created.";
+    const confirmed = window.confirm(
+      `Merge ${targets.length} selected exact-card scan${targets.length === 1 ? "" : "s"} into existing live inventory? Existing selling prices stay unchanged. Website quantity increases. Mercari stays one active listing; sold/ended Mercari becomes eligible to relist. ${ebayPolicyText}`,
+    );
+    if (!confirmed) return;
+    setBusyId("bulk");
+    setPageError("");
+    setNotice(`Merging ${targets.length} selected exact card${targets.length === 1 ? "" : "s"} into existing live inventory…`);
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      if (!session?.access_token) throw new Error("Seller login is required.");
+      const response = await fetch("/api/account/seller/instacomp-pending/reconcile-website", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          inventoryItemIds: targets.flatMap((card) =>
+            card.commercialGroup?.memberInventoryItemIds?.length
+              ? card.commercialGroup.memberInventoryItemIds
+              : [card.inventoryItemId],
+          ),
+          ebayStrategy,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.success !== true) {
+        throw new Error(data.error || "Current website inventory reconciliation failed.");
+      }
+      const reconciled = Number(data.reconciled || 0);
+      const blocked = Number(data.blocked || 0);
+      const duplicatesIgnored = Number(data.duplicatesIgnored || 0);
+      const mercariRelistEligible = Array.isArray(data.results)
+        ? data.results.filter(
+            (result: { mercariAction?: string | null }) =>
+              result?.mercariAction === "mark_eligible_to_relist",
+          ).length
+        : 0;
+      const ebayIncreased = Array.isArray(data.results)
+        ? data.results.filter(
+            (result: { ebayAction?: string | null }) =>
+              result?.ebayAction === "increased_existing_listing_quantity",
+          ).length
+        : 0;
+      const ebayFailed = Array.isArray(data.results)
+        ? data.results.filter(
+            (result: { ebayAction?: string | null }) =>
+              String(result?.ebayAction || "").includes("failed"),
+          ).length
+        : 0;
+      const ebaySummary =
+        ebayStrategy === "increase_existing"
+          ? ` · eBay existing listing qty increased on ${ebayIncreased}/${reconciled}${ebayFailed ? ` · ${ebayFailed} eBay update failed/held` : ""}`
+          : " · eBay kept at its existing qty/reserve";
+      setNotice(
+        `Exact inventory merge finished: ${reconciled} physical card${reconciled === 1 ? "" : "s"} added to the one canonical website listing with existing prices preserved${ebaySummary} · active Mercari stayed qty 1${mercariRelistEligible ? ` · ${mercariRelistEligible} sold/ended Mercari listing${mercariRelistEligible === 1 ? "" : "s"} marked eligible to relist` : ""}${duplicatesIgnored ? ` · ${duplicatesIgnored} duplicate physical scan${duplicatesIgnored === 1 ? "" : "s"} ignored without increasing quantity` : ""}${blocked ? ` · ${blocked} held only because identity/listing evidence is still unsafe` : ""}. No duplicate eBay listing was created.`,
+      );
+      setSelectedIds(new Set());
+      await load(queue || queueFromLocation());
+    } catch (error) {
+      setPageError(message(error));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function publishChannels(targets: PendingCard[], action: ChannelAction) {
+    if (queue === "redo_pending_resale") {
+      setPageError("REDO review cards cannot be published until their identity, photos, pricing, and seller approval are independently cleared.");
+      return;
+    }
+    if (!targets.length) {
+      setPageError("Select one or more exact-card groups first.");
+      return;
+    }
+    if (action === "publish-website" || action === "publish-website-mercari" || action === "publish-all-3") {
+      const badWebsiteLinks = targets.filter((card) => {
+        const current = card.websiteInventory;
+        const linkedMismatch = Boolean(
+          current?.linkedProductSellable &&
+            current.linkedMatchStatus &&
+            current.linkedMatchStatus !== "exact" &&
+            current.linkedMatchStatus !== "none",
+        );
+        const exactProducts = current?.productIds || [];
+        const linkedExactProduct = Boolean(
+          current?.linkedProductId && exactProducts.includes(current.linkedProductId),
+        );
+        const duplicateOrUnlinkedCurrent = Boolean(
+          current?.current && (exactProducts.length !== 1 || !linkedExactProduct),
+        );
+        return linkedMismatch || duplicateOrUnlinkedCurrent;
+      });
+      if (badWebsiteLinks.length) {
+        setPageError(
+          `WEBSITE BLOCKED: ${badWebsiteLinks.length} card${badWebsiteLinks.length === 1 ? " needs" : "s need"} website inventory reconciliation. Fix the red website alert before publishing so KINGMAKER cannot overwrite the wrong product or create a duplicate.`,
+        );
+        return;
+      }
+    }
+    if (action === "publish-ebay" || action === "publish-all-3") {
+      const missingRawCondition = targets.filter((card) => {
+        if (card.instaComp.gradingCompany) return false;
+        const condition = String(
+          channelConditionEdits[card.inventoryItemId] ?? card.instaComp.channelPricing?.ebayCardCondition ?? "",
+        ).trim();
+        return !condition;
+      });
+      if (missingRawCondition.length) {
+        setPageError(
+          `EBAY BLOCKED: choose eBay Card Condition for ${missingRawCondition.length} ungraded card${missingRawCondition.length === 1 ? "" : "s"} before publishing.`,
+        );
+        return;
+      }
+    }
+    const pendingPurchaseTargets = targets.filter((card) =>
+      physicalMembersForCard(card).some(
+        (member) => purchaseMatches[member.inventoryItemId]?.status === "pending_purchase",
+      ),
+    );
+    if (pendingPurchaseTargets.length) {
+      setPageError(
+        `LISTING BLOCKED: link the purchase to existing inventory or receive the new physical purchase${pendingPurchaseTargets.length === 1 ? "" : "s"} into Resale Inventory first.`,
+      );
+      return;
+    }
+    const investmentTargets = targets.filter((card) =>
+      physicalMembersForCard(card).some((member) => {
+        const match = purchaseMatches[member.inventoryItemId];
+        return (
+          match?.disposition === "investment_stash" ||
+          member.inventoryLifecycle?.disposition === "investment_stash"
+        );
+      }),
+    );
+    if (investmentTargets.length) {
+      setPageError(
+        `LISTING BLOCKED: move ${investmentTargets.length} investment-stash group${investmentTargets.length === 1 ? "" : "s"} to Resale Inventory first.`,
+      );
+      return;
+    }
+    const label =
+      action === "publish-website"
+        ? "website"
+        : action === "publish-ebay"
+          ? "eBay"
+          : action === "publish-mercari"
+            ? "Mercari"
+            : action === "publish-website-mercari"
+              ? "Website + Mercari"
+              : "Website + eBay + Mercari";
+    const confirmation = action === "publish-mercari"
+      ? `List ${targets.length} exact-card group${targets.length === 1 ? "" : "s"} LIVE on the Mercari account logged into Chrome on the Mac? eBay will not be touched. Smart Pricing stays OFF and buyer free shipping stays OFF.`
+      : action === "publish-website-mercari"
+        ? `List ${targets.length} exact-card group${targets.length === 1 ? "" : "s"} to Website + Mercari? eBay will not be touched. Website and Mercari will each use their own price shown on screen.`
+      : action === "publish-all-3"
+        ? `List ${targets.length} exact-card group${targets.length === 1 ? "" : "s"} to ALL 3 channels: Website, eBay, and Mercari? Each channel will use its own price shown on screen.`
+        : `List ${targets.length} exact-card group${targets.length === 1 ? "" : "s"} to ${label}? Group quantities and the channel prices shown on screen will be used.`;
+    if (!window.confirm(confirmation)) return;
+
+    setBusyId(targets.length === 1 ? targets[0].inventoryItemId : "bulk");
+    setPageError("");
+    setNotice(`Publishing ${targets.length} group${targets.length === 1 ? "" : "s"} to ${label}…`);
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      if (!session?.access_token) throw new Error("Seller login is required.");
+      let completed = 0;
+      let websiteCompleted = 0;
+      let ebayCompleted = 0;
+      let mercariCompleted = 0;
+      const failures: string[] = [];
+      for (const card of targets) {
+        const channel = card.instaComp.channelPricing;
+        const edited = channelPriceEdits[card.inventoryItemId];
+        const websitePrice = Number(edited?.website || channel?.websitePrice || 0);
+        const ebayPrice = Number(edited?.ebay || channel?.ebayPrice || 0);
+        const mercariPrice = Number(edited?.mercari || channel?.mercariPrice || channel?.ebayPrice || 0);
+        const cardCondition = String(
+          channelConditionEdits[card.inventoryItemId] ?? channel?.ebayCardCondition ?? "",
+        ).trim();
+        const response = await fetch("/api/account/seller/instacomp-pending/channel", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            action,
+            inventoryItemId: card.inventoryItemId,
+            ebayPrice: ebayPrice || undefined,
+            mercariPrice: mercariPrice || undefined,
+            websitePrice: websitePrice || undefined,
+            cardCondition: cardCondition || undefined,
+            manualChannelPrices: Boolean(edited),
+          }),
+        });
+        const data = await response.json().catch(() => ({}));
+        const websitePublished = data.websitePublished === true;
+        const ebayPublished = data.ebayPublished === true;
+        const mercariPublished = data.mercariPublished === true;
+        if (websitePublished) websiteCompleted += 1;
+        if (ebayPublished) ebayCompleted += 1;
+        if (mercariPublished) mercariCompleted += 1;
+        const requestedChannelsPublished =
+          action === "publish-website"
+            ? websitePublished
+            : action === "publish-ebay"
+              ? ebayPublished
+              : action === "publish-mercari"
+                ? mercariPublished
+                : action === "publish-website-mercari"
+                  ? websitePublished && mercariPublished
+                  : websitePublished && ebayPublished && mercariPublished;
+        if (!response.ok || data.success !== true || !requestedChannelsPublished) {
+          const partialChannels = [
+            websitePublished ? "website LIVE" : null,
+            ebayPublished ? "eBay LIVE" : null,
+            mercariPublished ? "Mercari LIVE" : null,
+          ].filter(Boolean);
+          const detail = data.error || data.errors?.join("; ") || "publish failed";
+          failures.push(
+            `${card.title}: ${partialChannels.length ? `${partialChannels.join(" + ")}; ` : ""}${detail}`,
+          );
+        } else {
+          completed += 1;
+        }
+      }
+      const channelSummary =
+        action === "publish-website"
+          ? `Website ${websiteCompleted}/${targets.length}`
+          : action === "publish-ebay"
+            ? `eBay ${ebayCompleted}/${targets.length}`
+            : action === "publish-mercari"
+              ? `Mercari ${mercariCompleted}/${targets.length} LIVE`
+              : action === "publish-website-mercari"
+                ? `Website ${websiteCompleted}/${targets.length} · Mercari ${mercariCompleted}/${targets.length} LIVE`
+                : `Website ${websiteCompleted}/${targets.length} · eBay ${ebayCompleted}/${targets.length} · Mercari ${mercariCompleted}/${targets.length}`;
+      const failureSummary = failures.length ? ` ${failures[0]}` : "";
+      setNotice(`Publish result: ${completed}/${targets.length} exact-card group${targets.length === 1 ? "" : "s"} fully completed · ${channelSummary}.${failureSummary}`);
+      if (failures.length) setPageError(failures.slice(0, 3).join(" · "));
+      setSelectedIds(new Set());
+      await load(queue || queueFromLocation() || "listings", folderFromLocation());
+    } catch (error) {
+      setPageError(message(error));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  function toggleSelected(id: string) {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function applyBulkEdits() {
+    const selected = cards.filter((card) => selectedIds.has(card.inventoryItemId));
+    if (!selected.length) return;
+    if (!bulkCategory.trim() && !bulkCondition.trim() && !bulkEbayCardCondition.trim()) {
+      setPageError("Choose a category, inventory condition, or eBay Card Condition to apply to the selected cards.");
+      return;
+    }
+    setBusyId("bulk");
+    setPageError("");
+    setNotice("");
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      if (!session?.access_token) throw new Error("Seller login is required.");
+      const response = await fetch("/api/account/seller/inventory/instacomp-bulk-edit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+        body: JSON.stringify({
+          inventoryItemIds: Array.from(new Set(selected.flatMap((card) =>
+            card.commercialGroup?.memberInventoryItemIds?.length
+              ? card.commercialGroup.memberInventoryItemIds
+              : [card.inventoryItemId],
+          ))),
+          category: bulkCategory.trim() || undefined,
+          condition: bulkCondition.trim() || undefined,
+          ebayCardCondition: bulkEbayCardCondition.trim() || undefined,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.success !== true) throw new Error(data.error || "Bulk edit failed.");
+      setNotice(`${data.updatedCount} selected card${data.updatedCount === 1 ? "" : "s"} updated and saved.${data.cardConditionUpdatedCount ? ` eBay Card Condition saved on ${data.cardConditionUpdatedCount} raw card${data.cardConditionUpdatedCount === 1 ? "" : "s"}.` : ""}${data.gradedSkippedCount ? ` ${data.gradedSkippedCount} graded card${data.gradedSkippedCount === 1 ? " was" : "s were"} left unchanged for eBay Card Condition.` : ""}`);
+      await load(queue || queueFromLocation());
+    } catch (error) {
+      setPageError(message(error));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function applyBulkPricing(adjustmentPercent: number) {
+    const selected = cards.filter((card) => selectedIds.has(card.inventoryItemId));
+    const seenGroups = new Set<string>();
+    const priceable = selected.filter((card) => {
+      if (Number(card.instaComp.suggestedPrice || 0) <= 0) return false;
+      const key = card.instaComp.pricingGroupKey || card.inventoryItemId;
+      if (seenGroups.has(key)) return false;
+      seenGroups.add(key);
+      return true;
+    });
+    if (!priceable.length) {
+      setPageError("None of the selected cards has an accepted InstaComp comp price yet.");
+      return;
+    }
+    setBusyId("bulk");
+    setPageError("");
+    setNotice("");
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      if (!session?.access_token) throw new Error("Seller login is required.");
+      await runWithConcurrency(priceable, BULK_PRICE_CONCURRENCY, async (card) => {
+        const price = compAdjustedPrice(card.instaComp.suggestedPrice, adjustmentPercent);
+        if (!price) throw new Error(`${card.title}: InstaComp price is unavailable.`);
+        const response = await fetch("/api/account/seller/instacomp-scan/price", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+          body: JSON.stringify({
+            inventoryItemId: card.inventoryItemId,
+            price,
+            source: `bulk_instacomp_${adjustmentPercent >= 0 ? "plus" : "minus"}_${Math.abs(adjustmentPercent)}`,
+            applyGroup: true,
+          }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(`${card.title}: ${data.error || "bulk price failed"}`);
+      });
+      setNotice(`Comp-based prices saved for ${priceable.length} selected exact-card group${priceable.length === 1 ? "" : "s"}.`);
+      await load(queue || queueFromLocation());
+    } catch (error) {
+      setPageError(message(error));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function deleteSelectedCards() {
+    const selected = cards.filter((card) => selectedIds.has(card.inventoryItemId));
+    if (!selected.length) {
+      setPageError("Select at least one draft to delete.");
+      return;
+    }
+    const confirmDelete = window.confirm(
+      `Delete ${selected.length} pending draft${selected.length === 1 ? "" : "s"}? This will remove them from the queue but keep learning history intact.`,
+    );
+    if (!confirmDelete) return;
+
+    setBusyId("bulk");
+    setPageError("");
+    setNotice("");
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      if (!session?.access_token) throw new Error("Seller login is required.");
+      const response = await fetch("/api/account/seller/instacomp-pending-delete", {
+        method: "DELETE",
+        headers: {
+          "content-type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          inventoryItemIds: selected.map((card) => card.inventoryItemId),
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.success === false) {
+        throw new Error(data.error || "Delete failed.");
+      }
+      setSelectedIds(new Set());
+      setNotice(data.message || `${selected.length} selected draft${selected.length === 1 ? "" : "s"} deleted.`);
+      await load(queue || queueFromLocation());
+    } catch (error) {
+      setPageError(message(error));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function verifySelectedToPendingListings() {
+    if (queue !== "verification" && queue !== "redo_pending_resale") return;
+    const selected = cards.filter((card) => selectedIds.has(card.inventoryItemId));
+    if (!selected.length) {
+      setPageError("Select one or more cards in Pending Verification or REDO Resale Pending first.");
+      return;
+    }
+    const eligible = selected.filter((card) => hasValidPair(card));
+    const skipped = selected.length - eligible.length;
+    if (!eligible.length) {
+      setPageError("None of the selected cards has a distinct stored front and back.");
+      return;
+    }
+    if (
+      !window.confirm(
+        "Verify selected cards against exact Checklist Registry identity, then move passing cards to Pending Listings? This also accepts the current orientation of their stored front/back images. Cards without exact identity stay in Pending Verification. Pricing, quantity, card fields, and image records are preserved.",
+      )
+    ) {
+      return;
+    }
+
+    setBusyId("bulk-verify");
+    setPageError("");
+    setNotice(
+      "Verifying " + eligible.length + " selected card" + (eligible.length === 1 ? "" : "s") + "…",
+    );
+    let moved = 0;
+    let review = 0;
+    const failures: string[] = [];
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      if (!session?.access_token) throw new Error("Seller login is required.");
+      for (const card of eligible) {
+        try {
+          const headers = {
+            Authorization: "Bearer " + session.access_token,
+            "Content-Type": "application/json",
+          };
+          const identityResponse = await fetch(
+            "/api/account/seller/instacomp-pending-identity",
+            {
+              method: "POST",
+              headers,
+              body: JSON.stringify({ inventoryItemId: card.inventoryItemId }),
+              cache: "no-store",
+            },
+          );
+          const identityData = await identityResponse.json().catch(() => ({}));
+          const identity =
+            identityData.identity && typeof identityData.identity === "object"
+              ? (identityData.identity as Record<string, unknown>)
+              : {};
+          const registryIdentityId = String(
+            identityData.registryIdentityId || identity.registryIdentityId || "",
+          ).trim();
+          const registryFingerprint = String(
+            identityData.registryFingerprintSha256 ||
+              identity.registryFingerprintSha256 ||
+              "",
+          ).trim();
+          if (
+            !identityResponse.ok ||
+            identityData.success !== true ||
+            identityData.identityComplete !== true ||
+            !registryIdentityId ||
+            !registryFingerprint
+          ) {
+            review += 1;
+            throw new Error(
+              identityData.error ||
+                identityData.code ||
+                "exact Registry identity was not confirmed",
+            );
+          }
+
+          const acceptResponse = await fetch(
+            "/api/account/seller/instacomp-pending/accept-verification",
+            {
+              method: "POST",
+              headers,
+              body: JSON.stringify({ inventoryItemId: card.inventoryItemId }),
+              cache: "no-store",
+            },
+          );
+          const acceptData = await acceptResponse.json().catch(() => ({}));
+          if (
+            !acceptResponse.ok ||
+            acceptData.success !== true ||
+            acceptData.queue !== "listings" ||
+            acceptData.published !== false
+          ) {
+            throw new Error(
+              acceptData.error || "could not move this card to Pending Listings",
+            );
+          }
+          moved += 1;
+        } catch (error) {
+          failures.push(card.title + ": " + message(error));
+        }
+      }
+
+      const nextQueue = moved > 0 ? "listings" : queue;
+      setSelectedIds(new Set());
+      setQueue(nextQueue);
+      const nextUrl = new URL(window.location.href);
+      nextUrl.searchParams.set("queue", nextQueue);
+      router.replace(nextUrl.pathname + nextUrl.search);
+      await load(nextQueue);
+      const refreshedCounts = (window as unknown as {
+        __kingmakerPendingDebug?: {
+          queueCounts?: { listings?: number; verification?: number };
+        };
+      }).__kingmakerPendingDebug?.queueCounts;
+      const refreshedListingCount = Number(refreshedCounts?.listings || 0);
+      const refreshedVerificationCount = Number(
+        refreshedCounts?.verification || 0,
+      );
+      setNotice(
+        "Bulk verification finished: " + moved +
+          " moved to Pending Listings, " + review +
+          " held for identity review, " + skipped +
+          " skipped for missing image pairs. Counts: " + refreshedListingCount +
+          " Pending Listings, " + refreshedVerificationCount +
+          " Pending Verification.",
+      );
+      if (failures.length) setPageError(failures.slice(0, 4).join(" · "));
+    } catch (error) {
+      setPageError(message(error));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function runSelectedExactIdentity() {
+    const selected = cards.filter((card) => selectedIds.has(card.inventoryItemId));
+    const targets = selected.filter(
+      (card) =>
+        hasValidPair(card) &&
+        jobs[card.inventoryItemId]?.manualIdentityLocked !== true,
+    );
+    const skipped = selected.length - targets.length;
+    if (!targets.length) {
+      setPageError("Select one or more verification cards with a distinct stored front/back pair.");
+      return;
+    }
+
+    setBusyId("bulk-identity");
+    setPageError("");
+    setNotice(`Reading ${targets.length} selected card${targets.length === 1 ? "" : "s"} through the exact Mac Registry path…`);
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      if (!session?.access_token) throw new Error("Seller login is required.");
+
+      let exact = 0;
+      let review = 0;
+      let failed = 0;
+      for (const card of targets) {
+        const response = await fetch("/api/kingmaker/instacomp-front-back-exact", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ inventoryItemId: card.inventoryItemId }),
+          cache: "no-store",
+        });
+        const data = await response.json().catch(() => ({}));
+        const exactReceipt =
+          response.ok &&
+          data.success === true &&
+          data.identityComplete === true &&
+          Boolean(data.registryIdentityId) &&
+          Boolean(data.registryFingerprintSha256) &&
+          data.checklistDecision?.status === "exact_match" &&
+          data.macReceipt?.checklistOutcome === "exact_match";
+        if (exactReceipt) exact += 1;
+        else if (data.success === true) review += 1;
+        else failed += 1;
+      }
+
+      setSelectedIds(new Set());
+      setNotice(
+        `Exact identity pass finished: ${exact} exact, ${review} still review, ${failed} failed${skipped ? `, ${skipped} manual-locked/skipped` : ""}.`,
+      );
+      await load(queue || queueFromLocation());
+    } catch (error) {
+      setPageError(message(error));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function runExactIdentity(card: PendingCard) {
+    if (!hasValidPair(card)) {
+      setLocalError((current) => ({ ...current, [card.inventoryItemId]: "A distinct stored front and back are required." }));
+      return;
+    }
+    setBusyId(card.inventoryItemId);
+    setNotice("");
+    setPageError("");
+    setLocalError((current) => ({ ...current, [card.inventoryItemId]: "" }));
+    setLocalStage((current) => ({ ...current, [card.inventoryItemId]: "scanning" }));
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      if (!session?.access_token) throw new Error("Seller login is required.");
+      const response = await fetch("/api/kingmaker/instacomp-front-back-exact", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${session.access_token}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          inventoryItemId: card.inventoryItemId,
+        }),
+        cache: "no-store",
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.success !== true) {
+        throw new Error([data.error || "Card reading failed.", data.code, data.stage].filter(Boolean).join(" · "));
+      }
+      setLocalStage((current) => ({
+        ...current,
+        [card.inventoryItemId]: data.identityComplete === true ? "complete" : "review",
+      }));
+      setNotice(
+        data.message ||
+          data.ai?.notes ||
+          `${data.identityComplete === true ? "InstaComp scan complete" : data.physicalScanRecorded === true ? "Physical scan recorded — identity review required" : "InstaComp review required"} for ${data.title || card.title}.`,
+      );
+      if (data.identityComplete !== true) {
+        setLocalError((current) => ({ ...current, [card.inventoryItemId]: "" }));
+      }
+      await load(queue || queueFromLocation());
+    } catch (error) {
+      setLocalStage((current) => ({ ...current, [card.inventoryItemId]: "failed" }));
+      setLocalError((current) => ({ ...current, [card.inventoryItemId]: message(error) }));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  const pendingReceiptCount = Object.values(purchaseMatches).filter((purchase) => purchase?.status === "pending_purchase").length;
+  const visibleCards = folder === "receipt"
+    ? cards.filter((card) =>
+        physicalMembersForCard(card).some(
+          (member) => purchaseMatches[member.inventoryItemId]?.status === "pending_purchase",
+        ),
+      )
+    : cards;
+  const renderedCards = visibleCards.slice(0, renderLimit);
+
+  return (
+    <main className="min-h-screen bg-neutral-100 px-4 py-6 text-neutral-950">
+      <div className="mx-auto max-w-6xl">
+        <div className="flex flex-wrap items-end justify-between gap-3">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-800">KINGMAKER / Master Listings</p>
+            <h1 className="mt-1 text-3xl font-black">
+              {queue === "verification"
+                ? "Pending verification"
+                : queue === "redo_pending_resale"
+                  ? "REDO Resale Pending — seller review"
+                : folder === "receipt"
+                  ? "Pending receipt — matched purchases"
+                  : folder === "pending"
+                    ? "Resale inventory — pending listing"
+                  : folder === "website"
+                    ? "Listed on website only"
+                    : folder === "ebay"
+                      ? "Listed on eBay only"
+                      : folder === "mercari"
+                        ? "Listed on Mercari only"
+                        : folder === "both"
+                          ? "Listed on website + eBay"
+                          : folder === "website_mercari"
+                            ? "Listed on website + Mercari"
+                            : folder === "ebay_mercari"
+                              ? "Listed on eBay + Mercari"
+                              : folder === "all3"
+                                ? "Listed on website + eBay + Mercari"
+                                : "Investment stash"}
+            </h1>
+            <p className="mt-2 max-w-4xl font-semibold text-neutral-700">
+              {queue === "verification"
+                ? "Legacy and held cards stay here with every image and inventory link intact until you are ready to verify them."
+                : queue === "redo_pending_resale"
+                  ? "All recovered physical card drafts remain here with their original scans. Review identity, orientation, comps, and price before moving them to a publishable listing."
+                : folder === "receipt"
+                  ? "Only scanned physical cards with a real Mac-local pending purchase reservation appear here. Receive each one into Resale Inventory or Investment Stash."
+                  : folder === "investment"
+                    ? "Received physical cards held for investment. Every card keeps its scan, purchase date, source, and cost basis until you move it back to resale."
+                    : folder === "pending"
+                    ? "Scanned and received resale inventory stays here until it is listed. InstaComp is a market recommendation; you control the actual website, eBay, and Mercari prices."
+                    : "Listed inventory is separated by live channel so cards no longer clutter the pending workspace."}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void load(queue || queueFromLocation() || "listings", folderFromLocation())}
+            disabled={loading || Boolean(busyId)}
+            className="rounded-xl bg-neutral-950 px-4 py-3 font-black text-white disabled:opacity-50"
+          >
+            {loading ? "Loading…" : "Reload"}
+          </button>
+        </div>
+
+        <nav className="mt-5 flex flex-wrap gap-2" aria-label="Inventory lifecycle folders">
+          {([
+            ["receipt", "Pending Receipt", pendingReceiptCount],
+            ["pending", "Resale Pending", folderCounts.pending],
+            ["website", "Website Only", folderCounts.website],
+            ["ebay", "eBay Only", folderCounts.ebay],
+            ["mercari", "Mercari Only", folderCounts.mercari],
+            ["both", "Website + eBay", folderCounts.both],
+            ["website_mercari", "Website + Mercari", folderCounts.website_mercari],
+            ["ebay_mercari", "eBay + Mercari", folderCounts.ebay_mercari],
+            ["all3", "Listed All 3", folderCounts.all3],
+            ["investment", "Investment Stash", folderCounts.investment],
+          ] as const).map(([value, label, count]) => (
+            <button
+              key={value}
+              type="button"
+              onClick={() => {
+                setSelectedIds(new Set());
+                setEditingId(null);
+                const nextUrl = new URL(window.location.href);
+                nextUrl.searchParams.set("queue", "listings");
+                nextUrl.searchParams.set("folder", value);
+                nextUrl.searchParams.delete("focus");
+                router.replace(`${nextUrl.pathname}${nextUrl.search}`);
+                setQueue("listings");
+                setFolder(value);
+              }}
+              aria-pressed={queue === "listings" && folder === value}
+              className={`rounded-xl border-2 px-4 py-3 font-black ${
+                queue === "listings" && folder === value
+                  ? "border-neutral-950 bg-neutral-950 text-white"
+                  : "border-neutral-400 bg-white text-neutral-950"
+              }`}
+            >
+              {label} · {value === "receipt" || countsLoaded ? count : "—"}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedIds(new Set());
+              setEditingId(null);
+              const nextUrl = new URL(window.location.href);
+              nextUrl.searchParams.set("queue", "verification");
+              nextUrl.searchParams.set("folder", "pending");
+              nextUrl.searchParams.delete("focus");
+              router.replace(`${nextUrl.pathname}${nextUrl.search}`);
+              setQueue("verification");
+            }}
+            aria-pressed={queue === "verification"}
+            className={`rounded-xl border-2 px-4 py-3 font-black ${
+              queue === "verification"
+                ? "border-amber-700 bg-amber-600 text-white"
+                : "border-neutral-400 bg-white text-neutral-950"
+            }`}
+          >
+            Pending Verification · {countsLoaded ? queueCounts.verification : "—"}
+          </button>
+          <button type="button" onClick={() => {
+            setSelectedIds(new Set()); setEditingId(null); setFolder("pending");
+            const nextUrl = new URL(window.location.href);
+            nextUrl.searchParams.set("queue", "redo_pending_resale");
+            nextUrl.searchParams.set("folder", "pending");
+            nextUrl.searchParams.delete("focus");
+            router.replace(`${nextUrl.pathname}${nextUrl.search}`);
+            setQueue("redo_pending_resale");
+          }} aria-pressed={queue === "redo_pending_resale"}
+            className={`rounded-xl border-2 px-4 py-3 font-black ${queue === "redo_pending_resale" ? "border-neutral-950 bg-neutral-950 text-white" : "border-neutral-400 bg-white text-neutral-950"}`}>
+            REDO Resale Pending · {countsLoaded ? queueCounts.redo_pending_resale : "—"}
+          </button>
+        </nav>
+
+        {pageError ? <div className="mt-5 rounded-xl border-2 border-red-700 bg-red-50 p-4 font-bold text-red-900">{pageError}</div> : null}
+        {notice ? <div className="mt-5 rounded-xl border-2 border-emerald-700 bg-emerald-50 p-4 font-bold text-emerald-900">{notice}</div> : null}
+
+        {!loading && !cards.length && !pageError ? (
+          <div className="mt-6 rounded-2xl border border-neutral-300 bg-white p-8 text-center">
+            {queueCounts[queue] > 0 ? (
+              <>
+                <p className="text-xl font-black">Queue data is refreshing</p>
+                <p className="mt-2 text-neutral-600">
+                  KINGMAKER has a non-zero queue count but no hydrated card rows. Reloading the authoritative queue instead of treating it as empty.
+                </p>
+              </>
+            ) : (
+              <>
+            <p className="text-xl font-black">
+              {queue === "verification"
+                ? "No cards pending verification"
+                : queue === "redo_pending_resale"
+                  ? "No REDO resale cards awaiting review"
+                : folder === "pending"
+                  ? "No resale cards waiting to be listed"
+                  : folder === "website"
+                    ? "No website-only listings"
+                    : folder === "ebay"
+                      ? "No eBay-only listings"
+                      : folder === "mercari"
+                        ? "No Mercari-only listings"
+                        : folder === "both"
+                          ? "No cards listed on website + eBay"
+                          : folder === "website_mercari"
+                            ? "No cards listed on website + Mercari"
+                            : folder === "ebay_mercari"
+                              ? "No cards listed on eBay + Mercari"
+                              : folder === "all3"
+                                ? "No cards listed on all 3 channels"
+                                : "Investment stash is empty"}
+            </p>
+            <p className="mt-2 text-neutral-600">
+              {queue === "verification"
+                ? "Held cards will remain available here without crowding inventory."
+                : queue === "redo_pending_resale"
+                  ? "REDO cards remain separated until reviewed; nothing publishes automatically."
+                : folder === "investment"
+                  ? "Receive a scanned purchase into Investment Stash to hold it here."
+                  : "Cards move between these folders automatically as their channel status changes."}
+            </p>
+              </>
+            )}
+          </div>
+        ) : null}
+
+        {cards.length ? (
+          <section className="mt-6 rounded-2xl border-2 border-neutral-900 bg-white p-4 shadow-[5px_5px_0_#111]" aria-label="Bulk listing tools">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-xl font-black">Bulk edit</h2>
+                <p className="text-sm font-semibold text-neutral-600">{selectedIds.size} of {visibleCards.length} selected</p>
+              </div>
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setSelectedIds(new Set(visibleCards.map((card) => card.inventoryItemId)))} className="rounded-lg border-2 border-neutral-900 px-3 py-2 text-sm font-black">Select all</button>
+                <button type="button" onClick={() => setSelectedIds(new Set())} className="rounded-lg border-2 border-neutral-400 px-3 py-2 text-sm font-black">Clear</button>
+                <button
+                  type="button"
+                  disabled={!selectedIds.size || Boolean(busyId)}
+                  onClick={() => void deleteSelectedCards()}
+                  className="rounded-lg border-2 border-red-700 bg-red-600 px-3 py-2 text-sm font-black text-white disabled:opacity-40"
+                >
+                  Delete selected
+                </button>
+              </div>
+            </div>
+            <div className="mt-4 grid gap-3 md:grid-cols-2 lg:grid-cols-[1fr_1fr_1fr_auto]">
+              <Field label="Category (optional)" value={bulkCategory} onChange={setBulkCategory} placeholder="Trading Card Singles" />
+              <Field label="Inventory condition (optional)" value={bulkCondition} onChange={setBulkCondition} placeholder="Ungraded" />
+              <label className="text-sm font-bold">
+                eBay Card Condition (optional)
+                <select
+                  value={bulkEbayCardCondition}
+                  onChange={(event) => setBulkEbayCardCondition(event.target.value)}
+                  className="mt-1 w-full rounded-lg border-2 border-neutral-300 bg-white p-2 text-neutral-950 focus:border-neutral-950 focus:outline-none"
+                >
+                  <option value="">Leave unchanged</option>
+                  <option value="Near Mint or Better">Near Mint or Better</option>
+                  <option value="Excellent">Excellent</option>
+                  <option value="Very Good">Very Good</option>
+                  <option value="Poor">Poor</option>
+                </select>
+              </label>
+              <button type="button" disabled={!selectedIds.size || Boolean(busyId)} onClick={() => void applyBulkEdits()} className="self-end rounded-xl bg-amber-600 px-5 py-3 font-black text-white disabled:opacity-40">Apply fields</button>
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-neutral-300 pt-3">
+              <span className="mr-2 text-sm font-black">Bulk comp pricing:</span>
+              {COMP_ADJUSTMENTS.map((adjustment) => (
+                <button
+                  key={adjustment}
+                  type="button"
+                  disabled={!selectedIds.size || Boolean(busyId)}
+                  onClick={() => void applyBulkPricing(adjustment)}
+                  className={`rounded-lg px-3 py-2 text-sm font-black text-white disabled:opacity-40 ${adjustment < 0 ? "bg-sky-700" : adjustment > 0 ? "bg-emerald-700" : "bg-neutral-950"}`}
+                >
+                  {adjustment === 0 ? "InstaComp" : `${adjustment > 0 ? "+" : ""}${adjustment}%`}
+                </button>
+              ))}
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-neutral-300 pt-3">
+              <span className="text-sm font-black">Exact-copy merge policy:</span>
+              <select
+                value={mergeEbayStrategy}
+                onChange={(event) =>
+                  setMergeEbayStrategy(event.target.value as MergeEbayStrategy)
+                }
+                disabled={Boolean(busyId)}
+                className="rounded-lg border-2 border-neutral-900 bg-white px-3 py-2 text-sm font-black"
+              >
+                <option value="keep_one">
+                  Website +1 · eBay stays existing qty · Mercari stays 1
+                </option>
+                <option value="increase_existing">
+                  Website +1 · existing eBay listing +1 · Mercari stays 1
+                </option>
+              </select>
+              <span className="text-xs font-semibold text-neutral-600">
+                Never creates a duplicate eBay listing. Mercari remains one active listing.
+              </span>
+            </div>
+            {(queue === "verification" || queue === "redo_pending_resale") ? (
+              <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-neutral-300 pt-3">
+                <span className="mr-2 text-sm font-black">Verification actions:</span>
+                <button
+                  type="button"
+                  disabled={!selectedIds.size || Boolean(busyId)}
+                  onClick={() => void verifySelectedToPendingListings()}
+                  className="rounded-lg bg-emerald-700 px-3 py-2 text-sm font-black text-white disabled:opacity-40"
+                >
+                  Verify Selected → Pending Listings
+                </button>
+                <button
+                  type="button"
+                  disabled={!selectedIds.size || Boolean(busyId)}
+                  onClick={() => void runSelectedExactIdentity()}
+                  className="rounded-lg bg-sky-700 px-3 py-2 text-sm font-black text-white disabled:opacity-40"
+                >
+                  Read Selected → Exact Mac Identity
+                </button>
+                <button
+                  type="button"
+                  disabled={!selectedIds.size || Boolean(busyId)}
+                  onClick={() =>
+                    void reconcileCurrentWebsiteInventory(
+                      cards.filter((card) => selectedIds.has(card.inventoryItemId)),
+                    )
+                  }
+                  className="rounded-lg bg-cyan-700 px-3 py-2 text-sm font-black text-white disabled:opacity-40"
+                >
+                  Merge Selected → Existing Exact Listing
+                </button>
+                <span className="text-xs font-semibold text-neutral-600">
+                  Exact Registry identity required · one website listing/quantity · Mercari stays one · eBay follows the merge policy above.
+                </span>
+              </div>
+            ) : null}
+            {queue === "listings" ? (
+              <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-neutral-300 pt-3">
+                <span className="mr-2 text-sm font-black">Selected group actions:</span>
+                <button
+                  type="button"
+                  disabled={!selectedIds.size || Boolean(busyId)}
+                  onClick={() => void runSelectedInstaComp()}
+                  className="rounded-lg bg-violet-700 px-3 py-2 text-sm font-black text-white disabled:opacity-40"
+                >
+                  Run InstaComp Selected
+                </button>
+                <button
+                  type="button"
+                  disabled={!selectedIds.size || Boolean(busyId)}
+                  onClick={() =>
+                    void reconcileCurrentWebsiteInventory(
+                      cards.filter((card) => selectedIds.has(card.inventoryItemId)),
+                    )
+                  }
+                  className="rounded-lg bg-cyan-700 px-3 py-2 text-sm font-black text-white disabled:opacity-40"
+                >
+                  Merge Selected → Existing Exact Listing
+                </button>
+                <button
+                  type="button"
+                  disabled={!selectedIds.size || Boolean(busyId)}
+                  onClick={() => void publishChannels(cards.filter((card) => selectedIds.has(card.inventoryItemId)), "publish-website")}
+                  className="rounded-lg bg-emerald-700 px-3 py-2 text-sm font-black text-white disabled:opacity-40"
+                >
+                  List Selected → Website
+                </button>
+                <button
+                  type="button"
+                  disabled={!selectedIds.size || Boolean(busyId)}
+                  onClick={() => void publishChannels(cards.filter((card) => selectedIds.has(card.inventoryItemId)), "publish-ebay")}
+                  className="rounded-lg bg-blue-700 px-3 py-2 text-sm font-black text-white disabled:opacity-40"
+                >
+                  List/Update Selected → eBay
+                </button>
+                <button
+                  type="button"
+                  disabled={!selectedIds.size || Boolean(busyId)}
+                  onClick={() => void publishChannels(cards.filter((card) => selectedIds.has(card.inventoryItemId)), "publish-mercari")}
+                  className="rounded-lg bg-fuchsia-700 px-3 py-2 text-sm font-black text-white disabled:opacity-40"
+                >
+                  List Selected → Mercari
+                </button>
+                <button
+                  type="button"
+                  disabled={!selectedIds.size || Boolean(busyId)}
+                  onClick={() => void publishChannels(cards.filter((card) => selectedIds.has(card.inventoryItemId)), "publish-website-mercari")}
+                  className="rounded-lg bg-purple-700 px-3 py-2 text-sm font-black text-white disabled:opacity-40"
+                >
+                  List Selected → Website + Mercari
+                </button>
+                <button
+                  type="button"
+                  disabled={!selectedIds.size || Boolean(busyId)}
+                  onClick={() => void publishChannels(cards.filter((card) => selectedIds.has(card.inventoryItemId)), "publish-all-3") }
+                  className="rounded-lg bg-neutral-950 px-3 py-2 text-sm font-black text-white disabled:opacity-40"
+                >
+                  List Selected → All 3
+                </button>
+              </div>
+            ) : null}
+          </section>
+        ) : null}
+
+        {folder === "receipt" && !loading && visibleCards.length === 0 ? (
+          <div className="mt-6 rounded-2xl border-2 border-neutral-900 bg-white p-6 font-black shadow-[6px_6px_0_#111]">
+            No scanned purchases are waiting to be received right now.
+          </div>
+        ) : null}
+
+        <section className="mt-6 space-y-6">
+          {renderedCards.map((card) => {
+            const job = jobs[card.inventoryItemId];
+            const pairReady = hasValidPair(card);
+            const isBusy = busyId === card.inventoryItemId;
+            const edit = edits[card.inventoryItemId];
+            const storedStage: LocalStage = job?.manualIdentityLocked
+              ? "locked"
+              : job?.identityComplete
+                ? "complete"
+                : job?.status === "failed"
+                  ? "failed"
+                  : job?.status === "review_required"
+                    ? "review"
+                    : "waiting";
+            const stage = localStage[card.inventoryItemId] || storedStage;
+            const error = localError[card.inventoryItemId] || (stage === "failed" ? job?.error || "" : "");
+            const soldCompEvidence = card.instaComp.soldCompEvidence || [];
+            const activeCompetition = card.instaComp.activeCompetition || [];
+            const suggested = Number(card.instaComp.suggestedPrice || 0);
+            const channelPricing = card.instaComp.channelPricing || null;
+            const channelEdit = channelPriceEdits[card.inventoryItemId];
+            const websitePriceInput = channelEdit?.website ?? (Number(channelPricing?.websitePrice || 0) > 0 ? String(channelPricing?.websitePrice) : "");
+            const ebayPriceInput = channelEdit?.ebay ?? (Number(channelPricing?.ebayPrice || 0) > 0 ? String(channelPricing?.ebayPrice) : "");
+            const mercariPriceInput = channelEdit?.mercari ?? (Number(channelPricing?.mercariPrice || 0) > 0 ? String(channelPricing?.mercariPrice) : ebayPriceInput);
+            const ebayCardCondition = channelConditionEdits[card.inventoryItemId] ?? channelPricing?.ebayCardCondition ?? "";
+            const ebayCardConditionOptions = channelPricing?.ebayCategoryId === "183454"
+              ? ["Near Mint or Better", "Lightly Played (Excellent)", "Moderately Played (Very Good)", "Heavily Played (Poor)"]
+              : ["Near Mint or Better", "Excellent", "Very Good", "Poor"];
+            const publishWebsitePrice = Number(websitePriceInput || 0);
+            const publishEbayPrice = Number(ebayPriceInput || 0);
+            const publishMercariPrice = Number(mercariPriceInput || 0);
+            const ebayCardConditionRequired = !card.instaComp.gradingCompany;
+            const ebayCardConditionReady = !ebayCardConditionRequired || Boolean(ebayCardCondition.trim());
+            const physicalMembers = physicalMembersForCard(card);
+            const purchaseMembers = physicalMembers
+              .map((member) => ({ member, purchase: purchaseMatches[member.inventoryItemId] || null }))
+              .filter((entry) => Boolean(entry.purchase));
+            const pendingPurchase = purchaseMembers.some((entry) => entry.purchase?.status === "pending_purchase");
+            const linkedExistingPurchase = purchaseMembers.some((entry) => entry.purchase?.status === "linked_existing");
+            const receivedPurchase = purchaseMembers.some((entry) => entry.purchase?.status === "received");
+            const accountedPurchase = linkedExistingPurchase || receivedPurchase;
+            const possiblePurchase = purchaseMembers.some((entry) => entry.purchase?.status === "possible_match");
+            const scanRequired = physicalMembers.some((member) => !member.scanId);
+            const listingPriceSource = String(card.instaComp.listingPriceSource || "").toLowerCase();
+            const sellerManualPrice = listingPriceSource === "kingmaker_manual";
+            const currentWebsiteInventory = card.websiteInventory || null;
+            const websiteCurrent = currentWebsiteInventory?.current === true;
+            const websiteLinkBlocked = Boolean(
+              currentWebsiteInventory?.linkedProductSellable &&
+                currentWebsiteInventory.linkedMatchStatus &&
+                currentWebsiteInventory.linkedMatchStatus !== "exact" &&
+                currentWebsiteInventory.linkedMatchStatus !== "none",
+            );
+            const exactWebsiteProductIds = currentWebsiteInventory?.productIds || [];
+            const linkedExactWebsiteProduct = Boolean(
+              currentWebsiteInventory?.linkedProductId &&
+                exactWebsiteProductIds.includes(currentWebsiteInventory.linkedProductId),
+            );
+            const websiteInventoryNeedsReconciliation = Boolean(
+              websiteCurrent &&
+                (exactWebsiteProductIds.length !== 1 || !linkedExactWebsiteProduct),
+            );
+            const websitePublishBlocked =
+              websiteLinkBlocked || websiteInventoryNeedsReconciliation;
+            const duplicateProtection = card.duplicateProtection || null;
+            const listingReadiness = card.listingReadiness || null;
+            const listingReady = listingReadiness?.ready === true;
+            const exactCopyMergeReady = Boolean(
+              websiteCurrent &&
+                exactWebsiteProductIds.length === 1 &&
+                !websiteLinkBlocked &&
+                duplicateProtection?.uniquePhysicalCopy !== true,
+            );
+            const websiteListed =
+              websiteCurrent ||
+              String(channelPricing?.websiteStatus || "").toLowerCase() === "active";
+            const ebayStatus = String(channelPricing?.ebayStatus || "").toLowerCase();
+            const ebayListed = ebayStatus === "active" || ebayStatus === "linked";
+            const mercariStatus = String(channelPricing?.mercariStatus || "").toLowerCase();
+            const mercariListed =
+              mercariStatus === "active" || mercariStatus === "linked" || mercariStatus === "live";
+            const mercariItemUrl = String(channelPricing?.mercariItemUrl || "").trim();
+            const exactCopyMergeControls = exactCopyMergeReady ? (
+              <div className="mt-3 rounded-xl border-2 border-cyan-800 bg-cyan-50 p-3 text-cyan-950">
+                <p className="font-black">
+                  EXACT COPY FOUND · MERGE INTO THE ONE EXISTING LISTING
+                </p>
+                <p className="mt-1 text-xs font-bold">
+                  Owned/current qty {currentWebsiteInventory?.quantity || 0}
+                  {duplicateProtection?.existingQuantity
+                    ? ` · active inventory qty ${duplicateProtection.existingQuantity}`
+                    : ""}
+                  . Website becomes +1. Mercari stays one active listing. No duplicate eBay listing is created.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={Boolean(busyId)}
+                    onClick={() =>
+                      void reconcileCurrentWebsiteInventory([card], "keep_one")
+                    }
+                    className="rounded-lg bg-cyan-800 px-3 py-2 text-xs font-black text-white disabled:opacity-40"
+                  >
+                    Merge +1 · Website Qty · Keep eBay/Mercari 1
+                  </button>
+                  {ebayListed ? (
+                    <button
+                      type="button"
+                      disabled={Boolean(busyId)}
+                      onClick={() =>
+                        void reconcileCurrentWebsiteInventory(
+                          [card],
+                          "increase_existing",
+                        )
+                      }
+                      className="rounded-lg bg-blue-800 px-3 py-2 text-xs font-black text-white disabled:opacity-40"
+                    >
+                      Merge +1 · Website + Existing eBay Qty · Mercari 1
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            ) : null;
+            const groupQuantity = Math.max(
+              1,
+              Number(card.commercialGroup?.totalQuantity || card.quantity || 1),
+            );
+            const priceChoices = suggested > 0
+              ? COMP_ADJUSTMENTS.map((adjustment) => ({
+                  label: adjustment === 0 ? "InstaComp" : `${adjustment > 0 ? "+" : ""}${adjustment}%`,
+                  value: compAdjustedPrice(suggested, adjustment) as number,
+                  source: `instacomp_${adjustment >= 0 ? "plus" : "minus"}_${Math.abs(adjustment)}`,
+                }))
+              : [];
+
+            return (
+              <article key={card.inventoryItemId} className="overflow-hidden rounded-2xl border-2 border-neutral-900 bg-white shadow-[6px_6px_0_#111]">
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b-2 border-neutral-900 bg-neutral-950 px-4 py-3 text-white">
+                  <div className="flex min-w-0 items-start gap-3">
+                    <input type="checkbox" aria-label={`Select ${card.title}`} checked={selectedIds.has(card.inventoryItemId)} onChange={() => toggleSelected(card.inventoryItemId)} className="mt-1 h-5 w-5 accent-emerald-400" />
+                    <div className="min-w-0">
+                    <h2 className="font-black">{card.title}</h2>
+                    {card.instaComp.verifiedCsvLocked && <p className="mt-1 text-xs font-bold text-emerald-300">100% VERIFIED CSV · Identity and both images locked · Price and list</p>}
+                    <p className="mt-1 text-xs font-semibold text-emerald-200">
+                      Exact Checklist Registry match · no title rewriting
+                    </p>
+                    <p className="mt-1 break-all text-xs font-mono text-emerald-300">
+                      {card.instaComp.cardUuid ? `UUID ${card.instaComp.cardUuid}` : "Permanent UUID missing — review required"}
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <Link
+                        href={`/seller/admin/inventory/${encodeURIComponent(card.inventoryItemId)}`}
+                        className="rounded-full border border-emerald-500 px-3 py-1 text-xs font-black text-emerald-200 hover:bg-emerald-500 hover:text-slate-950"
+                      >
+                        Open exact master listing
+                      </Link>
+                      <span className="rounded-full border border-slate-600 px-3 py-1 text-xs font-black text-slate-300">
+                        ID {String(card.inventoryItemId || "missing").slice(0, 8)}
+                      </span>
+                    </div>
+                    {card.instaComp.identity?.notes ? (
+                      <p className="mt-2 text-xs leading-relaxed text-neutral-300">
+                        {card.instaComp.identity.notes}
+                      </p>
+                    ) : null}
+                    {groupQuantity > 1 ? (
+                      <div className="mt-2 space-y-1 rounded-lg border border-amber-400/60 bg-amber-950/40 px-3 py-2 text-xs font-black text-amber-200">
+                        <p>
+                          ONE COMMERCIAL LISTING · QTY {groupQuantity} · {card.commercialGroup?.pendingRows || 1} pending physical row{Number(card.commercialGroup?.pendingRows || 1) === 1 ? "" : "s"} · {card.commercialGroup?.activeRows || 0} already active
+                        </p>
+                        <p className="text-amber-100">Exact raw duplicates are priced and published together; scan history stays attached underneath.</p>
+                      </div>
+                    ) : null}
+                    </div>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {queue === "listings" && listingReadiness ? (
+                      <span
+                        title={
+                          listingReady
+                            ? "Exact identity, 1-year pricing check, photos, condition, quantity, acquisition source, seller pricing, and duplicate state are ready."
+                            : listingReadiness.checks
+                                .filter((check) => !check.ready)
+                                .map((check) => check.label)
+                                .join(" · ")
+                        }
+                        className={`rounded-full px-3 py-1 text-xs font-black ${
+                          listingReady
+                            ? "bg-emerald-300 text-emerald-950"
+                            : "bg-red-300 text-red-950"
+                        }`}
+                      >
+                        {listingReady
+                          ? "READY TO LIST"
+                          : `NOT READY · ${listingReadiness.blockers.length} BLOCKER${listingReadiness.blockers.length === 1 ? "" : "S"}`}
+                      </span>
+                    ) : null}
+                    {queue === "listings" && listingReadiness && !listingReady ? (
+                      <span className="text-xs font-bold text-red-200">
+                        {listingReadiness.checks
+                          .filter((check) => !check.ready)
+                          .map((check) => check.label)
+                          .join(" · ")}
+                        {listingReadiness.blockers.every((code) =>
+                          ["missing_website_price", "missing_ebay_price", "missing_mercari_price"].includes(code),
+                        )
+                          ? " — No exact sold comp produced a price. Enter one Manual Price below; KINGMAKER derives the Website/eBay/Mercari prices from it."
+                          : ""}
+                      </span>
+                    ) : null}
+                    {pendingPurchase ? (
+                      <span className="rounded-full bg-orange-400 px-3 py-1 text-xs font-black text-orange-950">
+                        PENDING PURCHASE · MATCH FOUND
+                      </span>
+                    ) : linkedExistingPurchase ? (
+                      <span className="rounded-full bg-cyan-200 px-3 py-1 text-xs font-black text-cyan-950">
+                        PURCHASE LINKED · EXISTING INVENTORY
+                      </span>
+                    ) : receivedPurchase ? (
+                      <span className="rounded-full bg-emerald-300 px-3 py-1 text-xs font-black text-emerald-950">
+                        RECEIVED INVENTORY
+                      </span>
+                    ) : possiblePurchase ? (
+                      <span className="rounded-full bg-amber-200 px-3 py-1 text-xs font-black text-amber-950">
+                        POSSIBLE PURCHASE MATCH
+                      </span>
+                    ) : null}
+                    {queue === "verification" ? (
+                      <>
+                        <span className="rounded-full bg-amber-300 px-3 py-1 text-xs font-black text-amber-950">
+                          PENDING VERIFICATION
+                        </span>
+                        <button
+                          type="button"
+                          disabled={!pairReady || Boolean(busyId)}
+                          onClick={() => void acceptVerification(card)}
+                          className="rounded-full bg-emerald-700 px-3 py-1 text-xs font-black text-white disabled:opacity-40"
+                        >
+                          {busyId === `${card.inventoryItemId}:accept-verification` ? "Accepting…" : "Accept → Pending Listings"}
+                        </button>
+                      </>
+                    ) : null}
+                    <span className={`rounded-full px-3 py-1 text-xs font-black ${pairReady ? "bg-emerald-300 text-emerald-950" : "bg-red-300 text-red-950"}`}>
+                      {pairReady ? "FRONT + BACK READY" : "SIDE MISSING"}
+                    </span>
+                    {websiteCurrent ? (
+                      <span className="rounded-full border-2 border-emerald-200 bg-emerald-300 px-3 py-1 text-xs font-black text-emerald-950">
+                        CURRENT WEBSITE INVENTORY · QTY {currentWebsiteInventory?.quantity || 0}
+                      </span>
+                    ) : null}
+                    {websiteLinkBlocked ? (
+                      <span className="rounded-full border-2 border-red-200 bg-red-400 px-3 py-1 text-xs font-black text-red-950">
+                        WEBSITE LINK MISMATCH · DO NOT PUBLISH
+                      </span>
+                    ) : null}
+                    <span className={`rounded-full border-2 px-3 py-1 text-xs font-black ${websiteListed ? "border-emerald-300 bg-emerald-300 text-emerald-950" : "border-neutral-500 bg-neutral-800 text-neutral-300"}`}>
+                      {websiteListed ? "✓ WEBSITE LISTED" : "WEBSITE NOT LISTED"}
+                    </span>
+                    <span className={`rounded-full border-2 px-3 py-1 text-xs font-black ${ebayListed ? "border-blue-300 bg-blue-300 text-blue-950" : "border-neutral-500 bg-neutral-800 text-neutral-300"}`}>
+                      {ebayListed ? "✓ EBAY LISTED" : "EBAY NOT LISTED"}
+                    </span>
+                    {mercariListed && mercariItemUrl ? (
+                      <a
+                        href={mercariItemUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="rounded-full border-2 border-violet-300 bg-violet-300 px-3 py-1 text-xs font-black text-violet-950 hover:bg-violet-200"
+                      >
+                        ✓ MERCARI LISTED
+                      </a>
+                    ) : (
+                      <span className={`rounded-full border-2 px-3 py-1 text-xs font-black ${mercariListed ? "border-violet-300 bg-violet-300 text-violet-950" : "border-neutral-500 bg-neutral-800 text-neutral-300"}`}>
+                        {mercariListed ? "✓ MERCARI LISTED" : "MERCARI NOT LISTED"}
+                      </span>
+                    )}
+                    {websiteListed && ebayListed && mercariListed ? (
+                      <span className="rounded-full border-2 border-amber-200 bg-amber-300 px-3 py-1 text-xs font-black text-amber-950">
+                        ✓ LISTED ALL 3
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+
+                {card.instaComp.identityTrace ? (
+                  <div className="border-b-2 border-sky-900 bg-sky-50 p-4 text-sky-950">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-lg font-black">IDENTITY TRACE</p>
+                      <p className="text-xs font-black">
+                        {Number(card.instaComp.identityTrace.elapsedMs || 0) > 0
+                          ? `${(Number(card.instaComp.identityTrace.elapsedMs || 0) / 1000).toFixed(1)}s`
+                          : "timing unavailable"}
+                        {card.instaComp.identityTrace.failureStage
+                          ? ` · stopped at ${card.instaComp.identityTrace.failureStage}`
+                          : " · exact lock complete"}
+                      </p>
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {(card.instaComp.identityTrace.stages || []).map((stage, index) => (
+                        <span
+                          key={`${stage.stage || "stage"}-${index}`}
+                          className={`rounded-full border px-3 py-1 text-xs font-black ${
+                            stage.status === "pass"
+                              ? "border-emerald-700 bg-emerald-100 text-emerald-950"
+                              : "border-amber-700 bg-amber-100 text-amber-950"
+                          }`}
+                          title={[
+                            stage.detail,
+                            ...(stage.reasons || []),
+                          ].filter(Boolean).join(" · ")}
+                        >
+                          {stage.stage || "stage"} · {stage.status || "unknown"}
+                        </span>
+                      ))}
+                    </div>
+                    {(card.instaComp.identityTrace.stages || []).some(
+                      (stage) => Array.isArray(stage.attempts) && stage.attempts.length > 0,
+                    ) ? (
+                      <div className="mt-3 text-xs font-semibold">
+                        {(card.instaComp.identityTrace.stages || [])
+                          .flatMap((stage) => stage.attempts || [])
+                          .slice(0, 12)
+                          .map((attempt, index) => (
+                            <p key={index}>
+                              Registry {attempt.phase || "lookup"} · {attempt.label || "attempt"}
+                              {attempt.brand ? ` · product ${attempt.brand}` : ""}
+                              {attempt.setName ? ` · set ${attempt.setName}` : ""}
+                              {` · ${attempt.status || "unknown"}`}
+                              {Number(attempt.candidateCount || 0) > 0
+                                ? ` · ${attempt.candidateCount} candidate${Number(attempt.candidateCount || 0) === 1 ? "" : "s"}`
+                                : ""}
+                              {Number(attempt.elapsedMs || 0) > 0
+                                ? ` · ${attempt.elapsedMs}ms`
+                                : ""}
+                            </p>
+                          ))}
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {websiteLinkBlocked ? (
+                  <div className="border-b-2 border-red-900 bg-red-100 p-4 text-red-950">
+                    <p className="text-xl font-black">WEBSITE LINK MISMATCH — DO NOT PUBLISH</p>
+                    <p className="mt-1 text-sm font-bold">
+                      Linked website product {currentWebsiteInventory?.linkedProductId || "unknown"}: {currentWebsiteInventory?.linkedProductTitle || "title unavailable"}
+                    </p>
+                    <p className="mt-1 text-sm">
+                      Exact-card check: {currentWebsiteInventory?.linkedMismatchReason || "identity could not be proven exact"}. KINGMAKER will not overwrite this website product until the link is corrected.
+                    </p>
+                  </div>
+                ) : websiteInventoryNeedsReconciliation ? (
+                  <div className="border-b-2 border-red-900 bg-red-100 p-4 text-red-950">
+                    <p className="text-xl font-black">CURRENT WEBSITE INVENTORY NEEDS RECONCILIATION</p>
+                    <p className="mt-1 text-sm font-bold">
+                      Exact live website product{exactWebsiteProductIds.length === 1 ? "" : "s"}: {exactWebsiteProductIds.join(", ") || "unknown"}. This Pending row is not linked cleanly to one exact live product, so website publishing is blocked to prevent duplicates.
+                    </p>
+                    {exactCopyMergeControls}
+                  </div>
+                ) : websiteCurrent ? (
+                  <div className="border-b-2 border-emerald-900 bg-emerald-50 p-4 text-emerald-950">
+                    <p className="text-xl font-black">CURRENT WEBSITE INVENTORY · QTY {currentWebsiteInventory?.quantity || 0}</p>
+                    <p className="mt-1 text-sm font-bold">
+                      Exact website product{Number(currentWebsiteInventory?.productIds?.length || 0) === 1 ? "" : "s"}: {currentWebsiteInventory?.productIds?.join(", ")}
+                    </p>
+                    {exactCopyMergeControls}
+                  </div>
+                ) : null}
+
+                {(pendingPurchase || accountedPurchase || possiblePurchase || scanRequired) ? (
+                  <div className={`border-b-2 border-neutral-900 p-4 ${pendingPurchase ? "bg-orange-100" : accountedPurchase ? "bg-emerald-100" : "bg-amber-50"}`}>
+                    <div>
+                      <p className={`text-xl font-black ${pendingPurchase ? "text-orange-950" : accountedPurchase ? "text-emerald-950" : "text-amber-950"}`}>
+                        {pendingPurchase
+                          ? "PURCHASE MATCH FOUND — IS THIS ALREADY IN KINGMAKER OR A NEW ARRIVAL?"
+                          : linkedExistingPurchase
+                            ? "EXISTING INVENTORY — PURCHASE HISTORY LINKED"
+                            : receivedPurchase
+                              ? "NEW PHYSICAL INVENTORY RECEIVED — COST BASIS ATTACHED"
+                              : scanRequired
+                                ? "RECEIVE BLOCKED — PHYSICAL SCAN REQUIRED"
+                                : "POSSIBLE PURCHASE MATCH — REVIEW"}
+                      </p>
+                      <p className="mt-1 text-sm font-bold text-neutral-700">
+                        If this physical card was already scanned into KINGMAKER, link the purchase only. Use Receive only when you are actually receiving a newly arrived card.
+                      </p>
+                    </div>
+
+                    <div className="mt-4 space-y-3">
+                      {physicalMembers.map((member, index) => {
+                        const purchase = purchaseMatches[member.inventoryItemId] || null;
+                        const purchaseRecord = purchase?.match || null;
+                        const memberPending = purchase?.status === "pending_purchase";
+                        const memberLinkedExisting = purchase?.status === "linked_existing";
+                        const memberReceived = purchase?.status === "received";
+                        const memberAccounted = memberLinkedExisting || memberReceived;
+                        const memberPossible = purchase?.status === "possible_match";
+                        const memberDisposition = purchase?.disposition || member.inventoryLifecycle?.disposition || null;
+                        return (
+                          <div key={member.inventoryItemId} className="rounded-xl border-2 border-neutral-900 bg-white p-3">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                              <div>
+                                <p className="font-black">Physical copy {index + 1} · ID {String(member.inventoryItemId || "missing").slice(0, 8)}</p>
+                                <p className="mt-1 break-all text-xs font-mono text-neutral-500">
+                                  {member.scanId ? `SCAN ${member.scanId}` : "NO VERIFIED SCAN ID"}
+                                </p>
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                {memberPending ? <span className="rounded-full bg-orange-200 px-3 py-1 text-xs font-black text-orange-950">PENDING PURCHASE</span> : null}
+                                {memberLinkedExisting ? <span className="rounded-full bg-cyan-200 px-3 py-1 text-xs font-black text-cyan-950">EXISTING INVENTORY · PURCHASE LINKED</span> : null}
+                                {memberReceived ? <span className="rounded-full bg-emerald-200 px-3 py-1 text-xs font-black text-emerald-950">RECEIVED NEW · {memberDisposition === "investment_stash" ? "INVESTMENT STASH" : "RESALE"}</span> : null}
+                                {memberPossible ? <span className="rounded-full bg-amber-200 px-3 py-1 text-xs font-black text-amber-950">POSSIBLE MATCH</span> : null}
+                                {!member.scanId ? <span className="rounded-full bg-red-200 px-3 py-1 text-xs font-black text-red-950">SCAN REQUIRED</span> : null}
+                              </div>
+                            </div>
+
+                            {purchaseRecord ? (
+                              <div className="mt-3 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
+                                <div><p className="text-xs font-black uppercase text-neutral-500">Source</p><p className="font-black">{purchaseRecord.source || "Misc"}</p></div>
+                                <div><p className="text-xs font-black uppercase text-neutral-500">What we paid</p><p className="font-black">{money(purchaseRecord.allocatedCost)}</p></div>
+                                <div><p className="text-xs font-black uppercase text-neutral-500">Purchased</p><p className="font-black">{purchaseRecord.purchaseDate || "Date unavailable"}</p></div>
+                                <div><p className="text-xs font-black uppercase text-neutral-500">Order / Purchase ID</p><p className="break-all font-black">{purchaseRecord.orderNumber || purchaseRecord.purchaseId}</p></div>
+                                <div><p className="text-xs font-black uppercase text-neutral-500">Seller</p><p className="font-bold">{purchaseRecord.seller || "Not captured"}</p></div>
+                                <div className="sm:col-span-2"><p className="text-xs font-black uppercase text-neutral-500">Purchase listing / lot</p><p className="font-bold">{purchaseRecord.sourceLot || purchaseRecord.title || "Not captured"}</p></div>
+                                <div><p className="text-xs font-black uppercase text-neutral-500">Match confidence</p><p className="font-black">{purchase?.confidence ? `${Math.round(Number(purchase.confidence) * 100)}%` : "Stored match"}</p></div>
+                              </div>
+                            ) : null}
+
+                            {memberPending ? (
+                              <div className="mt-3 border-t border-neutral-200 pt-3">
+                                <p className="mb-2 text-xs font-black uppercase tracking-wide text-neutral-600">Already scanned before today?</p>
+                                <button
+                                  type="button"
+                                  disabled={Boolean(busyId)}
+                                  onClick={() => void linkExistingPurchase(card, member)}
+                                  className="rounded-xl border-2 border-neutral-950 bg-cyan-200 px-4 py-2 font-black text-cyan-950 disabled:opacity-40"
+                                >
+                                  Already in KINGMAKER → Link Purchase Only
+                                </button>
+                                <p className="mt-3 mb-2 text-xs font-black uppercase tracking-wide text-neutral-600">Actually receiving this card now?</p>
+                                <div className="flex flex-wrap gap-2">
+                                  <button
+                                    type="button"
+                                    disabled={Boolean(busyId)}
+                                    onClick={() => void receivePurchase(card, member, "resale")}
+                                    className="rounded-xl bg-emerald-700 px-4 py-2 font-black text-white disabled:opacity-40"
+                                  >
+                                    New Arrival → Receive to Resale
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={Boolean(busyId)}
+                                    onClick={() => void receivePurchase(card, member, "investment_stash")}
+                                    className="rounded-xl bg-amber-700 px-4 py-2 font-black text-white disabled:opacity-40"
+                                  >
+                                    New Arrival → Receive to Investment Stash
+                                  </button>
+                                </div>
+                              </div>
+                            ) : memberAccounted ? (
+                              <div className="mt-3 flex flex-wrap gap-2 border-t border-neutral-200 pt-3">
+                                {memberDisposition === "investment_stash" ? (
+                                  <button type="button" disabled={Boolean(busyId)} onClick={() => void moveInventoryDisposition(card, member, "resale")} className="rounded-xl bg-emerald-700 px-4 py-2 font-black text-white disabled:opacity-40">Move → Resale Pending</button>
+                                ) : (
+                                  <button type="button" disabled={Boolean(busyId)} onClick={() => void moveInventoryDisposition(card, member, "investment_stash")} className="rounded-xl bg-amber-700 px-4 py-2 font-black text-white disabled:opacity-40">Move → Investment Stash</button>
+                                )}
+                              </div>
+                            ) : null}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="border-b-2 border-neutral-900 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2 font-black">
+                    <span>
+                      {stage === "scanning"
+                        ? "Reading exact identity"
+                        : stage === "complete"
+                          ? "Exact identity complete"
+                          : stage === "locked"
+                            ? "Operator-confirmed identity locked"
+                            : stage === "review"
+                              ? "Review required"
+                              : stage === "failed"
+                                ? "InstaComp stopped safely"
+                                : "Pending review"}
+                    </span>
+                    <span>{stage === "complete" || stage === "locked" ? "100%" : ""}</span>
+                  </div>
+                  <div className="mt-2 h-3 overflow-hidden rounded-full bg-neutral-200">
+                    <div
+                      className={`h-full ${stage === "complete" || stage === "locked" ? "w-full bg-emerald-600" : stage === "review" ? "w-2/3 bg-amber-500" : stage === "failed" ? "w-1/3 bg-red-700" : stage === "scanning" ? "w-2/3 animate-pulse bg-sky-700" : "w-1/2 bg-neutral-400"}`}
+                    />
+                  </div>
+                  {error ? <div className="mt-3 rounded-lg border-2 border-red-700 bg-red-50 p-3 font-bold text-red-900">{error}{job?.errorCode ? ` · ${job.errorCode}` : ""}</div> : null}
+
+                  <div className="mt-4 grid gap-2 text-sm sm:grid-cols-2 lg:grid-cols-4">
+                    <div className="rounded-lg bg-neutral-100 p-3"><span className="font-black">Parallel</span><p>{parallelLabel(card, job)}</p></div>
+                    <div className="rounded-lg bg-neutral-100 p-3"><span className="font-black">Visible pattern</span><p>{displayPattern(job?.visualPattern || null)}</p></div>
+                    <div className="rounded-lg bg-neutral-100 p-3"><span className="font-black">Serial</span><p>{job?.visualSerial || card.instaComp.serialNumber || "None seen"}</p></div>
+                    <div className="rounded-lg bg-neutral-100 p-3"><span className="font-black">Exact sold comps</span><p>{card.instaComp.reliableSoldCompCount || 0}</p></div>
+                  </div>
+                </div>
+
+                {card.instaComp.priceGuide ? (
+                  <div className="border-b-2 border-neutral-900 bg-sky-50 p-4">
+                    <PriceGuidePanel snapshot={card.instaComp.priceGuide} />
+                  </div>
+                ) : (
+                  <div className="border-b-2 border-neutral-900 bg-sky-50 p-4">
+                    <div className="rounded-xl border-2 border-sky-900 bg-white p-4 shadow-[3px_3px_0_#0c4a6e]">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <h3 className="text-lg font-black">eBay Price Guide · 1 year</h3>
+                          <p className="mt-1 text-sm font-bold text-neutral-700">
+                            {card.instaComp.priceGuideStatus === "checking"
+                              ? "Checking the exact card automatically…"
+                              : card.instaComp.priceGuideStatus === "no_matches"
+                                ? "CHECKED — eBay did not expose an exact-card Price Guide dataset."
+                                : card.instaComp.priceGuideStatus === "identity_mismatch"
+                                  ? "CHECKED — eBay Price Guide opened, but the identity did not pass the exact-card gate."
+                                  : card.instaComp.priceGuideStatus === "period_mismatch"
+                                    ? "PRICE GUIDE WINDOW MISMATCH — Kingmaker will only accept a confirmed 1-year dataset."
+                                    : card.instaComp.priceGuideStatus === "error"
+                                      ? "PRICE GUIDE CHECK FAILED — retry is available below."
+                                      : card.instaComp.identity?.player && card.instaComp.identity?.year && card.instaComp.identity?.cardNumber
+                                      ? "Queued for automatic eBay Price Guide check."
+                                      : "Waiting for exact player, year, and card number before Price Guide can run."}
+                          </p>
+                          {card.instaComp.priceGuideMessage ? (
+                            <p className="mt-2 text-xs font-semibold text-neutral-600">{card.instaComp.priceGuideMessage}</p>
+                          ) : null}
+                          {card.instaComp.priceGuideCheckedAt ? (
+                            <p className="mt-1 text-xs font-bold text-neutral-500">Checked {card.instaComp.priceGuideCheckedAt}</p>
+                          ) : null}
+                        </div>
+                        {card.instaComp.identity?.player && card.instaComp.identity?.year && card.instaComp.identity?.cardNumber ? (
+                          <button
+                            type="button"
+                            disabled={card.instaComp.priceGuideStatus === "checking"}
+                            onClick={() => {
+                              priceGuideAttemptedRef.current.delete(card.inventoryItemId);
+                              void refreshPriceGuide(card, true).catch((error) => setPageError(message(error)));
+                            }}
+                            className="rounded-lg border-2 border-sky-900 bg-sky-100 px-3 py-2 text-xs font-black text-sky-950 disabled:opacity-40"
+                          >
+                            {card.instaComp.priceGuideStatus === "checking" ? "Checking…" : "Recheck Price Guide"}
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {(soldCompEvidence.length || activeCompetition.length) ? (
+                  <div className="grid gap-4 border-b-2 border-neutral-900 bg-neutral-50 p-4 lg:grid-cols-2">
+                    <MarketEvidencePanel
+                      title="Exact sold evidence"
+                      subtitle="Sold transactions used to establish market value"
+                      rows={soldCompEvidence}
+                      dateKey="soldAt"
+                    />
+                    <MarketEvidencePanel
+                      title="Active competition"
+                      subtitle="Current asking prices shown separately from sold value"
+                      rows={activeCompetition}
+                      dateKey="listedAt"
+                    />
+                  </div>
+                ) : null}
+
+                <div className="grid gap-4 p-4 md:grid-cols-2">
+                  {([ ["front", card.frontImageUrl], ["back", card.backImageUrl] ] as const).map(([side, url]) => (
+                    <CardImageInspector
+                      key={side}
+                      title={card.title}
+                      side={side}
+                      url={url}
+                      centering={side === "front" ? card.instaComp.centering?.front : card.instaComp.centering?.back}
+                      orientationVerified={card.instaComp.imageOrientation?.verified === true}
+                      rotating={busyId === `${card.inventoryItemId}:rotate:${side}`}
+                      onRotate={() => void rotateStoredImage(card, side)}
+                    />
+                  ))}
+                </div>
+
+                {queue === "listings" ? (
+                  <div className="border-t-2 border-neutral-900 bg-amber-50 p-4">
+                    <div className="flex flex-wrap items-end justify-between gap-3">
+                      <div>
+                        <p className="font-black">Manual seller price</p>
+                        <p className="text-sm font-semibold text-neutral-600">
+                          Set any price you want. This overrides the listing price only; it does not rewrite InstaComp market truth.
+                        </p>
+                        <p className="mt-1 text-xs font-bold text-neutral-500">
+                          Current draft price: {money(card.price || card.instaComp.listingPrice)}{sellerManualPrice ? " · SELLER MANUAL" : ""}
+                        </p>
+                      </div>
+                      <div className="flex min-w-[280px] flex-wrap items-end gap-2">
+                        <label className="min-w-[160px] flex-1 text-sm font-black">
+                          Manual price
+                          <div className="mt-1 flex items-center rounded-xl border-2 border-amber-700 bg-white px-3">
+                            <span className="font-black text-neutral-500">$</span>
+                            <input
+                              type="number"
+                              aria-label={`Manual price for ${card.title}`}
+                              inputMode="decimal"
+                              min="0.01"
+                              step="0.01"
+                              value={manualPrices[card.inventoryItemId] || ""}
+                              onChange={(event) => setManualPrices((current) => ({ ...current, [card.inventoryItemId]: event.target.value }))}
+                              placeholder={String(card.price || card.instaComp.listingPrice || card.instaComp.suggestedPrice || "")}
+                              className="w-full bg-transparent p-2 font-black text-neutral-950 outline-none"
+                            />
+                          </div>
+                        </label>
+                        <button
+                          type="button"
+                          disabled={isBusy || !String(manualPrices[card.inventoryItemId] || "").trim()}
+                          onClick={() => void saveManualPrice(card)}
+                          className="rounded-xl bg-amber-700 px-4 py-3 font-black text-white disabled:opacity-40"
+                        >
+                          Save Manual Price
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
+                {priceChoices.length ? (
+                  <div className="border-t-2 border-neutral-900 bg-emerald-50 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <p className="font-black">Exact-comp pricing presets</p>
+                        <p className="text-sm font-semibold text-neutral-600">Use these only when you want InstaComp-based pricing.</p>
+                      </div>
+                      <div className="grid min-w-[300px] flex-1 gap-2 sm:grid-cols-4 lg:max-w-4xl">
+                        {priceChoices.map(({ label, value, source }) => (
+                          <button
+                            key={source}
+                            type="button"
+                            disabled={isBusy}
+                            onClick={() => void savePrice(card, value, source)}
+                            className="rounded-xl border-2 border-emerald-700 bg-white p-3 text-left disabled:opacity-40"
+                          >
+                            <span className="block text-xs font-bold text-neutral-500">{label}</span>
+                            <span className="text-lg font-black">{money(value)}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
+
+                {queue === "listings" && folder !== "investment" ? (
+                  <div className="border-t-2 border-neutral-900 bg-sky-50 p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="text-lg font-black">Seller-controlled channel prices · QTY {groupQuantity}</p>
+                        <p className="mt-1 text-sm font-semibold text-neutral-700">
+                          InstaComp is the market recommendation only. Website, eBay, and Mercari each have their own exact seller price below.
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2 text-xs font-black">
+                        <span className="rounded-full bg-emerald-100 px-3 py-1 text-emerald-900">Website: {channelPricing?.websiteStatus || "draft"}</span>
+                        <span className="rounded-full bg-blue-100 px-3 py-1 text-blue-900">eBay: {channelPricing?.ebayStatus || "draft"}</span>
+                        <span className="rounded-full bg-fuchsia-100 px-3 py-1 text-fuchsia-900">Mercari: {channelPricing?.mercariStatus || "draft"}</span>
+                        {ebayCardConditionRequired && !ebayCardConditionReady ? (
+                          <span className="rounded-full bg-red-100 px-3 py-1 text-red-900">eBay blocked: choose Card Condition</span>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    <div className="mt-4 grid gap-3 lg:grid-cols-[0.8fr_1fr_1fr_1fr_1fr_auto]">
+                      <div className="rounded-xl border-2 border-violet-700 bg-white p-3">
+                        <p className="text-xs font-black uppercase text-violet-700">InstaComp recommendation</p>
+                        <p className="text-2xl font-black">{money(card.instaComp.suggestedPrice)}</p>
+                        <p className="mt-1 text-xs font-bold text-neutral-500">Reference only — does not overwrite seller channel prices.</p>
+                      </div>
+                      <label className="rounded-xl border-2 border-emerald-700 bg-white p-3 text-sm font-black">
+                        Exact Website price
+                        <div className="mt-2 flex items-center rounded-lg border-2 border-neutral-300 px-3">
+                          <span className="font-black text-neutral-500">$</span>
+                          <input
+                            type="number"
+                            min="0.01"
+                            step="0.01"
+                            inputMode="decimal"
+                            value={websitePriceInput}
+                            onChange={(event) => setChannelPriceEdits((current) => ({
+                              ...current,
+                              [card.inventoryItemId]: {
+                                website: event.target.value,
+                                ebay: current[card.inventoryItemId]?.ebay ?? ebayPriceInput,
+                                mercari: current[card.inventoryItemId]?.mercari ?? mercariPriceInput,
+                              },
+                            }))}
+                            className="w-full bg-transparent p-2 text-lg font-black outline-none"
+                          />
+                        </div>
+                        {channelPricing ? <p className="mt-2 text-xs text-neutral-600">Estimated fees {money(channelPricing.websiteEstimatedFees)} · net {money(channelPricing.websiteEstimatedNet)}</p> : null}
+                      </label>
+                      <label className="rounded-xl border-2 border-blue-700 bg-white p-3 text-sm font-black">
+                        Exact eBay price
+                        <div className="mt-2 flex items-center rounded-lg border-2 border-neutral-300 px-3">
+                          <span className="font-black text-neutral-500">$</span>
+                          <input
+                            type="number"
+                            min="0.01"
+                            step="0.01"
+                            inputMode="decimal"
+                            value={ebayPriceInput}
+                            onChange={(event) => setChannelPriceEdits((current) => ({
+                              ...current,
+                              [card.inventoryItemId]: {
+                                website: current[card.inventoryItemId]?.website ?? websitePriceInput,
+                                ebay: event.target.value,
+                                mercari: current[card.inventoryItemId]?.mercari ?? mercariPriceInput,
+                              },
+                            }))}
+                            className="w-full bg-transparent p-2 text-lg font-black outline-none"
+                          />
+                        </div>
+                        {channelPricing ? <p className="mt-2 text-xs text-neutral-600">Estimated fees {money(channelPricing.ebayEstimatedFees)} · net {money(channelPricing.ebayEstimatedNet)}</p> : null}
+                      </label>
+                      <label className="rounded-xl border-2 border-fuchsia-700 bg-white p-3 text-sm font-black">
+                        Exact Mercari price
+                        <div className="mt-2 flex items-center rounded-lg border-2 border-neutral-300 px-3">
+                          <span className="font-black text-neutral-500">$</span>
+                          <input
+                            type="number"
+                            min="1"
+                            max="2000"
+                            step="0.01"
+                            inputMode="decimal"
+                            value={mercariPriceInput}
+                            onChange={(event) => setChannelPriceEdits((current) => ({
+                              ...current,
+                              [card.inventoryItemId]: {
+                                website: current[card.inventoryItemId]?.website ?? websitePriceInput,
+                                ebay: current[card.inventoryItemId]?.ebay ?? ebayPriceInput,
+                                mercari: event.target.value,
+                              },
+                            }))}
+                            className="w-full bg-transparent p-2 text-lg font-black outline-none"
+                          />
+                        </div>
+                        <p className="mt-2 text-xs text-neutral-600">Independent Mercari seller price · Smart Pricing stays OFF.</p>
+                      </label>
+                      <label className="rounded-xl border-2 border-blue-700 bg-white p-3 text-sm font-black">
+                        eBay Card Condition
+                        <select
+                          value={ebayCardCondition}
+                          onChange={(event) => setChannelConditionEdits((current) => ({
+                            ...current,
+                            [card.inventoryItemId]: event.target.value,
+                          }))}
+                          className="mt-2 w-full rounded-lg border-2 border-neutral-300 bg-white p-2 text-sm font-black text-neutral-950 outline-none focus:border-blue-700"
+                        >
+                          <option value="">Choose condition…</option>
+                          {ebayCardConditionOptions.map((value) => (
+                            <option key={value} value={value}>{value}</option>
+                          ))}
+                        </select>
+                        <p className="mt-2 text-xs font-bold text-neutral-600">Required by eBay for ungraded trading cards. KINGMAKER will not guess it.</p>
+                      </label>
+                      <button
+                        type="button"
+                        disabled={Boolean(busyId) || publishWebsitePrice <= 0 || publishEbayPrice <= 0 || publishMercariPrice <= 0}
+                        onClick={() => void saveChannelPrices(card)}
+                        className="self-stretch rounded-xl bg-sky-800 px-5 py-3 font-black text-white disabled:opacity-40"
+                      >
+                        Save Exact Channel Prices
+                      </button>
+                    </div>
+                    {channelPricing ? (
+                      <>
+                        <div className="mt-3 flex flex-wrap gap-3 text-xs font-bold text-neutral-600">
+                          <span>Buyer difference: {money(channelPricing.customerSavings)}</span>
+                          <span>Website net edge: {money(channelPricing.netDifference)}</span>
+                        </div>
+                        {channelPricing.ebayLastError ? (
+                          <div className="mt-3 rounded-xl border-2 border-red-700 bg-red-50 p-3 text-sm font-black text-red-900">
+                            Last eBay publish failure: {channelPricing.ebayLastError}
+                          </div>
+                        ) : null}
+                      </>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {editingId === card.inventoryItemId && edit ? (
+                  <div className="border-t-2 border-neutral-900 bg-amber-50 p-4">
+                    <div className="flex flex-wrap items-center justify-between gap-3">
+                      <div>
+                        <h3 className="text-xl font-black">Correct any field</h3>
+                        <p className="mt-1 text-sm font-semibold text-neutral-600">Exact Registry matches keep the checklist wording. Only type a different Listing Title when you explicitly want a seller override.</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setEditValue(card.inventoryItemId, "title", standardizedTitle(edit))}
+                        className="rounded-xl border-2 border-neutral-900 bg-white px-4 py-2 text-sm font-black"
+                      >
+                        Use Exact Checklist Match
+                      </button>
+                    </div>
+
+                    <div className="mt-4 grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+                      <div className="md:col-span-2 lg:col-span-4">
+                        <Field label="Listing title" value={edit.title} onChange={(value) => setEditValue(card.inventoryItemId, "title", value)} />
+                      </div>
+                      <Field label="Year" value={edit.year} onChange={(value) => setEditValue(card.inventoryItemId, "year", value)} />
+                      <Field label="Manufacturer" value={edit.manufacturer} onChange={(value) => setEditValue(card.inventoryItemId, "manufacturer", value)} />
+                      <Field label="Brand" value={edit.brand} onChange={(value) => setEditValue(card.inventoryItemId, "brand", value)} />
+                      <Field label="Product" value={edit.product} placeholder="Prizm, Select, Donruss…" onChange={(value) => setEditValue(card.inventoryItemId, "product", value)} />
+                      <Field label="Set / Insert / Level" value={edit.setName} onChange={(value) => setEditValue(card.inventoryItemId, "setName", value)} />
+                      <Field label="Subset" value={edit.subset} onChange={(value) => setEditValue(card.inventoryItemId, "subset", value)} />
+                      <Field label="Player" value={edit.player} onChange={(value) => setEditValue(card.inventoryItemId, "player", value)} />
+                      <Field label="Team" value={edit.team} onChange={(value) => setEditValue(card.inventoryItemId, "team", value)} />
+                      <Field label="Sport" value={edit.sport} onChange={(value) => setEditValue(card.inventoryItemId, "sport", value)} />
+                      <Field label="League" value={edit.league} onChange={(value) => setEditValue(card.inventoryItemId, "league", value)} />
+                      <Field label="Card number" value={edit.cardNumber} onChange={(value) => setEditValue(card.inventoryItemId, "cardNumber", value)} />
+                      <Field label="Exact parallel" value={edit.parallel} placeholder="Base or White Seismic Prizm" onChange={(value) => setEditValue(card.inventoryItemId, "parallel", value)} />
+                      <Field label="Variation" value={edit.variation} onChange={(value) => setEditValue(card.inventoryItemId, "variation", value)} />
+                      <Field label="Physical serial / print run" value={edit.printRun} placeholder="06/75 or /75" onChange={(value) => setEditValue(card.inventoryItemId, "printRun", value)} />
+                      <Field label="Memorabilia type" value={edit.memorabiliaType} placeholder="Patch, jersey, relic…" onChange={(value) => setEditValue(card.inventoryItemId, "memorabiliaType", value)} />
+                      <Field label="Inscription text" value={edit.inscriptionText} onChange={(value) => setEditValue(card.inventoryItemId, "inscriptionText", value)} />
+                      <Field label="Category" value={edit.category} onChange={(value) => setEditValue(card.inventoryItemId, "category", value)} />
+                      <Field label="Condition" value={edit.condition} onChange={(value) => setEditValue(card.inventoryItemId, "condition", value)} />
+                    </div>
+
+                    <label className="mt-3 block text-sm font-bold">
+                      Description
+                      <textarea
+                        value={edit.description}
+                        onChange={(event) => setEditValue(card.inventoryItemId, "description", event.target.value)}
+                        rows={5}
+                        className="mt-1 w-full rounded-lg border-2 border-neutral-300 bg-white p-3 text-neutral-950 focus:border-neutral-950 focus:outline-none"
+                      />
+                    </label>
+
+                    <div className="mt-4 flex flex-wrap gap-4 rounded-xl border border-neutral-300 bg-white p-3">
+                      {([
+                        ["isRookie", "Rookie"],
+                        ["isAuto", "Autograph"],
+                        ["isRelic", "Memorabilia / Relic"],
+                        ["inscription", "Inscription"],
+                      ] as const).map(([key, label]) => (
+                        <label key={key} className="flex items-center gap-2 font-bold">
+                          <input
+                            type="checkbox"
+                            checked={edit[key]}
+                            onChange={(event) => setEditValue(card.inventoryItemId, key, event.target.checked)}
+                          />
+                          {label}
+                        </label>
+                      ))}
+                    </div>
+
+                    <div className="mt-4 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void saveEdit(card)}
+                        disabled={isBusy}
+                        className="rounded-xl bg-amber-600 px-5 py-3 font-black text-white disabled:opacity-50"
+                      >
+                        Save, Lock & Teach InstaComp
+                      </button>
+                      <button type="button" onClick={() => setEditingId(null)} className="rounded-xl bg-neutral-700 px-5 py-3 font-black text-white">Cancel</button>
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="flex flex-wrap items-center justify-between gap-3 border-t-2 border-neutral-900 p-4">
+                  <p className="text-sm font-bold">Stored image rows: {card.storedImageCount || 0} · commercial listing quantity {groupQuantity}{groupQuantity > 1 ? " from exact raw duplicate scans" : ""} · nothing auto-publishes</p>
+                  <div className="flex flex-wrap gap-2">
+                    {queue === "listings" && folder !== "investment" ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => void runInstaComp(card)}
+                          disabled={!pairReady || Boolean(busyId)}
+                          className="rounded-xl bg-violet-700 px-4 py-3 font-black text-white disabled:bg-neutral-400"
+                        >
+                          {busyId === card.inventoryItemId ? "Running InstaComp…" : "Run InstaComp"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void publishChannels([card], "publish-website")}
+                          disabled={publishWebsitePrice <= 0 || websitePublishBlocked || listingReadiness?.websiteReady !== true || Boolean(busyId)}
+                          className="rounded-xl bg-emerald-700 px-4 py-3 font-black text-white disabled:bg-neutral-400"
+                        >
+                          {websiteCurrent && linkedExactWebsiteProduct ? "Update Website" : "List Website"} · {money(publishWebsitePrice)}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void publishChannels([card], "publish-ebay")}
+                          disabled={publishEbayPrice <= 0 || !ebayCardConditionReady || listingReadiness?.ebayReady !== true || Boolean(busyId)}
+                          className="rounded-xl bg-blue-700 px-4 py-3 font-black text-white disabled:bg-neutral-400"
+                        >
+                          {ebayListed ? "Update eBay" : "List eBay"} · {money(publishEbayPrice)}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void publishChannels([card], "publish-mercari")}
+                          disabled={publishMercariPrice <= 0 || listingReadiness?.mercariReady !== true || Boolean(busyId) || channelPricing?.mercariStatus === "active"}
+                          className="rounded-xl bg-fuchsia-700 px-4 py-3 font-black text-white disabled:bg-neutral-400"
+                        >
+                          {channelPricing?.mercariStatus === "active" ? "Mercari LIVE" : `List Mercari · ${money(publishMercariPrice)}`}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void publishChannels([card], "publish-website-mercari")}
+                          disabled={publishWebsitePrice <= 0 || publishMercariPrice <= 0 || websitePublishBlocked || listingReadiness?.websiteReady !== true || listingReadiness?.mercariReady !== true || Boolean(busyId)}
+                          className="rounded-xl bg-purple-700 px-4 py-3 font-black text-white disabled:bg-neutral-400"
+                        >
+                          {websiteListed || channelPricing?.mercariStatus === "active" ? "Update / List Website + Mercari" : "List Website + Mercari"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void publishChannels([card], "publish-all-3") }
+                          disabled={publishWebsitePrice <= 0 || publishEbayPrice <= 0 || publishMercariPrice <= 0 || websitePublishBlocked || !ebayCardConditionReady || listingReadiness?.websiteReady !== true || listingReadiness?.ebayReady !== true || listingReadiness?.mercariReady !== true || Boolean(busyId)}
+                          className="rounded-xl bg-neutral-950 px-4 py-3 font-black text-white disabled:bg-neutral-400"
+                        >
+                          {websiteListed || ebayListed || channelPricing?.mercariStatus === "active" ? "Update / List All 3" : "List All 3"}
+                        </button>
+                      </>
+                    ) : null}
+                    <button
+                      type="button"
+                      onClick={() => beginEdit(card)}
+                      disabled={isBusy}
+                      className="rounded-xl bg-amber-600 px-4 py-3 font-black text-white disabled:bg-neutral-400"
+                    >
+                      Edit All Fields
+                    </button>
+                    {stage === "failed" ? (
+                      <button
+                        type="button"
+                        onClick={() => void runExactIdentity(card)}
+                        disabled={!pairReady || Boolean(busyId)}
+                        className="rounded-xl bg-red-700 px-4 py-3 font-black text-white disabled:bg-neutral-400"
+                      >
+                        Retry This Card
+                      </button>
+                    ) : null}
+                    <button
+                      type="button"
+                      title={job?.manualIdentityLocked ? "Re-scan and Replace Locked Identity" : "Read Card"}
+                      onClick={() => void runExactIdentity(card)}
+                      disabled={!pairReady || Boolean(busyId)}
+                      className="rounded-xl bg-sky-700 px-4 py-3 font-black text-white disabled:bg-neutral-400"
+                    >
+                      {isBusy
+                        ? "Working…"
+                        : job?.manualIdentityLocked
+                          ? "Replace Manual Identity with AI"
+                          : "Read Card"}
+                    </button>
+                  </div>
+                </div>
+              </article>
+            );
+          })}
+          {renderedCards.length < visibleCards.length ? (
+            <div className="flex justify-center py-4">
+              <button
+                type="button"
+                onClick={() => setRenderLimit((value) => value + 24)}
+                className="rounded-xl border-2 border-neutral-900 bg-white px-5 py-3 text-sm font-black shadow-[4px_4px_0_#111]"
+              >
+                Load 24 more · {visibleCards.length - renderedCards.length} remaining
+              </button>
+            </div>
+          ) : null}
+        </section>
+      </div>
+    </main>
+  );
+}
+
+function PriceGuidePanel({ snapshot }: { snapshot: PriceGuideSnapshot }) {
+  const series = (snapshot.weeklyMedianSeries || [])
+    .filter(
+      (point) =>
+        Number.isFinite(Number(point.timestamp)) &&
+        Number.isFinite(Number(point.value)),
+    )
+    .map((point) => ({
+      timestamp: Number(point.timestamp),
+      value: Number(point.value),
+    }))
+    .sort((a, b) => a.timestamp - b.timestamp);
+
+  let polyline = "";
+  if (series.length >= 2) {
+    const minValue = Math.min(...series.map((point) => point.value));
+    const maxValue = Math.max(...series.map((point) => point.value));
+    const spread = Math.max(1, maxValue - minValue);
+    polyline = series
+      .map((point, index) => {
+        const x = (index / (series.length - 1)) * 300;
+        const y = 84 - ((point.value - minValue) / spread) * 68;
+        return x.toFixed(1) + "," + y.toFixed(1);
+      })
+      .join(" ");
+  }
+
+  return (
+    <div className="rounded-xl border-2 border-sky-900 bg-white p-4 shadow-[3px_3px_0_#0c4a6e]">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-lg font-black">eBay Price Guide · 1 year</h3>
+            {snapshot.identityVerified === true ? (
+              <span className="rounded-full bg-emerald-200 px-2.5 py-1 text-xs font-black text-emerald-950">
+                EXACT CARD VERIFIED
+              </span>
+            ) : null}
+          </div>
+          <p className="mt-1 text-xs font-semibold text-neutral-600">
+            eBay aggregate market history · context only; exact sold transactions remain InstaComp pricing authority.
+          </p>
+          {snapshot.cardTitle ? (
+            <p className="mt-2 text-sm font-bold text-neutral-800">{snapshot.cardTitle}</p>
+          ) : null}
+        </div>
+        {snapshot.listingUrl ? (
+          <a
+            href={snapshot.listingUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="rounded-lg border-2 border-sky-900 px-3 py-2 text-xs font-black text-sky-950"
+          >
+            Open eBay source
+          </a>
+        ) : null}
+      </div>
+
+      <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-6">
+        <div className="rounded-lg bg-sky-100 p-3">
+          <p className="text-xs font-black uppercase text-sky-900">Median sold</p>
+          <p className="text-xl font-black">{money(snapshot.medianSoldPrice)}</p>
+        </div>
+        <div className="rounded-lg bg-neutral-100 p-3">
+          <p className="text-xs font-black uppercase text-neutral-600">Sold count</p>
+          <p className="text-xl font-black">{Number(snapshot.soldCount || 0)}</p>
+        </div>
+        <div className="rounded-lg bg-neutral-100 p-3">
+          <p className="text-xs font-black uppercase text-neutral-600">Last sold</p>
+          <p className="text-xl font-black">{money(snapshot.lastSoldPrice)}</p>
+          {snapshot.lastSoldDate ? <p className="text-xs font-bold text-neutral-500">{snapshot.lastSoldDate}</p> : null}
+        </div>
+        <div className="rounded-lg bg-neutral-100 p-3">
+          <p className="text-xs font-black uppercase text-neutral-600">Sold range</p>
+          <p className="font-black">{money(snapshot.soldPriceLow)} – {money(snapshot.soldPriceHigh)}</p>
+        </div>
+        <div className="rounded-lg bg-neutral-100 p-3">
+          <p className="text-xs font-black uppercase text-neutral-600">Listings</p>
+          <p className="text-xl font-black">{Number(snapshot.listingCount || 0)}</p>
+        </div>
+        <div className="rounded-lg bg-neutral-100 p-3">
+          <p className="text-xs font-black uppercase text-neutral-600">Window</p>
+          <p className="font-black">
+            {String(snapshot.period || "").trim().toLowerCase() === "1 year"
+              ? "1 year"
+              : "1-year refresh required"}
+          </p>
+          {snapshot.grade ? <p className="text-xs font-bold text-neutral-500">{snapshot.grade}</p> : null}
+        </div>
+      </div>
+
+      {polyline ? (
+        <div className="mt-4 rounded-lg border border-neutral-200 bg-neutral-50 p-3">
+          <div className="mb-2 flex items-center justify-between gap-3 text-xs font-black uppercase text-neutral-600">
+            <span>Weekly median sold trend</span>
+            <span>{series.length} points</span>
+          </div>
+          <svg
+            viewBox="0 0 300 96"
+            className="h-28 w-full overflow-visible"
+            role="img"
+            aria-label="eBay Price Guide weekly median sold price trend"
+          >
+            <line x1="0" y1="84" x2="300" y2="84" stroke="currentColor" strokeOpacity="0.15" />
+            <polyline
+              points={polyline}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="4"
+              strokeLinejoin="round"
+              strokeLinecap="round"
+              className="text-sky-700"
+            />
+          </svg>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+
+function MarketEvidencePanel({
+  title,
+  subtitle,
+  rows,
+  dateKey,
+}: {
+  title: string;
+  subtitle: string;
+  rows: CompEvidence[];
+  dateKey: "soldAt" | "listedAt";
+}) {
+  return (
+    <div className="rounded-xl border border-neutral-300 bg-white p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="font-black">{title}</h3>
+          <p className="mt-1 text-xs font-semibold text-neutral-500">{subtitle}</p>
+        </div>
+        <span className="rounded-full bg-neutral-950 px-2.5 py-1 text-xs font-black text-white">
+          {rows.length}
+        </span>
+      </div>
+      {rows.length ? (
+        <div className="mt-3 space-y-2">
+          {rows.slice(0, 5).map((row, index) => (
+            <div key={`${row.url || row.title || title}-${index}`} className="rounded-lg bg-neutral-100 p-3 text-sm">
+              {row.url ? (
+                <a
+                  href={row.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-bold underline decoration-neutral-400 underline-offset-2"
+                >
+                  {row.title || "Market listing"}
+                </a>
+              ) : (
+                <p className="font-bold">{row.title || "Market listing"}</p>
+              )}
+              <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs font-semibold text-neutral-600">
+                <span>{money(row.price)}</span>
+                {row.sourceLabel ? <span>{row.sourceLabel}</span> : null}
+                {row[dateKey] ? <span>{row[dateKey]}</span> : null}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="mt-3 text-sm font-semibold text-neutral-500">None accepted yet.</p>
+      )}
+    </div>
+  );
+}

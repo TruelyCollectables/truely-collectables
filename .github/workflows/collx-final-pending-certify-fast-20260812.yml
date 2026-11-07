@@ -1,0 +1,90 @@
+name: CollX Final Pending Certify Fast 20260812
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/collx-final-pending-certify-trigger-20260812'
+
+permissions:
+  contents: read
+
+jobs:
+  finish-and-certify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      PROJECT_REF: rfdzsoykhnngzdnvzlhz
+      STORE_ID: 00000000-0000-4000-8000-000000000001
+    steps:
+      - name: Finish pending park and certify exact storefront mapping
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$SUPABASE_ACCESS_TOKEN"
+          python3 - <<'PY'
+          import json, os, subprocess, tempfile, time
+          token=os.environ['SUPABASE_ACCESS_TOKEN']; ref=os.environ['PROJECT_REF']; store=os.environ['STORE_ID']
+          endpoint=f'https://api.supabase.com/v1/projects/{ref}/database/query'
+          def sql(q, ro, retries=5):
+              last=''
+              for i in range(retries):
+                  f=tempfile.NamedTemporaryFile(delete=False); f.close()
+                  p=subprocess.run(['curl','-sS','--max-time','75','-o',f.name,'-w','%{http_code}','-X','POST',endpoint,'-H',f'Authorization: Bearer {token}','-H','Content-Type: application/json','--data-binary',json.dumps({'query':q,'parameters':[],'read_only':ro})],capture_output=True,text=True)
+                  raw=open(f.name).read(); os.unlink(f.name); code=(p.stdout or '000')[-3:]
+                  if code in ('200','201'): return json.loads(raw)
+                  last=f'HTTP {code}: {raw[:1400]}'
+                  if code in ('000','429','500','502','503','504','522','524','544') and i+1<retries: time.sleep(2*(i+1)); continue
+                  break
+              raise SystemExit(last)
+          mutate=f'''with target as (
+            select p.id,p.sku,p.quantity from public.products p where p.store_id='{store}'::uuid and p.sku>='COLLX-' and p.sku<'COLLY' and p.ebay_item_id is null and p.archived_at is null and p.quantity>0 and p.price<=0
+          ), bridge as (
+            select distinct t.id from target t join public.inventory_items ii on ii.store_id='{store}'::uuid and ii.legacy_product_id=t.id
+            union select distinct t.id from target t join public.inventory_items ii on ii.store_id='{store}'::uuid and ii.legacy_product_id is null and ii.sku=t.sku
+          ), guard as (
+            select (select count(*) from target)::int rows,(select coalesce(sum(quantity),0) from target)::int units,(select count(*) from bridge)::int bridged
+          ), upd_legacy as (
+            update public.inventory_items ii set status='draft',updated_at=now() from target t,guard g where g.rows=127 and g.units=127 and g.bridged=127 and ii.store_id='{store}'::uuid and ii.legacy_product_id=t.id returning ii.id
+          ), upd_sku as (
+            update public.inventory_items ii set status='draft',updated_at=now() from target t,guard g where g.rows=127 and g.units=127 and g.bridged=127 and ii.store_id='{store}'::uuid and ii.legacy_product_id is null and ii.sku=t.sku returning ii.id
+          ) select g.rows target_rows,g.units target_units,g.bridged bridged_rows,(select count(*) from upd_legacy)::int legacy_rows_updated,(select count(*) from upd_sku)::int sku_rows_updated from guard g;'''
+          m=sql(mutate,False); print('COLLX_FINAL_PENDING_MUTATION='+json.dumps(m,sort_keys=True)); r=(m or [{}])[0]
+          if [int(r.get(k) or 0) for k in ('target_rows','target_units','bridged_rows')] != [127,127,127]: raise SystemExit('Final pending guard failed')
+          verify=f'''with c as (
+            select p.* from public.products p where p.store_id='{store}'::uuid and p.sku>='COLLX-' and p.sku<'COLLY' and p.ebay_item_id is null
+          ), il as (
+            select distinct on (legacy_product_id) legacy_product_id,id,status,quantity,price,sku from public.inventory_items where store_id='{store}'::uuid and legacy_product_id is not null order by legacy_product_id,id desc
+          ), isk as (
+            select distinct on (sku) sku,id,status,quantity,price from public.inventory_items where store_id='{store}'::uuid and sku is not null order by sku,id desc
+          ), mapped as (
+            select c.*,coalesce(il.id,isk.id) inventory_id,
+              case when il.id is not null then il.status else isk.status end inv_status,
+              case when il.id is not null then il.quantity else isk.quantity end inv_quantity,
+              case when il.id is not null then il.price else isk.price end inv_price
+            from c left join il on il.legacy_product_id=c.id left join isk on il.id is null and isk.sku=c.sku
+          ), public_rows as (
+            select * from mapped where price>0 and nullif(btrim(image_url),'') is not null and inventory_id is not null and coalesce(inv_quantity,0)>0 and inv_status='active'
+          ), pending as (
+            select * from mapped where archived_at is null and quantity>0 and price<=0
+          )
+          select count(*)::int total_rows,coalesce(sum(greatest(quantity,0)),0)::int total_units,
+            count(*) filter(where archived_at is not null)::int archived_rows,coalesce(sum(greatest(quantity,0)) filter(where archived_at is not null),0)::int archived_units,
+            (select count(*) from pending)::int pending_rows,(select coalesce(sum(quantity),0) from pending)::int pending_units,
+            (select count(*) from pending where inventory_id is not null and inv_status='draft')::int pending_selected_draft_rows,
+            (select count(*) from public_rows)::int storefront_rows,(select coalesce(sum(inv_quantity),0) from public_rows)::int storefront_units,
+            (select count(*) from public_rows where coalesce(inv_price,0)<=0)::int storefront_bad_inventory_price_rows,
+            (select count(*) from public_rows where round(coalesce(inv_price,0)::numeric,2)<>round(price::numeric,2))::int storefront_price_mismatch_rows,
+            (select count(*) from public_rows where coalesce(inv_quantity,0)<>quantity)::int storefront_quantity_mismatch_rows,
+            (select count(*) from public_rows where archived_at is not null)::int archived_storefront_leak_rows,
+            count(*) filter(where archived_at is null and quantity>0 and price>0 and nullif(btrim(image_url),'') is null)::int positive_missing_front_rows,
+            count(*) filter(where archived_at is null and quantity<=0)::int active_zero_qty_rows
+          from c;'''
+          v=sql(verify,True); print('COLLX_FINAL_STOREFRONT_VERIFY='+json.dumps(v,sort_keys=True)); z=(v or [{}])[0]
+          expected={'total_rows':6155,'total_units':6315,'archived_rows':740,'archived_units':0,'pending_rows':127,'pending_units':127,'pending_selected_draft_rows':127,'storefront_rows':5288,'storefront_units':6188,'storefront_bad_inventory_price_rows':0,'storefront_price_mismatch_rows':0,'storefront_quantity_mismatch_rows':0,'archived_storefront_leak_rows':0,'positive_missing_front_rows':0,'active_zero_qty_rows':0}
+          bad=[f'{k}={z.get(k)} expected {want}' for k,want in expected.items() if int(z.get(k) or 0)!=want]
+          if bad: raise SystemExit('Final storefront verification failed: '+'; '.join(bad))
+          print('COLLX_FINAL_PENDING_AND_STOREFRONT=SUCCESS')
+          PY

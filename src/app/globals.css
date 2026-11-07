@@ -1,0 +1,43 @@
+@import "tailwindcss" source(none);
+@source "../**/*.{js,ts,jsx,tsx,mdx}";
+
+:root {
+  --background: #f6f4ef;
+  --foreground: #151515;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+button,
+a,
+input,
+select {
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    opacity 160ms ease,
+    box-shadow 160ms ease;
+}
+
+input,
+select {
+  background: #ffffff;
+}
+
+/* Card photos must never render flush against a 4:5 listing frame. */
+[class*="aspect-[4/5]"] > img[class*="object-contain"] {
+  box-sizing: border-box;
+  padding: max(12px, 3%) !important;
+}

@@ -1,0 +1,132 @@
+# Sold-history storefront certification trigger: 2026-08-15T06:22:00-06:00
+name: Cloudflare Live Route Matrix
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/cloudflare-live-route-matrix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    env:
+      PROD_BASE: https://truelycollectables.com
+      PREVIEW_BASE: https://truely-collectables-preview.truelycollectables.workers.dev
+    steps:
+      - name: Probe production storefront routes with timings
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          probe() {
+            local tag="$1"
+            local url="$2"
+            local expected_status="$3"
+            local headers="/tmp/${tag}.headers"
+            local body="/tmp/${tag}.body"
+            local err="/tmp/${tag}.err"
+            local metrics
+
+            metrics=$(curl -L -sS --retry 2 --retry-all-errors --retry-delay 1 --max-time 60 \
+              -D "$headers" -o "$body" \
+              -w '%{http_code}\t%{time_starttransfer}\t%{time_total}\t%{size_download}' \
+              "$url" 2>"$err" || true)
+
+            IFS=$'\t' read -r code ttfb total bytes <<< "$metrics"
+            local origin
+            origin=$(grep -i '^x-truely-origin:' "$headers" 2>/dev/null | tail -1 | cut -d: -f2- | xargs || true)
+            local cf_ray
+            cf_ray=$(grep -i '^cf-ray:' "$headers" 2>/dev/null | tail -1 | cut -d: -f2- | xargs || true)
+            local error
+            error=$(tail -1 "$err" 2>/dev/null || true)
+
+            echo "$tag url=$url status=${code:-none} ttfb=${ttfb:-n/a}s total=${total:-n/a}s bytes=${bytes:-0} origin=${origin:-missing} cf_ray=${cf_ray:-missing} error=${error:-none}"
+
+            if [ "${code:-}" != "$expected_status" ]; then
+              echo "Expected HTTP $expected_status for $url, got ${code:-none}." >&2
+              sed -n '1,80p' "$body" >&2 || true
+              return 1
+            fi
+          }
+
+          probe home "$PROD_BASE/" 200
+          probe shop1 "$PROD_BASE/shop?audit=production" 200
+          probe shop2 "$PROD_BASE/shop?page=2&audit=production" 200
+          probe shop1_warm "$PROD_BASE/shop?audit=production&warm=1" 200
+          probe admin_login "$PROD_BASE/admin/login" 200
+
+      - name: Assert production shop pagination contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+
+          function visibleText(path) {
+            return fs.readFileSync(path, 'utf8')
+              .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ')
+              .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
+              .replace(/<!--[\s\S]*?-->/g, '')
+              .replace(/<[^>]+>/g, ' ')
+              .replace(/&ndash;|&#x2013;|&#8211;/gi, '–')
+              .replace(/&amp;/gi, '&')
+              .replace(/&quot;/gi, '"')
+              .replace(/&#x27;|&#39;/gi, "'")
+              .replace(/\s+/g, ' ')
+              .trim();
+          }
+
+          const page1 = visibleText('/tmp/shop1.body');
+          const page2 = visibleText('/tmp/shop2.body');
+          const page1Warm = visibleText('/tmp/shop1_warm.body');
+
+          const checks = [
+            ['page 1 heading', page1.includes('Shop Sports Cards & Collectibles')],
+            ['page 1 has no load error', !/Error loading products/i.test(page1)],
+            ['page 1 range is 1–48', /Showing\s+1\s*[–-]\s*48\s+of\s+[\d,]+/i.test(page1)],
+            ['page 1 indicator', /Page\s+1\s+of\s+[\d,]+/i.test(page1)],
+            ['page 2 heading', page2.includes('Shop Sports Cards & Collectibles')],
+            ['page 2 has no load error', !/Error loading products/i.test(page2)],
+            ['page 2 range is 49–96', /Showing\s+49\s*[–-]\s*96\s+of\s+[\d,]+/i.test(page2)],
+            ['page 2 indicator', /Page\s+2\s+of\s+[\d,]+/i.test(page2)],
+            ['warm page 1 has no load error', !/Error loading products/i.test(page1Warm)],
+            ['warm page 1 range is 1–48', /Showing\s+1\s*[–-]\s*48\s+of\s+[\d,]+/i.test(page1Warm)],
+          ];
+
+          for (const [label, ok] of checks) {
+            console.log(`${ok ? 'PASS' : 'FAIL'} ${label}`);
+          }
+          const failed = checks.filter(([, ok]) => !ok);
+          if (failed.length) {
+            console.error(`Shop pagination audit failed ${failed.length} assertion(s).`);
+            console.error('Page 1 excerpt:', page1.slice(0, 1200));
+            console.error('Page 2 excerpt:', page2.slice(0, 1200));
+            console.error('Warm page 1 excerpt:', page1Warm.slice(0, 1200));
+            process.exit(1);
+          }
+          console.log('PASS production /shop pagination renders exactly 48 active items per full page with working page 2 boundaries, including a warm-cache repeat.');
+          NODE
+
+      - name: Probe direct Cloudflare Worker routes
+        shell: bash
+        run: |
+          set -u
+          for path in \
+            /favicon.ico \
+            /api/ebay/test \
+            /api/internal/cloudflare-product-runtime-probe; do
+            tag=$(echo "$path" | tr '/?' '__')
+            metrics=$(curl -L -sS --max-time 30 -D "/tmp/preview-${tag}.headers" -o "/tmp/preview-${tag}.body" \
+              -w '%{http_code}\t%{time_starttransfer}\t%{time_total}\t%{size_download}' \
+              "$PREVIEW_BASE$path" 2>"/tmp/preview-${tag}.err" || true)
+            IFS=$'\t' read -r code ttfb total bytes <<< "$metrics"
+            origin=$(grep -i '^x-truely-origin:' "/tmp/preview-${tag}.headers" 2>/dev/null | tail -1 | cut -d: -f2- | xargs || true)
+            error=$(tail -1 "/tmp/preview-${tag}.err" 2>/dev/null || true)
+            echo "preview $path status=${code:-none} ttfb=${ttfb:-n/a}s total=${total:-n/a}s bytes=${bytes:-0} origin=${origin:-missing} error=${error:-none}"
+          done

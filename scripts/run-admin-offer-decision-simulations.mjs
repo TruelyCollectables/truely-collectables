@@ -1,0 +1,254 @@
+import { readFile } from "node:fs/promises";
+import {
+  adminOfferDecisionError,
+  adminOfferDecisionRequirements,
+  canApplyAdminOfferDecision,
+  normalizedOfferMoney,
+} from "../src/lib/admin-offer-decision.ts";
+
+const scenarios = [];
+
+function scenario(name, run) {
+  scenarios.push({ name, run });
+}
+
+function assert(condition, message) {
+  if (!condition) throw new Error(message);
+}
+
+scenario("locks every offer money action after pending status", () => {
+  for (const action of ["accepted", "declined", "countered"]) {
+    const missing = adminOfferDecisionRequirements({
+      action,
+      offerStatus: "accepted",
+      offerAmount: 50,
+      counterAmount: 75,
+      productPrice: 100,
+      productQuantity: 1,
+    });
+
+    assert(
+      missing.includes("pending offer status"),
+      `${action} should require pending status.`,
+    );
+  }
+});
+
+scenario("accept requires available inventory and a positive offer", () => {
+  assert(
+    canApplyAdminOfferDecision({
+      action: "accepted",
+      offerStatus: "pending",
+      offerAmount: "42.499",
+      productPrice: "100.00",
+      productQuantity: 2,
+    }),
+    "A valid pending offer with inventory should be acceptable.",
+  );
+
+  const error = adminOfferDecisionError({
+    action: "accepted",
+    offerStatus: "pending",
+    offerAmount: 0,
+    productPrice: 100,
+    productQuantity: 0,
+  });
+
+  assert(
+    error ===
+      "Offer action needs: available product quantity, positive offer amount.",
+    `Unexpected accept error: ${error}`,
+  );
+});
+
+scenario("counter must be above offer and no higher than asking", () => {
+  assert(
+    canApplyAdminOfferDecision({
+      action: "countered",
+      offerStatus: "pending",
+      offerAmount: 75,
+      counterAmount: 90,
+      productPrice: 100,
+      productQuantity: 1,
+    }),
+    "A counter between offer and asking price should be allowed.",
+  );
+
+  const missing = adminOfferDecisionRequirements({
+    action: "countered",
+    offerStatus: "pending",
+    offerAmount: 75,
+    counterAmount: 125,
+    productPrice: 100,
+    productQuantity: 1,
+  });
+
+  assert(
+    missing.includes("counter at or below asking price"),
+    "Counter above asking should be blocked.",
+  );
+
+  assert(
+    adminOfferDecisionRequirements({
+      action: "countered",
+      offerStatus: "pending",
+      offerAmount: 75,
+      counterAmount: 75,
+      productPrice: 100,
+      productQuantity: 1,
+    }).includes("counter above buyer offer"),
+    "Counter at or below buyer offer should be blocked.",
+  );
+});
+
+scenario("normalizes offer money to checkout-safe cents", () => {
+  assert(normalizedOfferMoney("10.236") === 10.24, "Expected cent rounding");
+  assert(normalizedOfferMoney("abc") === null, "Expected invalid money to return null");
+});
+
+scenario("offer action UI exposes busy and live checkout feedback", async () => {
+  const source = await readFile("src/app/admin/offers/OfferActions.tsx", "utf8");
+
+  for (const snippet of [
+    "const offerActionRunningRef = useRef(false)",
+    "offerActionRunningRef.current",
+    "Finish the current offer decision before starting another action.",
+    "offerActionRunningRef.current = true",
+    "offerActionRunningRef.current = false",
+    "const offerActionBusyReason = isBusy",
+    "const counterInputTitle = isBusy",
+    "Finish the current offer decision before editing the counter amount.",
+    "Counter amount is locked because this offer is no longer pending.",
+    "Enter a counter above the buyer offer and up to ${money(productPrice)}.",
+    "title={counterInputTitle}",
+    'aria-busy={loading === "accepted"}',
+    'aria-busy={loading === "declined"}',
+    'aria-busy={loading === "counter"}',
+    "aria-disabled={!canAccept || isBusy}",
+    "aria-disabled={!canDecline || isBusy}",
+    "aria-disabled={!canCounter || isBusy}",
+    'aria-live={tone === "info" ? "polite" : "assertive"}',
+    'role={tone === "error" ? "alert" : "status"}',
+    "Creating accepted-offer checkout link...",
+    "Creating counter-offer checkout link...",
+    "Creating checkout link...",
+    "Sending counter link...",
+  ]) {
+    assert(source.includes(snippet), `Expected OfferActions to include ${snippet}`);
+  }
+});
+
+scenario("offer desk keeps load and enrichment failures operator-readable", async () => {
+  const source = await readFile("src/app/admin/offers/page.tsx", "utf8");
+
+  for (const snippet of [
+    "function safeErrorMessage",
+    "const offerLoadErrorMessage = safeErrorMessage(error)",
+    "Offer queue unavailable",
+    "Offer storage did not load, so this page cannot prove whether",
+    "Decision counts",
+    "Unavailable",
+    "do not accept or decline",
+    "let accountProfilesError",
+    "try {",
+    "accountProfiles = await getAccountProfilesByIds",
+    "const accountProfilesUnavailable = Boolean(accountProfilesError)",
+    "Linked account profiles unavailable",
+    'role="status"',
+    "Offers loaded, but buyer account enrichment did not",
+    "Linked account profile lookup unavailable",
+    "accountProfilesUnavailable={accountProfilesUnavailable}",
+  ]) {
+    assert(source.includes(snippet), `Expected offer desk source to include ${snippet}`);
+  }
+
+  assert(
+    source.indexOf("Offer queue unavailable") <
+      source.indexOf("Retry offers or open the dashboard"),
+    "Expected offer load failures to explain queue uncertainty before recovery actions.",
+  );
+  assert(
+    !source.includes("{error.message}"),
+    "Expected offer desk to avoid rendering raw database error messages.",
+  );
+});
+
+scenario("offer desk uses professional command presentation", async () => {
+  const source = await readFile("src/app/admin/offers/page.tsx", "utf8");
+
+  for (const snippet of [
+    "Decision actions stay locked after pending status",
+    "rounded-[2rem] border border-neutral-900 bg-neutral-950",
+    "shadow-2xl shadow-neutral-950/10",
+    "max-w-[1500px]",
+    "border border-white/15 bg-white/10",
+    "HeaderStat label=\"Pending\"",
+    "HeaderStat label=\"Open Value\"",
+    "HeaderStat label=\"Accepted\"",
+    "CommandLink href=\"/admin/products\"",
+    "CommandLink href=\"/admin\" label=\"Dashboard\" primary",
+    "rounded-3xl border border-neutral-200 bg-white/95",
+    "rounded-full border border-neutral-300 bg-white",
+    "transition hover:bg-neutral-50 xl:grid-cols",
+  ]) {
+    assert(source.includes(snippet), `Expected offer desk presentation fragment ${snippet}`);
+  }
+
+  for (const roughShell of ['bg-[#f4f1ea]', 'bg-[#101418]', "max-w-7xl"]) {
+    assert(
+      !source.includes(roughShell),
+      `Expected offer desk to avoid rough shell fragment ${roughShell}.`,
+    );
+  }
+});
+
+scenario("offer status routes use pending compare-and-set updates", async () => {
+  const updateStatusSource = await readFile(
+    "src/app/api/offers/update-status/route.ts",
+    "utf8",
+  );
+  const counterSource = await readFile("src/app/api/offers/counter/route.ts", "utf8");
+  const staleMessage =
+    "Offer is no longer pending. Refresh offers before deciding again.";
+
+  assert(
+    countOccurrences(updateStatusSource, '.eq("status", "pending")') >= 2,
+    "Accept/decline route should guard both update paths by pending status.",
+  );
+  assert(
+    counterSource.includes('.eq("status", "pending")'),
+    "Counter route should guard the update by pending status.",
+  );
+
+  for (const [name, source] of [
+    ["accept/decline route", updateStatusSource],
+    ["counter route", counterSource],
+  ]) {
+    assert(source.includes(".maybeSingle()"), `${name} should tolerate stale no-row updates.`);
+    assert(source.includes(staleMessage), `${name} should return a stale-offer message.`);
+    assert(source.includes("{ status: 409 }"), `${name} should report stale offers as conflicts.`);
+  }
+});
+
+function countOccurrences(source, needle) {
+  return source.split(needle).length - 1;
+}
+
+const failed = [];
+
+for (const item of scenarios) {
+  try {
+    await item.run();
+    console.log(`✓ ${item.name}`);
+  } catch (error) {
+    failed.push(item.name);
+    console.error(`✗ ${item.name}`);
+    console.error(error);
+  }
+}
+
+console.log(
+  `Admin offer decision simulations: ${scenarios.length - failed.length}/${scenarios.length} passed.`,
+);
+
+if (failed.length > 0) process.exitCode = 1;

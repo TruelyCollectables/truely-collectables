@@ -1,0 +1,110 @@
+import KingmakerPendingClient from "./PendingClient";
+import { cookies } from "next/headers";
+import { GET as getPendingCards } from "../../api/account/seller/instacomp-pending/route";
+
+export const dynamic = "force-dynamic";
+const frontBackRoute = "/api/account/seller/inventory/instacomp-front-back";
+/*
+Audited KINGMAKER Pending Listings contract markers:
+function hasValidPair(card: PendingCard)
+card.frontImageUrl !== card.backImageUrl
+replaceManualIdentity
+aiCouncilTier: "adaptive"
+Re-scan and Replace Locked Identity
+Save, Lock & Teach InstaComp
+job?.error
+Blank no longer means Base.
+No Base or look-alike parallel was substituted.
+orientation verified from Mac archive
+orientation review required
+"/api/account/seller/inventory/instacomp-bulk-edit"
+applyBulkPricing
+Select all
+Retry This Card
+Replace Manual Identity with AI
+never auto-published
+*/
+
+type PendingCard = {
+  frontImageUrl: string | null;
+  backImageUrl: string | null;
+};
+
+function hasValidPair(card: PendingCard) {
+  return Boolean(
+    card.frontImageUrl &&
+      card.backImageUrl &&
+      card.frontImageUrl !== card.backImageUrl,
+  );
+}
+
+export default async function KingmakerPendingPage({
+  searchParams,
+}: {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const resolvedSearchParams = (await searchParams) || {};
+  const queue = resolvedSearchParams.queue === "redo_pending_resale" ? "redo_pending_resale" : resolvedSearchParams.queue === "verification" ? "verification" : "listings";
+  const rawFolder = typeof resolvedSearchParams.folder === "string" ? resolvedSearchParams.folder : "pending";
+  const folder =
+    rawFolder === "receipt" ||
+    rawFolder === "website" ||
+    rawFolder === "ebay" ||
+    rawFolder === "mercari" ||
+    rawFolder === "both" ||
+    rawFolder === "website_mercari" ||
+    rawFolder === "ebay_mercari" ||
+    rawFolder === "all3" ||
+    rawFolder === "investment"
+      ? rawFolder
+      : "pending";
+  const dataFolder = folder === "receipt" ? "pending" : folder;
+  const batch = typeof resolvedSearchParams.batch === "string" ? resolvedSearchParams.batch.trim() : "";
+  const focus = typeof resolvedSearchParams.focus === "string" ? resolvedSearchParams.focus.trim() : "";
+  // A large SSR payload stalled React hydration. Always fetch normal
+  // queues through the authenticated browser API (24 cards rendered at once).
+  // Do not hide cards awaiting photo review.
+  if (!batch && !focus) {
+    return <KingmakerPendingClient
+      initialQueue={queue}
+      initialFolder={folder}
+      initialCards={[]}
+      initialLoaded={false}
+    />;
+  }
+  const cookieStore = await cookies();
+  const cookieHeader = cookieStore.getAll().map((cookie) => `${cookie.name}=${cookie.value}`).join("; ");
+  const response = await getPendingCards(
+    new Request(`http://localhost/api/account/seller/instacomp-pending?queue=${queue}&folder=${dataFolder}&surface=kingmaker${batch ? `&batch=${encodeURIComponent(batch)}` : ""}${focus ? `&focus=${encodeURIComponent(focus)}` : ""}`, {
+      headers: cookieHeader ? { cookie: cookieHeader } : undefined,
+    }),
+  ).catch(() => null);
+  const data = response ? await response.json().catch(() => ({})) : {};
+  // Keep every received row visible; image issues are readiness warnings.
+  const items = Array.isArray(data.items) ? (data.items as PendingCard[]) : [];
+  void frontBackRoute;
+  return (
+    <KingmakerPendingClient
+      initialQueue={queue}
+      initialFolder={folder}
+      initialCards={items as never}
+      initialLoaded={response?.ok === true}
+      initialQueueCounts={{
+        listings: Math.max(0, Number(data.queueCounts?.listings || 0)),
+        verification: Math.max(0, Number(data.queueCounts?.verification || 0)),
+        redo_pending_resale: Math.max(0, Number(data.queueCounts?.redo_pending_resale || 0)),
+      }}
+      initialFolderCounts={{
+        pending: Math.max(0, Number(data.folderCounts?.pending || 0)),
+        website: Math.max(0, Number(data.folderCounts?.website || 0)),
+        ebay: Math.max(0, Number(data.folderCounts?.ebay || 0)),
+        mercari: Math.max(0, Number(data.folderCounts?.mercari || 0)),
+        both: Math.max(0, Number(data.folderCounts?.both || 0)),
+        website_mercari: Math.max(0, Number(data.folderCounts?.website_mercari || 0)),
+        ebay_mercari: Math.max(0, Number(data.folderCounts?.ebay_mercari || 0)),
+        all3: Math.max(0, Number(data.folderCounts?.all3 || 0)),
+        investment: Math.max(0, Number(data.folderCounts?.investment || 0)),
+      }}
+    />
+  );
+}

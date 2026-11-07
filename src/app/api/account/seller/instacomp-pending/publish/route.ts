@@ -1,0 +1,486 @@
+import {
+  ensureAccountStoreMembership,
+  getAuthenticatedAccountFromRequest,
+} from "../../../../../../lib/kingmaker-local-auth";
+import { getInventoryActivationBlockers } from "../../../../../../lib/inventory-activation";
+import { postInstaCompMacAccounting } from "../../../../../../lib/instacomp-mac-accounting-client";
+import {
+  assertKingmakerListingReadiness,
+  buildKingmakerListingReadiness,
+} from "../../../../../../lib/kingmaker-listing-readiness";
+import { instaCompPendingDraftParityBlockers } from "../../../../../../lib/instacomp-pending-edit";
+import { effectiveInstaCompPricingGroupKey } from "../../../../../../lib/instacomp-pricing-group";
+import {
+  pendingDuplicateCandidateMatches,
+  pendingDuplicateDecisionResolved,
+  pendingDuplicateProtectionMatchKey,
+} from "../../../../../../lib/pending-duplicate-protection";
+import { assertChecklistRegistryReceipt } from "../../../../../../lib/instacomp-registry-receipt";
+import { getActiveStoreId } from "../../../../../../lib/stores";
+import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
+import { inventoryEngine } from "../../../../../../modules/inventory";
+
+export const dynamic = "force-dynamic";
+
+const RECEIVING_CUTOVER_MS = Date.parse("2026-09-16T00:00:00-06:00");
+
+function isPreReceivingCutoverInventory(row: any) {
+  const createdAt = Date.parse(String(row?.created_at || ""));
+  return Number.isFinite(createdAt) && createdAt < RECEIVING_CUTOVER_MS;
+}
+
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function text(value: unknown, max = 500) {
+  const result = String(value ?? "").trim();
+  return result ? result.slice(0, max) : null;
+}
+
+function hasDurablePhysicalScanReceipt(row: any) {
+  const metadata = recordValue(row?.metadata);
+  const lifecycle = recordValue(metadata.inventory_lifecycle);
+  const instacomp = recordValue(metadata.instacomp);
+  const scannerSource = text(instacomp.source);
+  const physicalScannerSource =
+    scannerSource === "kingmaker_exact_scan_intake_v2" ||
+    scannerSource === "mac_registry_scanner";
+  const completePair = Boolean(
+    text(instacomp.imagePairSha256) &&
+      text(instacomp.frontSha256) &&
+      text(instacomp.backSha256) &&
+      text(instacomp.frontSha256) !== text(instacomp.backSha256),
+  );
+  const persistedPair =
+    instacomp.imagePersistenceVerified === true ||
+    instacomp.imageOrientationPersisted === true;
+  const lifecycleReceipt =
+    text(lifecycle.state) === "received" ||
+    Boolean(text(lifecycle.receivedAt));
+
+  return Boolean(
+    completePair &&
+      physicalScannerSource &&
+      (persistedPair || lifecycleReceipt),
+  );
+}
+
+function requestedIds(body: any) {
+  const values = Array.isArray(body?.itemIds)
+    ? body.itemIds
+    : body?.inventoryItemId
+      ? [body.inventoryItemId]
+      : [];
+  return Array.from(
+    new Set(
+      values
+        .map((value: unknown) => String(value || "").trim())
+        .filter(Boolean),
+    ),
+  ).slice(0, 500);
+}
+
+export async function POST(request: Request) {
+  try {
+    const account = await getAuthenticatedAccountFromRequest(request);
+    if (!account) {
+      return Response.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    await ensureAccountStoreMembership({
+      accountId: account.id,
+      role: "seller",
+      status: "active",
+    });
+
+    const body = await request.json().catch(() => ({}));
+    const itemIds = requestedIds(body);
+    if (!itemIds.length) {
+      return Response.json(
+        { error: "Choose one or more InstaComp pending listings." },
+        { status: 400 },
+      );
+    }
+    if (body?.confirmIdentity !== true) {
+      return Response.json(
+        {
+          error:
+            "Confirm that you reviewed the card identity, images, condition, variation, serial, grade, cert, quantity, and price before publishing.",
+        },
+        { status: 400 },
+      );
+    }
+
+    const supabase = createSupabaseServerClient({ admin: true });
+    const storeId = getActiveStoreId();
+    const isStoreOwnerAccount =
+      account.email === "sales@truelycollectables.com" ||
+      account.email === "sales@trulycollectables.com";
+
+    let inventoryQuery = supabase
+      .from("inventory_items")
+      .select(
+        "id,legacy_product_id,seller_account_id,sku,title,description,category,condition,status,quantity,price,metadata,created_at",
+      )
+      .eq("store_id", storeId)
+      .in("id", itemIds);
+    inventoryQuery = isStoreOwnerAccount
+      ? inventoryQuery.or(
+          `seller_account_id.eq.${account.id},seller_account_id.is.null`,
+        )
+      : inventoryQuery.eq("seller_account_id", account.id);
+
+    const { data: rows, error: rowsError } = await inventoryQuery;
+    if (rowsError) throw rowsError;
+
+    let physicalReadiness: any = null;
+    try {
+      physicalReadiness = await postInstaCompMacAccounting(
+        "/v1/kingmaker/accounting/listing-readiness",
+        {
+          inventory_item_ids: (rows || [])
+            .map((row: any) => String(row?.id || "").trim())
+            .filter(Boolean),
+        },
+        15_000,
+      );
+    } catch (error) {
+      return Response.json(
+        {
+          success: false,
+          code: "MAC_INVENTORY_LEDGER_UNAVAILABLE",
+          error: `Publishing blocked because the Mac-local physical inventory ledger could not be verified: ${error instanceof Error ? error.message : String(error)}`,
+        },
+        { status: 503 },
+      );
+    }
+    if (physicalReadiness?.ready !== true) {
+      const rowsById = new Map(
+        (rows || []).map((row: any) => [String(row?.id || ""), row]),
+      );
+      const rawBlocked = Array.isArray(physicalReadiness?.blocked)
+        ? physicalReadiness.blocked
+        : [];
+      const blocked = rawBlocked.filter((row: any) => {
+        if (row?.reason !== "physical_inventory_receipt_missing") return true;
+        const inventory = rowsById.get(String(row?.inventoryItemId || ""));
+        if (!inventory) return true;
+        if (isPreReceivingCutoverInventory(inventory)) return false;
+        return !hasDurablePhysicalScanReceipt(inventory);
+      });
+      if (blocked.length) {
+        return Response.json(
+          {
+            success: false,
+            code: "PHYSICAL_INVENTORY_NOT_READY",
+            error: "Publishing blocked because physical inventory is not ready.",
+            blocked,
+          },
+          { status: 409 },
+        );
+      }
+    }
+
+    const trackedPhysical = Array.isArray(physicalReadiness?.tracked)
+      ? physicalReadiness.tracked
+      : [];
+    const trackedByInventoryId = new Map<string, any>(
+      trackedPhysical.map((row: any) => [
+        String(row?.inventoryItemId || ""),
+        row,
+      ]),
+    );
+
+    const productIds = (rows || [])
+      .map((row: any) => row.legacy_product_id)
+      .filter((value: unknown): value is number => typeof value === "number");
+    const { data: products, error: productError } =
+      productIds.length === 0
+        ? { data: [], error: null }
+        : await supabase
+            .from("products")
+            .select("id,image_url")
+            .eq("store_id", storeId)
+            .in("id", productIds);
+    if (productError) throw productError;
+    const productMap = new Map(
+      (products || []).map((row: any) => [row.id, row]),
+    );
+
+    const activeIdentityRows: any[] = [];
+    for (let from = 0; ; from += 1000) {
+      let activeQuery = supabase
+        .from("inventory_items")
+        .select(
+          "id,legacy_product_id,seller_account_id,status,quantity,metadata,title,price",
+        )
+        .eq("store_id", storeId)
+        .eq("status", "active")
+        .gt("quantity", 0)
+        .range(from, from + 999);
+      activeQuery = isStoreOwnerAccount
+        ? activeQuery.or(
+            `seller_account_id.eq.${account.id},seller_account_id.is.null`,
+          )
+        : activeQuery.eq("seller_account_id", account.id);
+      const { data: activePage, error: activeError } = await activeQuery;
+      if (activeError) throw activeError;
+      activeIdentityRows.push(...(activePage || []));
+      if ((activePage || []).length < 1000) break;
+    }
+    const activeIdentityGroups = new Map<string, any[]>();
+    for (const activeRow of activeIdentityRows) {
+      const key = effectiveInstaCompPricingGroupKey(activeRow.metadata);
+      if (!key) continue;
+      const current = activeIdentityGroups.get(key) || [];
+      current.push(activeRow);
+      activeIdentityGroups.set(key, current);
+    }
+
+    const { data: payoutAccount, error: payoutError } = await supabase
+      .from("seller_payout_accounts")
+      .select("onboarding_status,payouts_enabled,details_submitted")
+      .eq("account_id", account.id)
+      .eq("store_id", storeId)
+      .eq("provider", "stripe_connect")
+      .maybeSingle();
+    if (payoutError) throw payoutError;
+    const payoutReady =
+      payoutAccount?.onboarding_status === "active" &&
+      payoutAccount?.payouts_enabled === true &&
+      payoutAccount?.details_submitted === true;
+
+    const results: Array<Record<string, unknown>> = [];
+    const returnedIds = new Set((rows || []).map((row: any) => row.id));
+    for (const missingId of itemIds.filter((id) => !returnedIds.has(id))) {
+      results.push({
+        inventoryItemId: missingId,
+        success: false,
+        error: "Not found or not owned by this seller.",
+      });
+    }
+
+    for (const row of rows || []) {
+      try {
+        if (row.status !== "draft") {
+          throw new Error("Only private draft listings can be published here.");
+        }
+        if (!row.legacy_product_id) {
+          throw new Error("This draft is missing its linked product record.");
+        }
+
+        const metadata = recordValue(row.metadata);
+        const instaComp = recordValue(metadata.instacomp);
+        if (!instaComp.source && !instaComp.scanId) {
+          throw new Error("This draft is not an InstaComp pending listing.");
+        }
+
+        const registryReceipt = assertChecklistRegistryReceipt(metadata);
+        const duplicateMatchKey = effectiveInstaCompPricingGroupKey(metadata);
+        const duplicateDecision = recordValue(
+          instaComp.duplicateInventoryDecision,
+        );
+        const duplicateProtectionMatchKey = pendingDuplicateProtectionMatchKey({
+          pricingGroupKey: duplicateMatchKey,
+          title: row.title,
+        });
+        const keyedMatches = duplicateMatchKey
+          ? activeIdentityGroups.get(duplicateMatchKey) || []
+          : [];
+        const legacyTitleMatches = activeIdentityRows.filter(
+          (candidate: any) => {
+            const candidateKey = effectiveInstaCompPricingGroupKey(
+              candidate.metadata,
+            );
+            if (duplicateMatchKey && candidateKey) return false;
+            return pendingDuplicateCandidateMatches({
+              draftPricingGroupKey: duplicateMatchKey,
+              draftTitle: row.title,
+              candidatePricingGroupKey: candidateKey,
+              candidateTitle: candidate.title,
+            });
+          },
+        );
+        const activeMatches = Array.from(
+          new Map(
+            [...keyedMatches, ...legacyTitleMatches].map((candidate: any) => [
+              String(candidate.id),
+              candidate,
+            ]),
+          ).values(),
+        );
+        const duplicateDecisionResolved = pendingDuplicateDecisionResolved(
+          duplicateDecision,
+          duplicateProtectionMatchKey,
+        );
+        if (activeMatches.length > 0 && !duplicateDecisionResolved) {
+          const error = new Error(
+            `This exact card is already active in inventory (${activeMatches.length} listing${
+              activeMatches.length === 1 ? "" : "s"
+            }). Resolve the duplicate in Pending Inventory before publishing.`,
+          ) as Error & { code?: string; blockers?: string[] };
+          error.code = "DUPLICATE_DECISION_REQUIRED";
+          error.blockers = ["duplicate_decision_required"];
+          throw error;
+        }
+
+        const parityBlockers = instaCompPendingDraftParityBlockers({
+          metadata,
+          content: {
+            title: String(row.title || ""),
+            description: row.description || null,
+            condition: row.condition || null,
+            quantity: Number(row.quantity || 0),
+          },
+        });
+        if (parityBlockers.length) {
+          const error = new Error(
+            `Seller draft content is not synchronized across website and eBay: ${parityBlockers.join(", ")}. Save the draft again before publishing.`,
+          ) as Error & { code?: string; blockers?: string[] };
+          error.code = "INSTACOMP_DRAFT_PARITY_REQUIRED";
+          error.blockers = parityBlockers;
+          throw error;
+        }
+
+        const product = productMap.get(row.legacy_product_id);
+        if (!product)
+          throw new Error("The linked product record was not found.");
+
+        const recoveredImages = recordValue(instaComp.recoveredImageUrls);
+        const sourceImageUrls = Array.isArray(instaComp.sourceImageUrls)
+          ? instaComp.sourceImageUrls
+          : [];
+        const ebayImageUrls = Array.isArray(metadata.ebay_image_urls)
+          ? metadata.ebay_image_urls
+          : [];
+        const frontImageUrl =
+          text(instaComp.frontImageUrl) ||
+          text(recoveredImages.front) ||
+          text(sourceImageUrls[0]) ||
+          text(ebayImageUrls[0]) ||
+          text(product.image_url);
+        const backImageUrl =
+          text(instaComp.backImageUrl) ||
+          text(recoveredImages.back) ||
+          text(sourceImageUrls[1]) ||
+          text(ebayImageUrls[1]);
+        const storedAcquisition = recordValue(instaComp.acquisition);
+        const acquisitionSource =
+          text(trackedByInventoryId.get(String(row.id))?.source, 120) ||
+          text(storedAcquisition.source, 120) ||
+          "Misc";
+        const collectibleAsset = recordValue(metadata.collectible_asset);
+        const ai = recordValue(instaComp.ai);
+        const graded = Boolean(
+          text(collectibleAsset.grading_company) || text(ai.gradingCompany),
+        );
+        const listingReadiness = buildKingmakerListingReadiness({
+          metadata,
+          frontImageUrl,
+          backImageUrl,
+          condition: row.condition,
+          quantity: row.quantity,
+          acquisitionSource,
+          duplicateDecisionRequired:
+            activeMatches.length > 0 && !duplicateDecisionResolved,
+          websitePrice: row.price,
+          ebayPrice: null,
+          mercariPrice: null,
+          ebayCardCondition: null,
+          graded,
+        });
+        assertKingmakerListingReadiness(listingReadiness, "website");
+
+        const blockers = getInventoryActivationBlockers({
+          sku: row.sku || null,
+          price: Number(row.price || 0),
+          quantity: Number(row.quantity || 0),
+          imageUrl: product.image_url || null,
+          title: row.title || null,
+          category: row.category || null,
+          metadata,
+        });
+        if (blockers.length) {
+          throw new Error(`Listing blockers: ${blockers.join(", ")}.`);
+        }
+
+        const storeOwned = row.seller_account_id === null;
+        if (!storeOwned && !payoutReady) {
+          throw new Error(
+            "Seller payout verification must be active before this listing can go live.",
+          );
+        }
+        if (storeOwned && !isStoreOwnerAccount) {
+          throw new Error(
+            "Only the store owner account can publish store-owned inventory.",
+          );
+        }
+
+        const now = new Date().toISOString();
+        const nextMetadata = {
+          ...metadata,
+          seller_review: {
+            identity_confirmed: true,
+            confirmed_at: now,
+            confirmed_by: account.email,
+            confirmed_account_id: account.id,
+            confirmation_scope:
+              "images_identity_condition_variation_serial_grade_cert_quantity_price",
+            checklist_registry_identity_id: registryReceipt.registryIdentityId,
+            checklist_registry_fingerprint_sha256:
+              registryReceipt.registryFingerprintSha256,
+          },
+        };
+
+        const { error: metadataError } = await supabase
+          .from("inventory_items")
+          .update({ metadata: nextMetadata, updated_at: now })
+          .eq("id", row.id)
+          .eq("store_id", storeId);
+        if (metadataError) throw metadataError;
+
+        const updatedItem = await inventoryEngine.setStatus({
+          legacyProductId: row.legacy_product_id,
+          status: "active",
+        });
+
+        results.push({
+          inventoryItemId: row.id,
+          legacyProductId: row.legacy_product_id,
+          success: true,
+          status: "active",
+          registryIdentityId: registryReceipt.registryIdentityId,
+          registryFingerprintSha256: registryReceipt.registryFingerprintSha256,
+          channelDraftParityVerified: true,
+          item: updatedItem,
+        });
+      } catch (error: any) {
+        results.push({
+          inventoryItemId: row.id,
+          success: false,
+          code: error?.code || "PUBLISH_BLOCKED",
+          blockers: Array.isArray(error?.blockers) ? error.blockers : [],
+          error: error?.message || "Could not publish this listing.",
+        });
+      }
+    }
+
+    return Response.json({
+      success: results.every((result) => result.success === true),
+      published: results.filter((result) => result.success === true).length,
+      failed: results.filter((result) => result.success !== true).length,
+      results,
+    });
+  } catch (error: any) {
+    return Response.json(
+      {
+        error:
+          error?.message || "Could not publish InstaComp pending listings.",
+      },
+      { status: 500 },
+    );
+  }
+}

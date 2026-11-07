@@ -1,0 +1,59 @@
+name: Diagnose InstaComp Import Chain
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/diagnose-instacomp-import-chain.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      TCOS_CRON_SECRET: ${{ secrets.TCOS_CRON_SECRET }}
+    steps:
+      - name: Identify first Cloudflare import failure
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -n "${TCOS_CRON_SECRET:-}" ] || { echo 'TCOS_CRON_SECRET missing.'; exit 2; }
+          node <<'NODE'
+          (async () => {
+            const endpoint = 'https://truelycollectables.com/api/instacomp/deal-hunter/portfolio-import-diagnostics';
+            let final = null;
+            for (let attempt = 1; attempt <= 24; attempt += 1) {
+              const response = await fetch(`${endpoint}?diag=${Date.now()}-${attempt}`, {
+                headers: { Accept: 'application/json', 'x-tcos-cron-secret': process.env.TCOS_CRON_SECRET },
+                redirect: 'manual',
+                signal: AbortSignal.timeout(120_000),
+              }).catch(() => null);
+              const data = response ? await response.json().catch(() => null) : null;
+              if (response?.status !== 404 && response?.status !== 401) {
+                final = { response, data };
+                break;
+              }
+              console.log(`IMPORT DIAGNOSTIC trusted route not ready attempt ${attempt}/24 status=${response?.status || 0}.`);
+              await new Promise((resolve) => setTimeout(resolve, 15_000));
+            }
+            if (!final) throw new Error('Trusted import diagnostic route never became available.');
+            const { response, data } = final;
+            console.log(`IMPORT DIAGNOSTIC status=${response.status} ok=${data?.ok === true}`);
+            console.log(`IMPORT DIAGNOSTIC firstFailure=${data?.firstFailure?.label || 'none'} error=${String(data?.firstFailure?.error || '').slice(0, 1600) || 'none'}`);
+            console.log(`IMPORT DIAGNOSTIC passedBeforeFailure=${Array.isArray(data?.passedBeforeFailure) ? data.passedBeforeFailure.join(', ') : 'n/a'}`);
+            if (response.status !== 200 && response.status !== 500) throw new Error(`Unexpected diagnostic HTTP ${response.status}.`);
+            if (data?.ok === false && data?.firstFailure?.label) {
+              throw new Error(`First failing import: ${data.firstFailure.label} — ${data.firstFailure.error}`);
+            }
+            if (data?.ok !== true) throw new Error('Import diagnostic did not return a passing result.');
+            console.log('IMPORT DIAGNOSTIC PASS: entire InstaComp import tree loads on routed production Worker.');
+          })().catch((error) => {
+            console.error(error instanceof Error ? error.message : String(error));
+            process.exit(1);
+          });
+          NODE
+

@@ -1,0 +1,267 @@
+name: InstaComp Deal Hunter Targeted Lane Repair
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'services/instacomp-ai/.deal-hunter-targeted-lane-repair'
+
+permissions:
+  contents: write
+
+jobs:
+  patch-test-commit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+      - name: Apply protected targeted-lane support
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          p = Path('services/instacomp-ai/app/deal_hunter.py')
+          text = p.read_text()
+
+          old = '''    async def run_now(self, trigger: str = "manual") -> dict[str, Any]:
+          '''
+          new = '''    async def run_now(
+        self,
+        trigger: str = "manual",
+        *,
+        lane: str | None = None,
+        force: bool = False,
+        limit: int | None = None,
+    ) -> dict[str, Any]:
+          '''
+          if old not in text:
+              raise SystemExit('run_now signature anchor missing')
+          text = text.replace(old, new, 1)
+
+          old = '''            summary: dict[str, Any] = {
+                "run_id": run_id,
+                "trigger": trigger,
+                "started_at": utc_now().isoformat(),
+                "feed_coverage": [],
+            }
+          '''
+          new = '''            summary: dict[str, Any] = {
+                "run_id": run_id,
+                "trigger": trigger,
+                "target_lane": lane,
+                "force_cooldown_bypass": bool(force),
+                "requested_limit": limit,
+                "started_at": utc_now().isoformat(),
+                "feed_coverage": [],
+            }
+          '''
+          if old not in text:
+              raise SystemExit('summary anchor missing')
+          text = text.replace(old, new, 1)
+
+          old = '''                candidates, coverage = await self._discover()
+                counts["discovery"] = len(candidates)
+                summary["feed_coverage"] = coverage
+                selected, deferred = self._select_for_evaluation(candidates)
+          '''
+          new = '''                candidates, coverage = await self._discover(lane=lane)
+                counts["discovery"] = len(candidates)
+                summary["feed_coverage"] = coverage
+                selected, deferred = self._select_for_evaluation(
+                    candidates,
+                    force=force,
+                    limit=limit,
+                )
+          '''
+          if old not in text:
+              raise SystemExit('run selection anchor missing')
+          text = text.replace(old, new, 1)
+
+          old = '''    async def _discover(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        site = str(self.settings.deal_hunter_site_url).rstrip("/")
+          '''
+          new = '''    async def _discover(
+        self, *, lane: str | None = None
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        if lane is not None and lane not in {key for key, _, _ in FEEDS}:
+            raise ValueError(f"Unknown Deal Hunter lane: {lane}")
+        site = str(self.settings.deal_hunter_site_url).rstrip("/")
+          '''
+          if old not in text:
+              raise SystemExit('discover signature anchor missing')
+          text = text.replace(old, new, 1)
+
+          old = '''            for key, path, expected in FEEDS:
+                url = site + path.format(per_query=int(self.settings.deal_hunter_per_query))
+                tasks.append(self._fetch_feed(client, key, url, expected))
+          '''
+          new = '''            for key, path, expected in FEEDS:
+                if lane is not None and key != lane:
+                    continue
+                url = site + path.format(per_query=int(self.settings.deal_hunter_per_query))
+                tasks.append(self._fetch_feed(client, key, url, expected))
+          '''
+          if old not in text:
+              raise SystemExit('feed loop anchor missing')
+          text = text.replace(old, new, 1)
+
+          old = '''    def _select_for_evaluation(
+        self, candidates: list[dict[str, Any]]
+    ) -> tuple[list[dict[str, Any]], int]:
+          '''
+          new = '''    def _select_for_evaluation(
+        self,
+        candidates: list[dict[str, Any]],
+        *,
+        force: bool = False,
+        limit: int | None = None,
+    ) -> tuple[list[dict[str, Any]], int]:
+          '''
+          if old not in text:
+              raise SystemExit('selection signature anchor missing')
+          text = text.replace(old, new, 1)
+
+          old = '''        due = [
+            candidate
+            for candidate in candidates
+            if not DealHunterStore.is_cooling_down(
+                history.get(candidate["candidate_key"]),
+                current_price=candidate.get("item_price"),
+                cooldown_hours=cooldown,
+            )
+        ]
+        due.sort(key=priority)
+        maximum = max(1, int(self.settings.deal_hunter_max_candidates_per_run))
+        return due[:maximum], max(0, len(candidates) - min(len(due), maximum))
+          '''
+          new = '''        due = [
+            candidate
+            for candidate in candidates
+            if force
+            or not DealHunterStore.is_cooling_down(
+                history.get(candidate["candidate_key"]),
+                current_price=candidate.get("item_price"),
+                cooldown_hours=cooldown,
+            )
+        ]
+        due.sort(key=priority)
+        configured_max = max(1, int(self.settings.deal_hunter_max_candidates_per_run))
+        requested_max = configured_max if limit is None else max(1, min(int(limit), configured_max))
+        return due[:requested_max], max(0, len(candidates) - min(len(due), requested_max))
+          '''
+          if old not in text:
+              raise SystemExit('cooldown anchor missing')
+          text = text.replace(old, new, 1)
+          p.write_text(text)
+
+          p = Path('services/instacomp-ai/app/deal_hunter_routes.py')
+          text = p.read_text()
+          text = text.replace('from fastapi import APIRouter, Depends, Query', 'from fastapi import APIRouter, Depends, HTTPException, Query')
+          old = '''    @router.post("/run", dependencies=[Depends(require_api_key)])
+    async def run_deal_hunter_now():
+        return await _scheduler.run_now(trigger="manual")
+          '''
+          new = '''    @router.post("/run", dependencies=[Depends(require_api_key)])
+    async def run_deal_hunter_now(
+        lane: str | None = Query(default=None),
+        force: bool = Query(default=False),
+        limit: int | None = Query(default=None, ge=1, le=20),
+    ):
+        allowed_lanes = {key for key, _, _ in __import__("app.deal_hunter", fromlist=["FEEDS"]).FEEDS}
+        if lane is not None and lane not in allowed_lanes:
+            raise HTTPException(status_code=400, detail="Unknown Deal Hunter lane")
+        if force and lane is None:
+            raise HTTPException(status_code=400, detail="force=true requires an explicit lane")
+        return await _scheduler.run_now(
+            trigger="manual_targeted" if lane else "manual",
+            lane=lane,
+            force=force,
+            limit=limit,
+        )
+          '''
+          if old not in text:
+              raise SystemExit('route anchor missing')
+          text = text.replace(old, new, 1)
+          p.write_text(text)
+
+          p = Path('services/instacomp-ai/tests/test_deal_hunter_scheduler.py')
+          text = p.read_text()
+          if 'test_force_selection_bypasses_cooldown_but_respects_limit' not in text:
+              text += '''\n\ndef test_force_selection_bypasses_cooldown_but_respects_limit(tmp_path: Path):
+    class Settings:
+        deal_hunter_candidate_cooldown_hours = 6
+        deal_hunter_max_candidates_per_run = 20
+
+    store = DealHunterStore(tmp_path / "targeted.sqlite3")
+    store.initialize()
+    store.create_run("old", "manual")
+    store.save_candidate("old", {
+        "candidate_key": "ebay:1",
+        "listing_url": "https://www.ebay.com/itm/1",
+        "title": "Ivan Demidov 2025-26 Parkhurst #236",
+        "image_urls": ["a", "b"],
+        "item_price": 3.59,
+        "status": "completed",
+    })
+    from app.deal_hunter import DealHunterScheduler
+    scheduler = DealHunterScheduler(Settings(), store)
+    candidate = {
+        "candidate_key": "ebay:1",
+        "listing_url": "https://www.ebay.com/itm/1",
+        "title": "Ivan Demidov 2025-26 Parkhurst #236",
+        "image_urls": ["a", "b"],
+        "item_price": 3.59,
+    }
+    normal, _ = scheduler._select_for_evaluation([candidate])
+    forced, _ = scheduler._select_for_evaluation([candidate], force=True, limit=1)
+    assert normal == []
+    assert forced == [candidate]
+
+
+def test_targeted_limit_never_exceeds_configured_max(tmp_path: Path):
+    class Settings:
+        deal_hunter_candidate_cooldown_hours = 6
+        deal_hunter_max_candidates_per_run = 2
+
+    store = DealHunterStore(tmp_path / "bounded.sqlite3")
+    store.initialize()
+    from app.deal_hunter import DealHunterScheduler
+    scheduler = DealHunterScheduler(Settings(), store)
+    candidates = [
+        {"candidate_key": f"ebay:{i}", "listing_url": f"https://www.ebay.com/itm/{i}", "title": f"Ivan {i}", "image_urls": ["a", "b"], "item_price": float(i + 1)}
+        for i in range(5)
+    ]
+    selected, _ = scheduler._select_for_evaluation(candidates, force=True, limit=20)
+    assert len(selected) == 2
+'''
+          p.write_text(text)
+          PY
+      - name: Compile and run scheduler tests
+        working-directory: services/instacomp-ai
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile app/deal_hunter.py app/deal_hunter_routes.py
+          PYTHONPATH=. pytest -q tests/test_deal_hunter_scheduler.py
+      - name: Assert targeted lane contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -F 'lane: str | None = None' services/instacomp-ai/app/deal_hunter.py
+          grep -F 'force=true requires an explicit lane' services/instacomp-ai/app/deal_hunter_routes.py
+          grep -F 'if lane is not None and key != lane:' services/instacomp-ai/app/deal_hunter.py
+          grep -F 'if force' services/instacomp-ai/app/deal_hunter.py
+      - name: Commit generated patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add services/instacomp-ai/app/deal_hunter.py services/instacomp-ai/app/deal_hunter_routes.py services/instacomp-ai/tests/test_deal_hunter_scheduler.py
+          git diff --cached --quiet && { echo 'Expected generated patch is empty'; exit 1; }
+          git commit -m 'Add protected targeted Deal Hunter lane runs'
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}

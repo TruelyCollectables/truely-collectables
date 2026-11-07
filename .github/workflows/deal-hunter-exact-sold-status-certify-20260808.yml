@@ -1,0 +1,37 @@
+name: Deal Hunter Exact Sold Status Certify 20260808
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/lib/instacomp-live-pipeline.ts'
+      - 'src/app/api/release/instacomp-deal-hunter-history-status/route.ts'
+      - 'scripts/run-deal-hunter-exact-sold-status-regressions.ts'
+      - '.github/workflows/deal-hunter-exact-sold-status-certify-20260808.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  certify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Exact sold status regressions
+        run: node --import tsx scripts/run-deal-hunter-exact-sold-status-regressions.ts
+      - name: TypeScript
+        run: npx tsc --noEmit --pretty false
+      - name: Diff check
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "${{ github.base_ref }}"
+          git diff --check "origin/${{ github.base_ref }}...HEAD"

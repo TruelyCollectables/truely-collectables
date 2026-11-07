@@ -1,0 +1,113 @@
+name: Move Universal Checklist Archive into InstaComp AI
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/ingest-universal-checklist-archive.yml"
+      - "scripts/ingest-universal-checklist-archive.mjs"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: instacomp-universal-checklist-archive-ingest
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    name: Permanently archive every downloaded checklist
+    runs-on: ubuntu-24.04
+    environment: Production
+    timeout-minutes: 360
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      CHECKLIST_ARCHIVE_SOURCE_RUN_ID: "31100986894"
+      CHECKLIST_ARCHIVE_SOURCE_ARTIFACT_ID: "8972198573"
+      CHECKLIST_ARCHIVE_MASTER_ROOT: ".card-checklist-master-archive"
+      CHECKLIST_ARCHIVE_SCAN_ROOTS: ".card-checklist-master-archive,.public-checklist-source-archive,.internal-checklist-source-archive"
+      CHECKLIST_ARCHIVE_RECEIPT: ".checklist-archive-ingest/receipt-31100986894-8972198573.json"
+      CHECKLIST_ARCHIVE_HASH_WORKERS: "8"
+      CHECKLIST_ARCHIVE_UPLOAD_WORKERS: "6"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Download the verified 2.98 GB master archive
+        uses: actions/download-artifact@v4
+        with:
+          name: sports-card-checklist-master-archive-31100986894
+          path: downloaded-universal-checklist-archive
+          repository: ${{ github.repository }}
+          run-id: "31100986894"
+          github-token: ${{ github.token }}
+
+      - name: Extract and verify the exact source artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f downloaded-universal-checklist-archive/sports-card-checklist-master-archive.tar.gz
+          tar -xzf downloaded-universal-checklist-archive/sports-card-checklist-master-archive.tar.gz
+          test -f .card-checklist-master-archive/manifest.json
+          test -f .card-checklist-master-archive/master-sets.json
+          test -f .card-checklist-master-archive/source-items.json
+          node <<'NODE'
+          const fs = require('node:fs');
+          const manifest = JSON.parse(fs.readFileSync('.card-checklist-master-archive/manifest.json', 'utf8'));
+          const expected = { sourceItems: 10275, exactMasterSets: 6259, uniqueStoredFileHashes: 12095 };
+          if (manifest.schema !== 'tcos.universalCardChecklistArchive.v2') throw new Error(`Wrong archive schema: ${manifest.schema}`);
+          for (const [key, value] of Object.entries(expected)) {
+            if (Number(manifest.totals?.[key]) !== value) throw new Error(`Wrong ${key}: ${manifest.totals?.[key]}`);
+          }
+          console.log(JSON.stringify({ status: 'verified', totals: manifest.totals }, null, 2));
+          NODE
+
+      - run: npm ci
+
+      - name: Verify ingestion source syntax
+        run: node --check scripts/ingest-universal-checklist-archive.mjs
+
+      - name: Copy every file into permanent private InstaComp storage and register the catalog
+        run: node scripts/ingest-universal-checklist-archive.mjs
+
+      - name: Require a passing permanent-archive receipt
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = '.checklist-archive-ingest/receipt-31100986894-8972198573.json';
+          const receipt = JSON.parse(fs.readFileSync(path, 'utf8'));
+          if (receipt.status !== 'passed') throw new Error('Permanent archive receipt did not pass.');
+          if (receipt.privateStorage !== true || receipt.bucketPublic !== false) throw new Error('Archive bucket is not proven private.');
+          if (Number(receipt.totals?.sourceItems) !== 10275) throw new Error('Source-item total changed.');
+          if (Number(receipt.totals?.exactMasterSets) !== 6259) throw new Error('Exact-set total changed.');
+          if (Number(receipt.totals?.uniqueBlobs) < 12095) throw new Error('Unique files are missing.');
+          if (Number(receipt.catalog?.catalogRowsUpserted || 0) + Number(receipt.catalog?.protectedLiveCatalogRows || 0) !== Number(receipt.catalog?.uniqueSourceUrls || 0)) {
+            throw new Error('Source catalog did not reconcile.');
+          }
+          console.log(JSON.stringify({
+            status: receipt.status,
+            bucket: receipt.bucket,
+            totals: receipt.totals,
+            catalog: receipt.catalog,
+          }, null, 2));
+          NODE
+
+      - name: Upload sanitized ingestion receipt
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-universal-checklist-ingestion-receipt-${{ github.run_id }}
+          path: .checklist-archive-ingest/*.json
+          if-no-files-found: error
+          retention-days: 90

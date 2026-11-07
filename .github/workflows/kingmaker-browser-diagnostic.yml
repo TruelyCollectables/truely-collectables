@@ -1,0 +1,131 @@
+name: KINGMAKER Browser Diagnostic
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/kingmaker-browser-diagnostic.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    env:
+      INSTACOMP_AI_LOCAL_KEY: ${{ secrets.INSTACOMP_AI_LOCAL_KEY }}
+    steps:
+      - name: Exercise authenticated KINGMAKER in a real Chromium runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          [ -n "${INSTACOMP_AI_LOCAL_KEY:-}" ] || { echo "INSTACOMP_AI_LOCAL_KEY unavailable"; exit 2; }
+          CHROME="$(command -v google-chrome || command -v google-chrome-stable || command -v chromium || true)"
+          [ -n "$CHROME" ] || { echo "Chromium executable unavailable"; exit 2; }
+          "$CHROME" --headless=new --disable-gpu --no-sandbox --remote-debugging-port=9222 about:blank >/tmp/chrome.out 2>/tmp/chrome.err &
+          CHROME_PID=$!
+          trap 'kill "$CHROME_PID" 2>/dev/null || true' EXIT
+          for i in $(seq 1 30); do
+            curl -sf http://127.0.0.1:9222/json/version >/dev/null && break
+            sleep 1
+          done
+          node <<'NODE'
+          const crypto = require("node:crypto");
+          const root = String(process.env.INSTACOMP_AI_LOCAL_KEY || "").trim();
+          const issued = String(Math.floor(Date.now() / 1000));
+          const secret = "tcos-admin-session-v3:" + root;
+          const sig = crypto.createHmac("sha256", secret).update(issued).digest("base64url");
+          const session = issued + "." + sig;
+
+          async function openTarget() {
+            const res = await fetch("http://127.0.0.1:9222/json/new?about:blank", { method: "PUT" });
+            if (!res.ok) throw new Error("Unable to create CDP target: " + res.status);
+            return res.json();
+          }
+
+          async function inspect(path) {
+            const target = await openTarget();
+            const ws = new WebSocket(target.webSocketDebuggerUrl);
+            let id = 0;
+            const pending = new Map();
+            const events = [];
+            function send(method, params = {}) {
+              return new Promise((resolve, reject) => {
+                const requestId = ++id;
+                pending.set(requestId, { resolve, reject });
+                ws.send(JSON.stringify({ id: requestId, method, params }));
+              });
+            }
+            ws.onmessage = (event) => {
+              const message = JSON.parse(event.data);
+              if (message.id && pending.has(message.id)) {
+                const pair = pending.get(message.id);
+                pending.delete(message.id);
+                if (message.error) pair.reject(new Error(JSON.stringify(message.error)));
+                else pair.resolve(message.result);
+                return;
+              }
+              if (["Runtime.exceptionThrown","Runtime.consoleAPICalled","Log.entryAdded"].includes(message.method)) {
+                events.push(message);
+              }
+            };
+            await new Promise((resolve, reject) => {
+              ws.onopen = resolve;
+              ws.onerror = reject;
+            });
+            await send("Runtime.enable");
+            await send("Page.enable");
+            await send("Network.enable");
+            await send("Log.enable").catch(() => {});
+            const cookie = await send("Network.setCookie", {
+              name: "tcos_admin_auth_v3",
+              value: session,
+              url: "https://truelycollectables.com/",
+              secure: true,
+              httpOnly: true,
+              sameSite: "Lax",
+            });
+            if (!cookie.success) throw new Error("CDP admin cookie was not accepted");
+            await send("Page.navigate", { url: "https://truelycollectables.com" + path + "?browser_diag=" + Date.now() });
+            await new Promise((resolve) => setTimeout(resolve, 10000));
+            const snapshot = await send("Runtime.evaluate", {
+              expression: "({href:location.href,title:document.title,text:document.body.innerText.slice(0,12000)})",
+              returnByValue: true,
+            });
+            const value = snapshot.result.value || {};
+            const errors = [];
+            for (const event of events) {
+              if (event.method === "Runtime.exceptionThrown") {
+                const d = event.params.exceptionDetails || {};
+                errors.push("EXCEPTION " + (d.exception?.description || d.exception?.value || d.text || "unknown"));
+              } else if (event.method === "Runtime.consoleAPICalled" && ["error","assert"].includes(event.params.type)) {
+                errors.push("CONSOLE " + event.params.type + " " + (event.params.args || []).map((arg) => arg.value || arg.description || "").join(" | "));
+              } else if (event.method === "Log.entryAdded" && ["error","warning"].includes(event.params.entry?.level)) {
+                errors.push("LOG " + event.params.entry.level + " " + (event.params.entry.text || ""));
+              }
+            }
+            console.log("ROUTE", path);
+            console.log("FINAL_URL", value.href);
+            console.log("RECOVERY_SCREEN", String(value.text || "").includes("KINGMAKER recovered safely"));
+            console.log("TEXT_PREFIX", String(value.text || "").slice(0, 1200).replace(/\s+/g, " "));
+            for (const error of errors) console.log(error.slice(0, 5000));
+            ws.close();
+            return {
+              recovery: String(value.text || "").includes("KINGMAKER recovered safely"),
+              redirectedToLogin: String(value.href || "").includes("/admin/login"),
+              errors,
+            };
+          }
+
+          (async () => {
+            const results = [];
+            for (const path of ["/kingmaker", "/kingmaker/settings"]) results.push([path, await inspect(path)]);
+            const bad = results.filter(([, value]) => value.recovery || value.redirectedToLogin || value.errors.some((e) => e.startsWith("EXCEPTION")));
+            if (bad.length) process.exitCode = 1;
+          })().catch((error) => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE

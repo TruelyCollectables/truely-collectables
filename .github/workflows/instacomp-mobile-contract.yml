@@ -1,0 +1,55 @@
+name: InstaComp Mobile Contract
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/instacomp-mobile-contract.yml"
+      - "src/lib/instacomp-api-contract.ts"
+      - "src/lib/instacomp-verified-pricing-client.ts"
+      - "src/app/api/account/seller/inventory/instacomp-verified/route.ts"
+      - "src/app/api/account/seller/inventory/instacomp-verified-batch/route.ts"
+      - "src/app/api/mobile/v1/instacomp/**"
+      - "scripts/run-instacomp-mobile-contract-regressions.ts"
+      - "docs/instacomp-mobile-api-v1.md"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/instacomp-mobile-contract.yml"
+      - "src/lib/instacomp-api-contract.ts"
+      - "src/lib/instacomp-verified-pricing-client.ts"
+      - "src/app/api/account/seller/inventory/instacomp-verified/route.ts"
+      - "src/app/api/account/seller/inventory/instacomp-verified-batch/route.ts"
+      - "src/app/api/mobile/v1/instacomp/**"
+      - "scripts/run-instacomp-mobile-contract-regressions.ts"
+      - "docs/instacomp-mobile-api-v1.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  certify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Run web and Mobile contract regressions
+        run: npx tsx scripts/run-instacomp-mobile-contract-regressions.ts
+      - name: Lint contract slice
+        run: |
+          npx eslint \
+            src/lib/instacomp-api-contract.ts \
+            src/lib/instacomp-verified-pricing-client.ts \
+            src/app/api/account/seller/inventory/instacomp-verified/route.ts \
+            src/app/api/account/seller/inventory/instacomp-verified-batch/route.ts \
+            src/app/api/mobile/v1/instacomp/price/route.ts \
+            src/app/api/mobile/v1/instacomp/batch/route.ts \
+            scripts/run-instacomp-mobile-contract-regressions.ts
+      - name: Typecheck repository
+        run: npx tsc --noEmit --pretty false

@@ -1,0 +1,239 @@
+import {
+  ADMIN_EBAY_ENVIRONMENTS,
+  adminStoreOperationalSettingsError,
+  cleanAdminSettingsText,
+  adminSettingsEmailAddress,
+  isValidAdminSettingsEmail,
+  parseAdminEbayEnvironment,
+  parseAdminSellerCommissionPercent,
+  readableAdminStoreSettingsFailure,
+} from "../src/lib/admin-store-settings.ts";
+import { readFile } from "node:fs/promises";
+
+const settingsPageSource = await readFile(
+  new URL("../src/app/admin/settings/page.tsx", import.meta.url),
+  "utf8",
+);
+
+const scenarios = [];
+
+function scenario(name, run) {
+  scenarios.push({ name, run });
+}
+
+function assert(condition, message) {
+  if (!condition) throw new Error(message);
+}
+
+scenario("cleans optional admin settings text", () => {
+  assert(cleanAdminSettingsText(" support@example.com ") === "support@example.com", "Trims text.");
+  assert(cleanAdminSettingsText("") === null, "Rejects empty string.");
+  assert(cleanAdminSettingsText("   ") === null, "Rejects whitespace.");
+  assert(cleanAdminSettingsText(null) === null, "Rejects non-string values.");
+});
+
+scenario("accepts valid seller commission percentages only", () => {
+  assert(parseAdminSellerCommissionPercent("0") === 0, "Allows zero percent.");
+  assert(parseAdminSellerCommissionPercent("8.25") === 8.25, "Allows decimal percent.");
+  assert(parseAdminSellerCommissionPercent("100") === 100, "Allows 100 percent.");
+
+  for (const value of ["", "   ", "-0.01", "100.01", "abc", null, undefined]) {
+    assert(
+      parseAdminSellerCommissionPercent(value) === null,
+      `${String(value)} should be rejected.`,
+    );
+  }
+});
+
+scenario("accepts only supported eBay environments", () => {
+  for (const environment of ADMIN_EBAY_ENVIRONMENTS) {
+    assert(
+      parseAdminEbayEnvironment(environment) === environment,
+      `${environment} should parse.`,
+    );
+  }
+
+  for (const value of ["staging", "prod", "PRODUCTION", 42]) {
+    assert(parseAdminEbayEnvironment(value) === null, `${String(value)} should be rejected.`);
+  }
+});
+
+scenario("validates optional admin contact emails before save", () => {
+  assert(
+    adminSettingsEmailAddress("TCOS Evidence <evidence@example.com>") ===
+      "evidence@example.com",
+    "Expected display-name address parsing.",
+  );
+  assert(isValidAdminSettingsEmail("support@example.com"), "Allows bare email.");
+  assert(
+    isValidAdminSettingsEmail("TCOS Orders <orders@example.com>"),
+    "Allows Name <email> values.",
+  );
+  assert(isValidAdminSettingsEmail(""), "Allows optional blank email fields.");
+
+  for (const value of [
+    "support",
+    "support@example",
+    "support @example.com",
+    "TCOS Evidence <not-an-email>",
+  ]) {
+    assert(!isValidAdminSettingsEmail(value), `${value} should be rejected.`);
+  }
+});
+
+scenario("returns operator-readable validation errors", () => {
+  assert(
+    adminStoreOperationalSettingsError({
+      sellerCommissionPercent: "",
+      ebayEnvironment: "production",
+    }) === "Seller commission percent must be a number from 0 to 100.",
+    "Blank commission should be rejected with a friendly error.",
+  );
+
+  assert(
+    adminStoreOperationalSettingsError({
+      sellerCommissionPercent: "8",
+      ebayEnvironment: "staging",
+    }) === "eBay environment must be production or sandbox.",
+    "Unsupported environment should be rejected with a friendly error.",
+  );
+
+  assert(
+    adminStoreOperationalSettingsError({
+      sellerCommissionPercent: "8",
+      ebayEnvironment: "sandbox",
+      supportEmail: "support@example.com",
+      salesEmail: "sales@example.com",
+      offersEmail: "offers@example.com",
+      evidenceEmail: "evidence@example.com",
+      evidenceFromEmail: "Evidence <evidence@example.com>",
+      orderFromEmail: "Orders <orders@example.com>",
+    }) === null,
+    "Valid operations settings should pass.",
+  );
+
+  assert(
+    adminStoreOperationalSettingsError({
+      sellerCommissionPercent: "8",
+      ebayEnvironment: "sandbox",
+      supportEmail: "support.example.com",
+    }) === "Support Email must be a valid email address.",
+    "Invalid support email should be rejected with a friendly error.",
+  );
+
+  assert(
+    adminStoreOperationalSettingsError({
+      sellerCommissionPercent: "8",
+      ebayEnvironment: "sandbox",
+      evidenceFromEmail: "Evidence <evidence>",
+    }) === "Evidence From must be a valid email address or Name <email> value.",
+    "Invalid display-name email should be rejected with a friendly error.",
+  );
+});
+
+scenario("keeps unexpected save failures readable and bounded", () => {
+  assert(
+    readableAdminStoreSettingsFailure(new Error("database went sideways"), "fallback") ===
+      "database went sideways",
+    "Keeps useful errors.",
+  );
+
+  assert(
+    readableAdminStoreSettingsFailure("not an error", "fallback") === "fallback",
+    "Falls back for unknown errors.",
+  );
+
+  assert(
+    readableAdminStoreSettingsFailure(new Error("x".repeat(300)), "fallback").length === 240,
+    "Bounds URL-safe admin error length.",
+  );
+});
+
+scenario("settings page submits every email field through server validation", () => {
+  for (const fragment of [
+    "supportEmail,",
+    "salesEmail,",
+    "offersEmail,",
+    "evidenceEmail,",
+    "evidenceFromEmail,",
+    "orderFromEmail,",
+    'type="email"',
+    'inputMode="email"',
+    "Settings were not saved:",
+    'role="alert"',
+    'aria-live="assertive"',
+  ]) {
+    assert(
+      settingsPageSource.includes(fragment),
+      `Expected settings page validation fragment ${fragment}.`,
+    );
+  }
+});
+
+scenario("settings page announces scoped save feedback and eBay sync impact", () => {
+  for (const fragment of [
+    'role="status"',
+    'aria-live="polite"',
+    "Store operations saved. Domain, email, eBay environment, account label, and seller commission settings were updated.",
+    "Marketplace integration settings saved. eBay sync availability was updated for this store.",
+    "Save domain, contact email, eBay environment, account label, and seller commission settings.",
+    "Save the eBay sync toggle for this store. Disabling it blocks imports, reconnects, and post-sale eBay quantity updates.",
+    "Current eBay Sync",
+    "Enabled: imports, reconnects, and post-sale quantity pushes are allowed.",
+    "Disabled: imports, reconnects, and eBay quantity pushes are blocked.",
+  ]) {
+    assert(
+      settingsPageSource.includes(fragment),
+      `Expected settings page save/eBay sync feedback fragment ${fragment}.`,
+    );
+  }
+});
+
+scenario("settings page exposes professional operator controls", () => {
+  for (const fragment of [
+    "Store Control Center",
+    "Store identity",
+    "Email routing",
+    "eBay sync policy",
+    "rounded-[2rem] border border-neutral-900 bg-neutral-950",
+    "shadow-2xl shadow-neutral-950/10",
+    "max-w-[1500px]",
+    "rounded-3xl border border-neutral-200 bg-white/90",
+    "rounded-full bg-neutral-950",
+    "transition hover:-translate-y-0.5",
+    "focus:ring-2 focus:ring-amber-100",
+    "shadow-sm ring-1 ring-black/[0.02]",
+    "border border-white/15 bg-white/10",
+  ]) {
+    assert(
+      settingsPageSource.includes(fragment),
+      `Expected settings page professional control fragment ${fragment}.`,
+    );
+  }
+
+  for (const roughShell of ['bg-[#101418]', "max-w-7xl"]) {
+    assert(
+      !settingsPageSource.includes(roughShell),
+      `Expected settings page to avoid rough shell fragment ${roughShell}.`,
+    );
+  }
+});
+
+const failed = [];
+
+for (const item of scenarios) {
+  try {
+    item.run();
+    console.log(`✓ ${item.name}`);
+  } catch (error) {
+    failed.push(item.name);
+    console.error(`✗ ${item.name}`);
+    console.error(error);
+  }
+}
+
+console.log(
+  `Admin store settings simulations: ${scenarios.length - failed.length}/${scenarios.length} passed.`,
+);
+
+if (failed.length > 0) process.exitCode = 1;

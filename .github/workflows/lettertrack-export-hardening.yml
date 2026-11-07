@@ -1,0 +1,58 @@
+name: LetterTrack Export Hardening
+
+on:
+  pull_request:
+    paths:
+      - "src/lib/lettertrack-export.ts"
+      - "src/lib/lettertrack-shipstation.ts"
+      - "src/lib/shipstation-parcel.ts"
+      - "src/lib/shipstation-connection.ts"
+      - "src/lib/shipstation-controlled-test.ts"
+      - "src/app/api/admin/shipping/lettertrack-export/route.ts"
+      - "src/app/api/admin/shipping/shipstation-connection-test/**"
+      - "src/app/api/admin/shipping/controlled-test-shipment/**"
+      - "src/app/api/admin/orders/*/lettertrack-postage/**"
+      - "src/app/api/admin/orders/*/shipstation-parcel/**"
+      - "src/app/admin/orders/*/LetterTrackPostagePurchase.tsx"
+      - "src/app/admin/orders/*/ShipStationParcelPurchase.tsx"
+      - "src/app/admin/orders/*/ShippingLabelActions.tsx"
+      - "src/app/admin/shipping/shipstation-test/**"
+      - "src/app/admin/shipping/test-shipment/**"
+      - "src/app/api/tcos/shipping-safety/route.ts"
+      - "scripts/run-lettertrack-export-hardening-simulations.ts"
+      - "scripts/run-lettertrack-shipstation-bridge-simulations.ts"
+      - "scripts/run-shipstation-parcel-bridge-simulations.ts"
+      - "scripts/run-shipstation-connection-simulations.ts"
+      - "scripts/run-shipstation-controlled-test-simulations.ts"
+      - ".github/workflows/lettertrack-export-hardening.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  hardening:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Checkout exact PR head
+        uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci --ignore-scripts
+      - name: Run LetterTrack adversarial simulations
+        run: node --import tsx scripts/run-lettertrack-export-hardening-simulations.ts
+      - name: Run LetterTrack ShipStation bridge simulations
+        run: node --import tsx scripts/run-lettertrack-shipstation-bridge-simulations.ts
+      - name: Run ShipStation parcel bridge simulations
+        run: node --import tsx scripts/run-shipstation-parcel-bridge-simulations.ts
+      - name: Run ShipStation connection diagnostic simulations
+        run: node --import tsx scripts/run-shipstation-connection-simulations.ts
+      - name: Run controlled ShipStation test shipment simulations
+        run: node --import tsx scripts/run-shipstation-controlled-test-simulations.ts
+      - name: TypeScript
+        run: npx tsc --noEmit

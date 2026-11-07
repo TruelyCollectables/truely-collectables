@@ -1,0 +1,86 @@
+name: KINGMAKER Phase 15 Continuous Assurance Drift Control
+
+on:
+  pull_request:
+    paths:
+      - "src/lib/kingmaker-phase-15-*.ts"
+      - "scripts/run-kingmaker-phase-15-*.ts"
+      - "supabase/migrations/20260803190000_kingmaker_phase_15_continuous_assurance_drift_control.sql"
+      - ".github/workflows/kingmaker-phase-15-continuous-assurance-drift-control.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: kingmaker-phase-15-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify-continuous-assurance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Phase 15 adversarial regressions
+        run: node --import tsx scripts/run-kingmaker-phase-15-continuous-assurance-drift-control-regressions.ts
+      - name: Migration security contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          migration=supabase/migrations/20260803190000_kingmaker_phase_15_continuous_assurance_drift_control.sql
+          for table in \
+            tcos_kingmaker_assurance_windows \
+            tcos_kingmaker_drift_evidence \
+            tcos_kingmaker_drift_commands \
+            tcos_kingmaker_owner_attestations \
+            tcos_kingmaker_assurance_receipts
+          do
+            grep -q "$table" "$migration"
+          done
+          test "$(grep -c 'enable row level security' "$migration")" -eq 5
+          test "$(grep -c 'revoke all' "$migration")" -eq 5
+          test "$(grep -c 'grant all' "$migration")" -eq 5
+          ! grep -Eiq 'grant .* to (anon|authenticated)' "$migration"
+      - name: Fail-closed drift safety
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'requiredEvidenceKeys' src/lib/kingmaker-phase-15-continuous-assurance-drift-control.ts
+          grep -q 'capitalLedgerBalanced' src/lib/kingmaker-phase-15-continuous-assurance-drift-control.ts
+          grep -q 'quarantineWrites' src/lib/kingmaker-phase-15-continuous-assurance-drift-control.ts
+          grep -q 'invokeRollback' src/lib/kingmaker-phase-15-continuous-assurance-drift-control.ts
+          ! grep -EIn '\beval\s*\(|new Function\s*\(|child_process|execSync\s*\(|spawnSync\s*\(' src/lib/kingmaker-phase-15-*.ts scripts/run-kingmaker-phase-15-*.ts
+      - name: Diff integrity
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin "+refs/heads/${{ github.base_ref }}:refs/remotes/origin/${{ github.base_ref }}"
+          git diff --check "origin/${{ github.base_ref }}...HEAD"
+      - name: Lint Phase 15
+        run: npx eslint src/lib/kingmaker-phase-15-*.ts scripts/run-kingmaker-phase-15-*.ts
+      - name: TypeScript
+        run: npx tsc --noEmit
+      - name: Production build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: build-placeholder
+          SUPABASE_SERVICE_ROLE_KEY: build-placeholder
+          ADMIN_PASSWORD: build-placeholder
+          ADMIN_SESSION_SECRET: build-placeholder-admin-session
+          STRIPE_SECRET_KEY: sk_test_build_placeholder
+          STRIPE_WEBHOOK_SECRET: whsec_build_placeholder
+          EBAY_CLIENT_ID: build-placeholder
+          EBAY_CLIENT_SECRET: build-placeholder
+          EBAY_ENVIRONMENT: production
+          TCOS_LIVE_PAYMENTS_ENABLED: "false"
+          TCOS_LIVE_SHIPPING_ENABLED: "false"
+          TCOS_SHIPPING_PURCHASE_MODE: dry_run
+        run: npm run build

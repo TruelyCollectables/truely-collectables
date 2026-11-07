@@ -1,0 +1,442 @@
+export type EbayAspectMap = Record<string, unknown>;
+
+export type EbayCategoryMapping = {
+  category: string;
+  confidence: "high" | "medium" | "low";
+  reviewRequired: boolean;
+  evidence: string[];
+  attributes: Record<string, string>;
+};
+
+type CategoryRule = {
+  category: string;
+  highTerms: string[];
+  mediumTerms: string[];
+};
+
+const CATEGORY_RULES: CategoryRule[] = [
+  {
+    category: "sports_cards",
+    highTerms: [
+      "sports trading card",
+      "trading card single",
+      "rookie card",
+      "psa ",
+      "bgs ",
+      "sgc ",
+      "cgc ",
+      "topps",
+      "panini",
+      "upper deck",
+      "bowman",
+      "donruss",
+      "prizm",
+      "refractor",
+    ],
+    mediumTerms: [
+      "baseball",
+      "basketball",
+      "football",
+      "hockey",
+      "soccer",
+      "ufc",
+    ],
+  },
+  {
+    category: "trading_cards",
+    highTerms: [
+      "pokemon",
+      "pokémon",
+      "magic the gathering",
+      "mtg",
+      "yu-gi-oh",
+      "yugioh",
+      "lorcana",
+      "tcg",
+      "ccg",
+    ],
+    mediumTerms: ["booster", "foil card", "holo card", "deck"],
+  },
+  {
+    category: "shoes",
+    highTerms: [
+      "sneaker",
+      "shoe",
+      "shoes",
+      "jordan",
+      "nike",
+      "adidas",
+      "new balance",
+      "yeezy",
+      "dunk low",
+      "air max",
+    ],
+    mediumTerms: ["size ", "men's", "mens", "women's", "womens"],
+  },
+  {
+    category: "comics",
+    highTerms: ["comic book", "comics", "cgc comic", "marvel", "dc comics"],
+    mediumTerms: ["issue #", "variant cover", "first appearance"],
+  },
+  {
+    category: "sealed_wax",
+    highTerms: [
+      "hobby box",
+      "blaster box",
+      "mega box",
+      "booster box",
+      "sealed box",
+      "sealed case",
+      "wax box",
+    ],
+    mediumTerms: ["pack", "factory sealed", "sealed"],
+  },
+  {
+    category: "music",
+    highTerms: [
+      "cd booklet",
+      "signed cd",
+      "autographed cd",
+      "compact disc",
+      "music cd",
+      "album booklet",
+      "liner notes",
+      "cd insert",
+      "vinyl record",
+    ],
+    mediumTerms: ["album", "record", "disc", "booklet"],
+  },
+  {
+    category: "autographs",
+    highTerms: ["autograph", "autographed", "autographs", "signed"],
+    mediumTerms: ["coa", "jsa", "beckett authenticated", "psa dna"],
+  },
+  {
+    category: "memorabilia",
+    highTerms: [
+      "sports memorabilia",
+      "memorabilia",
+      "hockey puck",
+      "signed puck",
+      "autographed puck",
+      "signed baseball",
+      "autographed baseball",
+      "signed football",
+      "autographed football",
+      "signed basketball",
+      "autographed basketball",
+      "signed jersey",
+      "autographed jersey",
+      "game used",
+      "game worn",
+      "player worn",
+      "helmet",
+      "baseball bat",
+      "signed photo",
+      "autographed photo",
+    ],
+    mediumTerms: [
+      "puck",
+      "ball",
+      "jersey",
+      "bat",
+      "glove",
+      "photo",
+      "photograph",
+      "ticket",
+      "program",
+      "patch",
+      "framed",
+      "display",
+      "coa",
+    ],
+  },
+  {
+    category: "coins",
+    highTerms: ["coin", "silver dollar", "gold coin", "ngc", "pcgs"],
+    mediumTerms: ["mint", "proof", "bullion"],
+  },
+  {
+    category: "toys",
+    highTerms: ["action figure", "funko", "lego", "hot wheels", "toy"],
+    mediumTerms: ["figure", "diecast", "collectible toy"],
+  },
+];
+
+const ATTRIBUTE_NAMES = [
+  "Autograph Authentication",
+  "Autograph Authentication Number",
+  "Autograph Format",
+  "Autographed",
+  "Brand",
+  "Card Manufacturer",
+  "Character",
+  "Convention/Event",
+  "Features",
+  "Franchise",
+  "Grade",
+  "Graded",
+  "League",
+  "Manufacturer",
+  "Original/Licensed Reprint",
+  "Parallel/Variety",
+  "Player",
+  "Player/Athlete",
+  "Professional Grader",
+  "Season",
+  "Set",
+  "Shoe Size",
+  "Signed By",
+  "Sport",
+  "Team",
+  "Type",
+  "Vintage",
+  "Year Manufactured",
+];
+
+function textValue(value: unknown): string | null {
+  if (Array.isArray(value)) {
+    return value.map(textValue).filter(Boolean).join(", ") || null;
+  }
+
+  const text = String(value ?? "").trim();
+  return text.length > 0 ? text : null;
+}
+
+function normalizeKey(value: string) {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+function hasTerm(haystack: string, term: string) {
+  return haystack.includes(term.toLowerCase());
+}
+
+function scoreRule(rule: CategoryRule, text: string) {
+  const highMatches = rule.highTerms.filter((term) => hasTerm(text, term));
+  const mediumMatches = rule.mediumTerms.filter((term) => hasTerm(text, term));
+  const score = highMatches.length * 3 + mediumMatches.length;
+
+  return {
+    score,
+    evidence: [...highMatches, ...mediumMatches],
+  };
+}
+
+function isAffirmativeAspect(value: string) {
+  return ["1", "true", "yes", "y", "autographed", "signed"].includes(
+    value.trim().toLowerCase(),
+  );
+}
+
+function aspectSearchText(aspects: EbayAspectMap) {
+  const values = Object.values(aspects)
+    .map((value) => textValue(value) ?? "")
+    .filter(Boolean);
+  const autographed = textValue(aspects.Autographed);
+
+  if (autographed && isAffirmativeAspect(autographed)) {
+    values.push("autographed");
+  }
+
+  return values.join(" ").toLowerCase();
+}
+
+function getAspectValue(aspects: EbayAspectMap, name: string) {
+  return textValue(aspects[name])?.toLowerCase() || "";
+}
+
+function hasAffirmativeAutographedAspect(aspects: EbayAspectMap) {
+  const autographed = getAspectValue(aspects, "Autographed");
+
+  return Boolean(autographed && isAffirmativeAspect(autographed));
+}
+
+function hasStrongAutographEvidence(title: string, aspects: EbayAspectMap) {
+  const titleText = title.toLowerCase();
+  const focused = [
+    title,
+    getAspectValue(aspects, "Features"),
+    getAspectValue(aspects, "Parallel/Variety"),
+  ]
+    .join(" ")
+    .toLowerCase();
+  const negative =
+    /\b(?:facsimile|pre[- ]?printed|printed signature|reproduction|reprint autograph|unsigned|not signed|not autographed|non[- ]?auto|auto racing)\b/.test(
+      focused,
+    );
+  const signedBy = getAspectValue(aspects, "Signed By");
+  const authentication = getAspectValue(aspects, "Autograph Authentication");
+  const meaningful = (value: string) =>
+    Boolean(
+      value &&
+      !/^(?:0|false|no|none|n\/a|na|not applicable|not authenticated|unsigned|not autographed|not signed)$/i.test(
+        value.trim(),
+      ),
+    );
+  const autoShorthand =
+    /\bautos?\b/i.test(titleText) &&
+    !/\b(?:auto racing|automotive|automobile)\b/i.test(titleText);
+
+  return (
+    !negative &&
+    (hasAffirmativeAutographedAspect(aspects) ||
+      meaningful(signedBy) ||
+      meaningful(authentication) ||
+      /\bautograph(?:ed|s)?\b|\bautos?\b|\bsigned\b|\btreasured ink\b/i.test(
+        focused,
+      ) ||
+      autoShorthand)
+  );
+}
+
+function preferSportsCardAsPrimaryCategory(params: {
+  title: string;
+  aspects: EbayAspectMap;
+  currentCategory: string;
+}) {
+  if (params.currentCategory !== "autographs") return false;
+
+  const focused = `${params.title} ${aspectSearchText(params.aspects)}`;
+  const sportsCardScore = scoreRule(
+    CATEGORY_RULES[0],
+    focused.toLowerCase(),
+  ).score;
+
+  return sportsCardScore >= 3;
+}
+
+function confidence(score: number): EbayCategoryMapping["confidence"] {
+  if (score >= 3) return "high";
+  if (score >= 2) return "medium";
+  return "low";
+}
+
+function usefulAspectAttributes(aspects: EbayAspectMap) {
+  const attributes: Record<string, string> = {};
+
+  for (const name of ATTRIBUTE_NAMES) {
+    const value = textValue(aspects[name]);
+
+    if (value) {
+      attributes[`ebay_aspect_${normalizeKey(name)}`] = value.slice(0, 500);
+    }
+  }
+
+  return attributes;
+}
+
+export function mapEbayInventoryCategory(input: {
+  title: string;
+  description?: string | null;
+  aspects?: EbayAspectMap | null;
+}): EbayCategoryMapping {
+  const aspects = input.aspects ?? {};
+  const titleText = input.title.toLowerCase();
+  const explicitAccessoryObject =
+    /\b(?:wristwatch|sunglasses|eyewear|oakley)\b/.test(titleText) ||
+    (/\bwatch\b/.test(titleText) && !/\bfuture watch\b/.test(titleText));
+
+  if (explicitAccessoryObject) {
+    const category = "other_collectable";
+    const mappingConfidence = "high" as const;
+    const evidence = ["physical accessory title"];
+
+    return {
+      category,
+      confidence: mappingConfidence,
+      reviewRequired: false,
+      evidence,
+      attributes: {
+        tcos_category: category,
+        tcos_category_confidence: mappingConfidence,
+        tcos_review_required: "false",
+        tcos_category_evidence: evidence.join(", "),
+        tcos_is_autograph: String(
+          hasStrongAutographEvidence(input.title, aspects),
+        ),
+        ...usefulAspectAttributes(aspects),
+      },
+    };
+  }
+
+  const focusedSearchable =
+    `${input.title} ${aspectSearchText(aspects)}`.toLowerCase();
+  const fallbackSearchable = [focusedSearchable, input.description ?? ""]
+    .join(" ")
+    .toLowerCase();
+
+  const focusedResults = CATEGORY_RULES.map((rule) => ({
+    ...scoreRule(rule, focusedSearchable),
+    category: rule.category,
+  })).sort((left, right) => right.score - left.score);
+  const fallbackResults = CATEGORY_RULES.map((rule) => ({
+    ...scoreRule(rule, fallbackSearchable),
+    category: rule.category,
+  })).sort((left, right) => right.score - left.score);
+
+  let best =
+    focusedResults[0]?.score > 0 ? focusedResults[0] : fallbackResults[0];
+  const sportsCardResult = focusedResults.find(
+    (result) => result.category === "sports_cards",
+  );
+  const musicResult = focusedResults.find(
+    (result) => result.category === "music",
+  );
+
+  if (
+    best?.category === "autographs" &&
+    sportsCardResult &&
+    sportsCardResult.score >= 3
+  ) {
+    best = sportsCardResult;
+  }
+
+  if (
+    best &&
+    preferSportsCardAsPrimaryCategory({
+      title: input.title,
+      aspects,
+      currentCategory: best.category,
+    })
+  ) {
+    best =
+      focusedResults.find((result) => result.category === "sports_cards") ??
+      best;
+  }
+
+  if (
+    musicResult &&
+    musicResult.score >= 3 &&
+    /\b(?:music cd|compact disc|cd booklet|cd insert|album booklet|liner notes?|vinyl record|record album)\b/.test(
+      focusedSearchable,
+    )
+  ) {
+    best = musicResult;
+  }
+
+  const mappingConfidence = confidence(best?.score ?? 0);
+  const category = best && best.score > 0 ? best.category : "other_collectable";
+  const reviewRequired = mappingConfidence === "low";
+  const evidence = best?.evidence ?? [];
+
+  return {
+    category,
+    confidence: mappingConfidence,
+    reviewRequired,
+    evidence,
+    attributes: {
+      tcos_category: category,
+      tcos_category_confidence: mappingConfidence,
+      tcos_review_required: String(reviewRequired),
+      tcos_category_evidence: evidence.join(", "),
+      tcos_is_autograph: String(
+        hasStrongAutographEvidence(input.title, aspects),
+      ),
+      ...usefulAspectAttributes(aspects),
+    },
+  };
+}

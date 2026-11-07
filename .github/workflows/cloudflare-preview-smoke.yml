@@ -1,0 +1,46 @@
+name: Cloudflare Preview Smoke
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/cloudflare-preview-smoke-trigger'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    env:
+      BASE_URL: https://truely-collectables-preview.truelycollectables.workers.dev
+    steps:
+      - name: Probe live Cloudflare preview timings
+        shell: bash
+        run: |
+          set -u
+          probe() {
+            local path="$1"
+            local seconds="$2"
+            local body
+            body=$(mktemp)
+            local result
+            result=$(curl -sS -L --max-time "$seconds" -o "$body" -w 'HTTP %{http_code} total=%{time_total}s size=%{size_download}' "${BASE_URL}${path}" 2>&1 || true)
+            printf '%s -> %s\n' "$path" "$result"
+            if [ -s "$body" ]; then
+              printf 'body-prefix: '
+              head -c 160 "$body" | tr '\n' ' ' || true
+              echo
+            fi
+            rm -f "$body"
+          }
+
+          probe '/favicon.ico' 5
+          probe '/api/cron/profit-hunter' 6
+          probe '/api/ebay/test' 6
+          probe '/admin/login' 12
+          probe '/product/1991' 15
+          probe '/shop' 20
+          probe '/' 20

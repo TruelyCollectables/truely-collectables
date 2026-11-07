@@ -1,0 +1,341 @@
+import "server-only";
+
+import { assertCandidateBaseballPremiumPolicy } from "./market-intel-baseball-premium-enforcement";
+import {
+  syncEbayPurchaseReceiptComp,
+  type EbayPurchaseCompInput,
+} from "./market-intel-ebay-purchase-comps";
+import {
+  approveIdentityCandidate,
+  type CandidateApprovalInput,
+} from "./market-intel-identity-candidates";
+import { normalizeDuplicateIdentityKey } from "./market-intel-identity-duplicate-guard";
+import { normalizeDiscoveryApprovalInput } from "./market-intel-discovery-repair";
+import { endMarketIntelListing } from "./market-intel-listing-state";
+import { approvePurchaseInboxCandidate } from "./market-intel-purchase-inbox-approval";
+import { createSupabaseServerClient } from "./supabase-server";
+
+export type DiscoveryPurchaseInput = CandidateApprovalInput & {
+  totalAcquisitionCost: number;
+  itemSubtotal?: number;
+  inboundShipping?: number;
+  salesTax?: number;
+  buyerFees?: number;
+  otherCost?: number;
+  portfolioBucket?: "resale" | "hold";
+  purchaseDate?: string | null;
+  alreadyReceived?: boolean;
+};
+
+function finiteMoney(value: number) {
+  return Number.isFinite(value) && value >= 0;
+}
+
+function roundMoney(value: number) {
+  return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+}
+
+export async function recordDiscoveryCandidatePurchase(
+  input: DiscoveryPurchaseInput,
+) {
+  if (!finiteMoney(input.totalAcquisitionCost)) {
+    throw new Error("Actual out-the-door cost must be zero or greater.");
+  }
+  if (!Number.isInteger(input.quantity) || input.quantity <= 0) {
+    throw new Error("Purchase quantity must be a positive whole number.");
+  }
+
+  const itemSubtotal =
+    input.itemSubtotal === undefined
+      ? input.totalAcquisitionCost
+      : Number(input.itemSubtotal);
+  const inboundShipping = Number(input.inboundShipping || 0);
+  const salesTax = Number(input.salesTax || 0);
+  const buyerFees = Number(input.buyerFees || 0);
+  const otherCost = Number(input.otherCost || 0);
+
+  if (
+    ![itemSubtotal, inboundShipping, salesTax, buyerFees, otherCost].every(
+      finiteMoney,
+    )
+  ) {
+    throw new Error(
+      "Item price, shipping, sales tax, buyer fees, and other cost must be zero or greater.",
+    );
+  }
+
+  const calculatedTotal = roundMoney(
+    itemSubtotal + inboundShipping + salesTax + buyerFees + otherCost,
+  );
+  const enteredTotal = roundMoney(input.totalAcquisitionCost);
+  if (Math.abs(calculatedTotal - enteredTotal) > 0.02) {
+    throw new Error(
+      `Purchase breakdown does not match total paid. Breakdown is $${calculatedTotal.toFixed(2)} but total is $${enteredTotal.toFixed(2)}.`,
+    );
+  }
+
+  const supabase = createSupabaseServerClient({ admin: true });
+  const { data: candidateRow, error: candidateError } = await supabase
+    .from("tcos_mi_identity_candidates")
+    .select("metadata")
+    .eq("id", input.candidateId)
+    .single();
+  if (candidateError) throw new Error(candidateError.message);
+  const candidateMetadata =
+    candidateRow.metadata && typeof candidateRow.metadata === "object"
+      ? (candidateRow.metadata as Record<string, unknown>)
+      : {};
+  const purchaseInbox = candidateMetadata.purchase_inbox === true;
+  const portfolioBucket =
+    input.portfolioBucket ||
+    (candidateMetadata.portfolio_bucket === "hold" ? "hold" : "resale");
+  const purchasedAt = input.purchaseDate
+    ? new Date(`${input.purchaseDate}T12:00:00`).toISOString()
+    : candidateMetadata.actual_purchase_date
+      ? new Date(String(candidateMetadata.actual_purchase_date)).toISOString()
+      : new Date().toISOString();
+
+  const normalized = await normalizeDiscoveryApprovalInput(input);
+  let approval;
+  if (purchaseInbox) {
+    approval = await approvePurchaseInboxCandidate(normalized);
+  } else {
+    await assertCandidateBaseballPremiumPolicy(normalized);
+    await normalizeDuplicateIdentityKey(normalized);
+    approval = await approveIdentityCandidate(normalized);
+  }
+  if (!approval.listingId) {
+    throw new Error("The candidate was approved, but no normalized listing was created.");
+  }
+
+  const { data: listingRows, error: listingError } = await supabase
+    .from("tcos_mi_listings")
+    .select(
+      "id,marketplace_id,collectible_identity_id,external_listing_id,direct_url,original_title,asking_price,shipping_price,buyer_fee,delivered_price,quantity,metadata",
+    )
+    .eq("id", approval.listingId)
+    .limit(2);
+  if (listingError) throw new Error(listingError.message);
+  if (!listingRows || listingRows.length !== 1) {
+    throw new Error(
+      listingRows?.length
+        ? "The approved listing ID is duplicated."
+        : "The approved listing could not be found.",
+    );
+  }
+  const listing = listingRows[0];
+  if (!listing.collectible_identity_id) {
+    throw new Error("The approved listing does not have an exact collectible identity.");
+  }
+
+  const compInput = (purchaseId: string): EbayPurchaseCompInput => ({
+    purchaseId,
+    purchaseInboxId: candidateMetadata.purchase_inbox_id
+      ? String(candidateMetadata.purchase_inbox_id)
+      : null,
+    collectibleIdentityId: String(listing.collectible_identity_id),
+    marketplaceId: String(listing.marketplace_id),
+    externalOrderId: candidateMetadata.external_order_id
+      ? String(candidateMetadata.external_order_id)
+      : null,
+    externalListingId: listing.external_listing_id
+      ? String(listing.external_listing_id)
+      : null,
+    sourceUrl: String(listing.direct_url || ""),
+    originalTitle: String(listing.original_title || ""),
+    purchasedAt,
+    quantity: normalized.quantity,
+    itemSubtotal,
+    inboundShipping,
+    buyerFees,
+    salesTax,
+    otherCost,
+    totalPaid: enteredTotal,
+    currency: String(candidateMetadata.currency || ""),
+    receiptVerificationSource: String(
+      candidateMetadata.receipt_verification_source || "",
+    ),
+    connectedBuyerOrderVerified:
+      candidateMetadata.connected_buyer_order_verified === true,
+    receiptOrderLineCount: Number(
+      candidateMetadata.receipt_order_line_count || 0,
+    ),
+  });
+
+  async function syncReceiptComp(purchaseId: string) {
+    if (!purchaseInbox) {
+      return {
+        status: null as null | "created" | "updated",
+        warning: null as string | null,
+      };
+    }
+    try {
+      const synced = await syncEbayPurchaseReceiptComp(compInput(purchaseId));
+      return { status: synced.status, warning: null as string | null };
+    } catch (error) {
+      return {
+        status: null as null | "created" | "updated",
+        warning:
+          error instanceof Error
+            ? `Purchase recorded, but the eBay receipt comp did not sync: ${error.message}`
+            : "Purchase recorded, but the eBay receipt comp did not sync.",
+      };
+    }
+  }
+
+  const { data: existingRows, error: existingError } = await supabase
+    .from("tcos_mi_purchase_lots")
+    .select("id,purchase_number")
+    .eq("source_listing_id", listing.id)
+    .limit(2);
+  if (existingError) throw new Error(existingError.message);
+  if (existingRows && existingRows.length > 0) {
+    if (purchaseInbox) {
+      await supabase
+        .from("tcos_mi_purchase_inbox")
+        .update({
+          status: "recorded",
+          purchase_lot_id: existingRows[0].id,
+          target_bucket: portfolioBucket,
+        })
+        .eq("identity_candidate_id", input.candidateId);
+    }
+    const compSync = await syncReceiptComp(String(existingRows[0].id));
+    return {
+      purchaseId: String(existingRows[0].id),
+      purchaseNumber: Number(existingRows[0].purchase_number),
+      alreadyRecorded: true,
+      listingEndWarning: null,
+      compSyncStatus: compSync.status,
+      compSyncWarning: compSync.warning,
+    };
+  }
+
+  const alreadyReceived = Boolean(input.alreadyReceived);
+
+  const { data: scoreRows } = await supabase
+    .from("tcos_mi_deal_scores")
+    .select(
+      "id,deal_label,expected_net_profit,buy_score,discount_pct,confidence_score,liquidity_score,risk_score",
+    )
+    .eq("listing_id", listing.id)
+    .order("calculated_at", { ascending: false })
+    .limit(1);
+  const latestScore = scoreRows?.[0] || null;
+
+  const { data: purchaseRows, error: purchaseError } = await supabase
+    .from("tcos_mi_purchase_lots")
+    .insert({
+      collectible_identity_id: listing.collectible_identity_id,
+      marketplace_id: listing.marketplace_id,
+      source_listing_id: listing.id,
+      purchased_at: purchasedAt,
+      status: alreadyReceived ? "in_inventory" : "awaiting_receipt",
+      quantity_purchased: normalized.quantity,
+      item_subtotal: roundMoney(itemSubtotal),
+      inbound_shipping: roundMoney(inboundShipping),
+      buyer_fees: roundMoney(buyerFees),
+      sales_tax: roundMoney(salesTax),
+      other_acquisition_cost: roundMoney(otherCost),
+      received_at: alreadyReceived ? new Date().toISOString() : null,
+      source_url: listing.direct_url,
+      deal_label: latestScore?.deal_label || null,
+      notes: `Purchased from TCOS ${purchaseInbox ? "eBay Purchase Inbox" : "Discovery Desk"}: ${listing.original_title}. Item $${itemSubtotal.toFixed(2)} + shipping $${inboundShipping.toFixed(2)} + tax $${salesTax.toFixed(2)} + fees $${buyerFees.toFixed(2)} + other $${otherCost.toFixed(2)} = $${enteredTotal.toFixed(2)} total paid. Strategy: ${portfolioBucket === "hold" ? "Hold / Investment" : "Resale"}.`,
+      metadata: {
+        beta_one_purchase_source: purchaseInbox
+          ? "ebay_purchase_inbox"
+          : "discovery_desk",
+        discovery_candidate_id: normalized.candidateId,
+        purchase_inbox_id: candidateMetadata.purchase_inbox_id || null,
+        portfolio_bucket: portfolioBucket,
+        source_listing_title: listing.original_title,
+        source_listing_asking_price: Number(listing.asking_price || 0),
+        source_listing_shipping_price: Number(listing.shipping_price || 0),
+        source_listing_buyer_fee: Number(listing.buyer_fee || 0),
+        source_listing_delivered_price: Number(listing.delivered_price || 0),
+        source_listing_metadata: listing.metadata || {},
+        actual_item_subtotal: roundMoney(itemSubtotal),
+        actual_inbound_shipping: roundMoney(inboundShipping),
+        actual_sales_tax: roundMoney(salesTax),
+        actual_buyer_fees: roundMoney(buyerFees),
+        actual_other_cost: roundMoney(otherCost),
+        actual_out_the_door_cost: enteredTotal,
+        colorado_tax_entry: true,
+        deal_score_id: latestScore?.id || null,
+        expected_net_profit_at_purchase:
+          latestScore?.expected_net_profit ?? null,
+        buy_score_at_purchase: latestScore?.buy_score ?? null,
+        discount_pct_at_purchase: latestScore?.discount_pct ?? null,
+        confidence_at_purchase: latestScore?.confidence_score ?? null,
+        liquidity_at_purchase: latestScore?.liquidity_score ?? null,
+        risk_at_purchase: latestScore?.risk_score ?? null,
+      },
+    })
+    .select("id,purchase_number")
+    .limit(2);
+  if (purchaseError) throw new Error(purchaseError.message);
+  if (!purchaseRows || purchaseRows.length !== 1) {
+    throw new Error("The purchase position was not returned after insert.");
+  }
+  const purchase = purchaseRows[0];
+  const now = new Date().toISOString();
+
+  if (purchaseInbox) {
+    const { error: inboxUpdateError } = await supabase
+      .from("tcos_mi_purchase_inbox")
+      .update({
+        status: "recorded",
+        purchase_lot_id: purchase.id,
+        target_bucket: portfolioBucket,
+        metadata: {
+          ...candidateMetadata,
+          recorded_at: now,
+          purchase_lot_id: purchase.id,
+        },
+      })
+      .eq("identity_candidate_id", input.candidateId);
+    if (inboxUpdateError) throw new Error(inboxUpdateError.message);
+  }
+
+  const compSync = await syncReceiptComp(String(purchase.id));
+
+  let listingEndWarning: string | null = null;
+  try {
+    await endMarketIntelListing(String(listing.id), {
+      endedAt: now,
+      metadata: {
+        purchased_at: now,
+        purchase_lot_id: purchase.id,
+        portfolio_bucket: portfolioBucket,
+        actual_out_the_door_cost: enteredTotal,
+        actual_item_subtotal: roundMoney(itemSubtotal),
+        actual_inbound_shipping: roundMoney(inboundShipping),
+        actual_sales_tax: roundMoney(salesTax),
+        actual_buyer_fees: roundMoney(buyerFees),
+        actual_other_cost: roundMoney(otherCost),
+        end_reason: "purchased",
+        end_source: purchaseInbox ? "ebay_purchase_inbox" : "discovery_desk",
+      },
+    });
+  } catch (error) {
+    listingEndWarning =
+      error instanceof Error
+        ? `Purchase recorded, but listing cleanup failed: ${error.message}`
+        : "Purchase recorded, but listing cleanup failed.";
+  }
+
+  await supabase
+    .from("tcos_mi_alerts")
+    .update({ status: "dismissed", dismissed_at: now })
+    .eq("listing_id", listing.id)
+    .eq("status", "pending");
+
+  return {
+    purchaseId: String(purchase.id),
+    purchaseNumber: Number(purchase.purchase_number),
+    alreadyRecorded: false,
+    listingEndWarning,
+    compSyncStatus: compSync.status,
+    compSyncWarning: compSync.warning,
+  };
+}

@@ -1,0 +1,132 @@
+name: CollX Final Sellability Verify 20260812
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/collx-final-sellability-verify-trigger-20260812'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      PROJECT_REF: rfdzsoykhnngzdnvzlhz
+      STORE_ID: 00000000-0000-4000-8000-000000000001
+    steps:
+      - name: Verify CollX pending and storefront inventory in Production
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_ACCESS_TOKEN:-}"
+          echo "::add-mask::$SUPABASE_ACCESS_TOKEN"
+          python3 - <<'PY'
+          import json, os, subprocess, tempfile, time
+          token=os.environ['SUPABASE_ACCESS_TOKEN']; ref=os.environ['PROJECT_REF']; store=os.environ['STORE_ID']
+          url=f'https://api.supabase.com/v1/projects/{ref}/database/query'
+
+          def sql(label,q,retries=12):
+              last=''
+              for i in range(retries):
+                  f=tempfile.NamedTemporaryFile(delete=False); f.close()
+                  cmd=['curl','-sS','--max-time','50','-A','curl/8.10.1','-o',f.name,'-w','%{http_code}','-X','POST',url,
+                       '-H',f'Authorization: Bearer {token}','-H','Content-Type: application/json',
+                       '--data-binary',json.dumps({'query':q,'parameters':[],'read_only':True})]
+                  p=subprocess.run(cmd,capture_output=True,text=True)
+                  raw=open(f.name).read(); os.unlink(f.name); code=(p.stdout or '000')[-3:]
+                  if code in ('200','201'):
+                      data=json.loads(raw); print(label+'='+json.dumps(data,sort_keys=True)); return data
+                  last=f'HTTP {code}: {raw[:1000]}'
+                  print(f'{label}_RETRY={i+1} {last[:300]}')
+                  if code in ('000','429','500','502','503','504','522','524','544') and i+1<retries:
+                      time.sleep(min(3*(i+1),15)); continue
+                  break
+              raise SystemExit(label+' failed: '+last)
+
+          base=f"store_id='{store}'::uuid and sku>='COLLX-' and sku<'COLLY' and ebay_item_id is null"
+          current=f"p.store_id='{store}'::uuid and p.sku>='COLLX-' and p.sku<'COLLY' and p.ebay_item_id is null and p.archived_at is null"
+          eligible=current+" and p.quantity>0 and p.price>0 and nullif(btrim(p.image_url),'') is not null"
+          pending=current+" and p.quantity>0 and p.price<=0"
+
+          a=sql('COLLX_VERIFY_PRODUCTS',f'''select
+            count(*)::int total_rows,
+            coalesce(sum(greatest(quantity,0)),0)::int total_units,
+            count(*) filter(where archived_at is not null)::int archived_rows,
+            coalesce(sum(greatest(quantity,0)) filter(where archived_at is not null),0)::int archived_units,
+            count(*) filter(where archived_at is null and quantity>0 and price>0 and nullif(btrim(image_url),'') is not null)::int eligible_rows,
+            coalesce(sum(quantity) filter(where archived_at is null and quantity>0 and price>0 and nullif(btrim(image_url),'') is not null),0)::int eligible_product_units,
+            count(*) filter(where archived_at is null and quantity>0 and price<=0)::int pending_rows,
+            coalesce(sum(quantity) filter(where archived_at is null and quantity>0 and price<=0),0)::int pending_units,
+            count(*) filter(where archived_at is null and quantity>0 and price>0 and nullif(btrim(image_url),'') is null)::int missing_front_rows,
+            count(*) filter(where archived_at is null and quantity<=0)::int active_zero_qty_rows
+            from public.products where {base};''')
+
+          b=sql('COLLX_VERIFY_PENDING',f'''select
+            count(*)::int pending_rows,
+            count(*) filter(where exists(select 1 from public.inventory_items ii where ii.store_id='{store}'::uuid and ii.legacy_product_id=p.id))::int with_legacy_bridge,
+            count(*) filter(where exists(select 1 from public.inventory_items ii where ii.store_id='{store}'::uuid and ii.legacy_product_id=p.id and ii.status='draft'))::int legacy_draft_rows,
+            count(*) filter(where not exists(select 1 from public.inventory_items ii where ii.store_id='{store}'::uuid and ii.legacy_product_id=p.id) and exists(select 1 from public.inventory_items ii where ii.store_id='{store}'::uuid and ii.legacy_product_id is null and ii.sku=p.sku and ii.status='draft'))::int sku_fallback_draft_rows
+            from public.products p where {pending};''')
+
+          c=sql('COLLX_VERIFY_ELIGIBLE_BRIDGE',f'''select
+            count(*)::int eligible_rows,
+            count(*) filter(where not exists(select 1 from public.inventory_items ii where ii.store_id='{store}'::uuid and ii.legacy_product_id=p.id))::int missing_legacy_bridge_rows,
+            count(*) filter(where exists(select 1 from public.inventory_items ii where ii.store_id='{store}'::uuid and ii.legacy_product_id=p.id and ii.status='active' and ii.quantity>0 and ii.price>0))::int has_active_sellable_legacy_rows,
+            count(*) filter(where exists(select 1 from public.inventory_items ii where ii.store_id='{store}'::uuid and ii.legacy_product_id=p.id and ii.status<>'active'))::int has_nonactive_legacy_rows,
+            count(*) filter(where exists(select 1 from public.inventory_items ii where ii.store_id='{store}'::uuid and ii.legacy_product_id=p.id and ii.quantity<=0))::int has_zero_qty_legacy_rows,
+            count(*) filter(where exists(select 1 from public.inventory_items ii where ii.store_id='{store}'::uuid and ii.legacy_product_id=p.id and ii.price<=0))::int has_zero_price_legacy_rows
+            from public.products p where {eligible};''')
+
+          d=sql('COLLX_VERIFY_MISMATCHES',f'''select
+            count(distinct p.id) filter(where round(ii.price::numeric,2)<>round(p.price::numeric,2))::int price_mismatch_rows,
+            count(distinct p.id) filter(where ii.quantity<>p.quantity)::int quantity_mismatch_rows,
+            count(distinct p.id) filter(where ii.status<>'active')::int nonactive_rows,
+            count(distinct p.id) filter(where ii.quantity<=0)::int inventory_zero_qty_rows,
+            count(distinct p.id) filter(where ii.price<=0)::int inventory_zero_price_rows
+            from public.products p join public.inventory_items ii on ii.store_id='{store}'::uuid and ii.legacy_product_id=p.id
+            where {eligible};''')
+
+          e=sql('COLLX_VERIFY_DUPLICATES',f'''select count(*)::int duplicate_legacy_product_ids from (
+            select ii.legacy_product_id from public.inventory_items ii join public.products p on p.id=ii.legacy_product_id
+            where ii.store_id='{store}'::uuid and {eligible}
+            group by ii.legacy_product_id having count(*)>1
+          ) d;''')
+
+          f=sql('COLLX_VERIFY_ARCHIVED_LEAKS',f'''select count(distinct p.id)::int archived_active_positive_inventory_rows
+            from public.products p join public.inventory_items ii on ii.store_id='{store}'::uuid and ii.legacy_product_id=p.id
+            where p.store_id='{store}'::uuid and p.sku>='COLLX-' and p.sku<'COLLY' and p.ebay_item_id is null
+              and p.archived_at is not null and ii.status='active' and ii.quantity>0;''')
+
+          A=(a or [{}])[0];B=(b or [{}])[0];C=(c or [{}])[0];D=(d or [{}])[0];E=(e or [{}])[0];F=(f or [{}])[0]
+          pending_draft=int(B.get('legacy_draft_rows') or 0)+int(B.get('sku_fallback_draft_rows') or 0)
+          summary={
+            'total_rows':int(A.get('total_rows') or 0),'total_units':int(A.get('total_units') or 0),
+            'archived_rows':int(A.get('archived_rows') or 0),'archived_units':int(A.get('archived_units') or 0),
+            'eligible_rows':int(A.get('eligible_rows') or 0),'eligible_product_units':int(A.get('eligible_product_units') or 0),
+            'pending_rows':int(A.get('pending_rows') or 0),'pending_units':int(A.get('pending_units') or 0),'pending_draft_rows':pending_draft,
+            'missing_front_rows':int(A.get('missing_front_rows') or 0),'active_zero_qty_rows':int(A.get('active_zero_qty_rows') or 0),
+            'eligible_missing_legacy_bridge_rows':int(C.get('missing_legacy_bridge_rows') or 0),
+            'eligible_active_sellable_rows':int(C.get('has_active_sellable_legacy_rows') or 0),
+            'eligible_has_nonactive_rows':int(C.get('has_nonactive_legacy_rows') or 0),
+            'eligible_has_zero_qty_rows':int(C.get('has_zero_qty_legacy_rows') or 0),
+            'eligible_has_zero_price_rows':int(C.get('has_zero_price_legacy_rows') or 0),
+            'price_mismatch_rows':int(D.get('price_mismatch_rows') or 0),'quantity_mismatch_rows':int(D.get('quantity_mismatch_rows') or 0),
+            'duplicate_legacy_product_ids':int(E.get('duplicate_legacy_product_ids') or 0),
+            'archived_active_positive_inventory_rows':int(F.get('archived_active_positive_inventory_rows') or 0)}
+          print('COLLX_FINAL_CERT='+json.dumps(summary,sort_keys=True))
+          hard={
+            'total_rows':6155,'total_units':6315,'archived_rows':740,'archived_units':0,
+            'eligible_rows':5288,'eligible_product_units':6188,'pending_rows':127,'pending_units':127,
+            'pending_draft_rows':127,'missing_front_rows':0,'active_zero_qty_rows':0,
+            'eligible_missing_legacy_bridge_rows':0,'eligible_active_sellable_rows':5288,
+            'eligible_has_nonactive_rows':0,'eligible_has_zero_qty_rows':0,'eligible_has_zero_price_rows':0,
+            'price_mismatch_rows':0,'quantity_mismatch_rows':0,'duplicate_legacy_product_ids':0,
+            'archived_active_positive_inventory_rows':0}
+          bad=[f'{k}={summary.get(k)} expected {v}' for k,v in hard.items() if summary.get(k)!=v]
+          if bad: raise SystemExit('COLLX_FINAL_CERT_BLOCKED: '+'; '.join(bad))
+          print('COLLX_FINAL_CERT=SUCCESS')
+          PY

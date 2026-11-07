@@ -1,0 +1,70 @@
+import {
+  ensureAccountStoreMembership,
+  getAuthenticatedAccountFromRequest,
+} from "../../../../../lib/kingmaker-local-auth";
+import {
+  getMacMasterListingRow,
+  updateMacKingmakerDraft,
+} from "../../../../../lib/kingmaker-mac-scan-server";
+import { postInstaCompMacAccounting } from "../../../../../lib/instacomp-mac-accounting-client";
+
+export const dynamic = "force-dynamic";
+
+function record(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+export async function POST(request: Request) {
+  try {
+    const account = await getAuthenticatedAccountFromRequest(request);
+    if (!account) return Response.json({ error: "Seller login is required." }, { status: 401 });
+    await ensureAccountStoreMembership({ accountId: account.id, role: "seller", status: "active" });
+    const body = await request.json().catch(() => ({}));
+    const inventoryItemId = String(body.inventoryItemId || "").trim();
+    const disposition = body.disposition === "investment_stash" ? "investment_stash" : "resale";
+    if (!inventoryItemId) return Response.json({ error: "Inventory item is required." }, { status: 400 });
+
+    const isOwner = ["sales@truelycollectables.com", "sales@trulycollectables.com"].includes(
+      String(account.email || "").toLowerCase(),
+    );
+    const item = await getMacMasterListingRow(inventoryItemId);
+    if (!item) return Response.json({ error: "Inventory item not found." }, { status: 404 });
+    const sellerAccountId = String(item.seller_account_id ?? item.sellerAccountId ?? "").trim();
+    if (!isOwner && sellerAccountId && sellerAccountId !== account.id) {
+      return Response.json({ error: "Inventory item not found." }, { status: 404 });
+    }
+
+    // Ownership/existence must be proven before changing Mac-local lifecycle truth.
+    const data = await postInstaCompMacAccounting("/v1/kingmaker/accounting/inventory-disposition", {
+      inventory_item_id: inventoryItemId,
+      disposition,
+    });
+    if (data.status !== "received") return Response.json(data, { status: 409 });
+
+    const metadata = record(item.metadata);
+    const current = record(metadata.inventory_lifecycle);
+    const nextMetadata = {
+      ...metadata,
+      inventory_lifecycle: {
+        ...current,
+        sourceOfTruth: "mac_local_kingmaker_accounting",
+        state: data.inventoryState,
+        disposition,
+        scanId: data.scanId || current.scanId || null,
+        updatedAt: new Date().toISOString(),
+      },
+    };
+    await updateMacKingmakerDraft(inventoryItemId, {
+      metadata: nextMetadata,
+      updatedAt: new Date().toISOString(),
+    });
+    return Response.json({ success: true, ...data }, { headers: { "Cache-Control": "no-store" } });
+  } catch (error) {
+    return Response.json(
+      { error: error instanceof Error ? error.message : "Could not change inventory destination." },
+      { status: 400 },
+    );
+  }
+}

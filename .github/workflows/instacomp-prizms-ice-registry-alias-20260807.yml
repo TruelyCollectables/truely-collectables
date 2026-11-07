@@ -1,0 +1,29 @@
+name: InstaComp Prizms Ice Registry Alias 20260807
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "src/lib/instacomp-checklist-first.ts"
+      - "scripts/run-instacomp-checklist-parallel-alias-simulations.ts"
+      - ".github/workflows/instacomp-prizms-ice-registry-alias-20260807.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  certify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - name: Prove only explicit Prizm Ice aliases canonicalize
+        run: node --import tsx scripts/run-instacomp-checklist-parallel-alias-simulations.ts
+      - name: Typecheck
+        run: npx tsc --noEmit

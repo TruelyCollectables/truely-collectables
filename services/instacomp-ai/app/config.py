@@ -1,0 +1,121 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+SERVICE_ROOT = Path(__file__).resolve().parents[1]
+
+
+class Settings(BaseSettings):
+    model_config = SettingsConfigDict(
+        env_prefix="INSTACOMP_AI_",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    app_name: str = "InstaComp AI™"
+    codename: str = "InstaComp AI 1.0 Beta"
+    version: str = "1.0.0-beta.registry-pipeline"
+    host: str = "127.0.0.1"
+    port: int = 8787
+    database_path: Path = Path("./data/instacomp_ai.sqlite3")
+    image_store_path: Path = Path("./data/images")
+    # Mac-local learning state is physically separate from storefront/runtime state.
+    training_database_path: Path = Path("/Volumes/InstaCompAI/instacomp-ai-data/instacomp_ai.sqlite3")
+    training_image_store_path: Path = Path("/Volumes/InstaCompAI/instacomp-ai-data/images")
+    training_export_path: Path = Path("./data/training/exports")
+    data_database_path: Path = Path("./data/database")
+    data_datasets_path: Path = Path("./data/datasets")
+    backup_default_destination: Path = Path("./backups")
+    backup_allowed_roots: str = ""
+    local_cache_source_path: str = ""
+    max_image_bytes: int = 12 * 1024 * 1024
+    max_total_image_bytes: int = 24 * 1024 * 1024
+    ollama_base_url: str = "http://127.0.0.1:11434"
+    ollama_model: str = "qwen2.5vl:7b"
+    ollama_timeout_seconds: float = 120.0
+
+    # Legacy live Ollama reader is OFF by default. Local large models are tutors
+    # for supervised training, not scan-time identity fallbacks. This can only be
+    # re-enabled deliberately for an engineering comparison run.
+    ollama_runtime_reader_enabled: bool = False
+
+    # Offline teacher lane. These local Ollama models are advisory tutors only:
+    # they may describe visible evidence and explain student misses, but they can
+    # never create/replace Registry truth, card UUIDs, fingerprints, pricing, or
+    # inventory state. The default list matches the local Mac teacher models.
+    teacher_vision_enabled: bool = True
+    teacher_vision_models: str = "qwen2.5vl:7b,gemma3:12b"
+    teacher_vision_timeout_seconds: float = 240.0
+    teacher_vision_image_max_edge: int = 768
+    teacher_vision_hard_example_multiplier: int = 3
+    teacher_vision_keep_alive: str = "30m"
+    teacher_student_min_train_examples: int = 512
+    teacher_student_min_hard_examples: int = 64
+    teacher_student_graduation_ids_path: Path = Path("/Volumes/InstaCompAI/training/teacher-student/graduation-frozen-ids.json")
+    teacher_student_graduation_target: int = 50
+    teacher_student_incumbent_adapter_path: Path = Path("/Volumes/InstaCompAI/training/adapters/instacomp-20260814T135158Z")
+
+    # The trained LoRA is an opt-in evidence reader only. It can never lock
+    # identity or pricing by itself; the local Mac database still must
+    # return one exact UUID + fingerprint. Disabled is the rollback/default.
+    lora_candidate_enabled: bool = False
+    lora_candidate_url: str = "http://127.0.0.1:8791"
+    lora_candidate_timeout_seconds: float = 120.0
+    api_key: str | None = None
+    registry_url: str = ""
+
+    # Mac-owned Deal Hunter scheduler. The existing LaunchAgent keeps the
+    # InstaComp service alive; this scheduler owns discovery cadence, durable
+    # run state, exact-card evaluation, and market-history handoff.
+    deal_hunter_database_path: Path = Path("./data/deal_hunter.sqlite3")
+    deal_hunter_enabled: bool = True
+    deal_hunter_run_on_startup: bool = True
+    deal_hunter_startup_delay_seconds: int = 45
+    deal_hunter_interval_minutes: int = 60
+    deal_hunter_site_url: str = "https://truelycollectables.com"
+    deal_hunter_per_query: int = 20
+    deal_hunter_max_candidates_per_run: int = 500
+    deal_hunter_evaluation_concurrency: int = 4
+    deal_hunter_feed_pace_seconds: float = 2.0
+    deal_hunter_candidate_cooldown_hours: int = 6
+    deal_hunter_request_timeout_seconds: float = 300.0
+
+    @property
+    def service_root(self) -> Path:
+        return SERVICE_ROOT
+
+    def resolve_local_path(self, value: str | Path) -> Path:
+        path = Path(value).expanduser()
+        if path.is_absolute():
+            return path.resolve()
+        return (self.service_root / path).resolve()
+
+    def resolved_cache_source(self) -> Path | None:
+        value = self.local_cache_source_path.strip()
+        return self.resolve_local_path(value) if value else None
+
+    def resolved_allowed_backup_roots(self) -> list[Path]:
+        configured = [
+            self.resolve_local_path(value.strip())
+            for value in self.backup_allowed_roots.split(",")
+            if value.strip()
+        ]
+        if configured:
+            return configured
+        return [self.resolve_local_path(self.backup_default_destination)]
+
+    def ensure_directories(self) -> None:
+        self.resolve_local_path(self.database_path).parent.mkdir(parents=True, exist_ok=True)
+        self.resolve_local_path(self.image_store_path).mkdir(parents=True, exist_ok=True)
+        self.resolve_local_path(self.training_export_path).mkdir(parents=True, exist_ok=True)
+        self.resolve_local_path(self.data_database_path).mkdir(parents=True, exist_ok=True)
+        self.resolve_local_path(self.backup_default_destination).mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+
+
+settings = Settings(_env_file=SERVICE_ROOT / ".env")

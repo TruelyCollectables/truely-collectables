@@ -1,0 +1,90 @@
+name: InstaComp 203 Fast Resume
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - ".github/workflows/instacomp-203-fast-resume.yml"
+      - "scripts/patch-instacomp-203-fast-resume.py"
+      - "services/instacomp-ai/app/main.py"
+      - "services/instacomp-ai/scripts/import_supervised_203_trusted.py"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: instacomp-203-fast-resume-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  EXPECTED_BRANCH: fix/instacomp-203-fast-resume-20260809
+
+jobs:
+  repair-and-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.EXPECTED_BRANCH }}
+          fetch-depth: 0
+
+      - name: Apply fast-resume patch
+        run: |
+          set -euo pipefail
+          python3 scripts/patch-instacomp-203-fast-resume.py
+          git diff --check
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: services/instacomp-ai/requirements.txt
+
+      - name: Install InstaComp runtime
+        run: pip install -r services/instacomp-ai/requirements.txt
+
+      - name: Certify supervised fast path boundaries
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          main = Path('services/instacomp-ai/app/main.py').read_text('utf-8')
+          importer = Path('services/instacomp-ai/scripts/import_supervised_203_trusted.py').read_text('utf-8')
+          start = main.index('"/v1/scans/supervised-archive"')
+          end = main.index('"/v1/scans/analyze"', start)
+          route = main[start:end]
+          assert '_save_scan(' in route
+          assert 'identity_created": False' in route
+          assert 'supervised_archive_pending_lesson' in route
+          assert 'analyze_local_vision(' not in route
+          assert 'checklist_gateway.match(' not in route
+          assert '/v1/scans/supervised-archive' in importer
+          assert 'RESUME checkpoint:' in importer
+          assert 'resumable_ids' in importer
+          assert 'trusted_example_matches' in importer
+          assert 'transport retry' in importer
+          assert 'zf.extract(name, temp_root)' in importer
+          assert 'client.post(\n                        "/v1/scans/analyze"' not in importer
+          print('PASS supervised teacher import archives images + UUID without re-identification and resumes trusted receipts')
+          PY
+
+      - name: Compile and run full InstaComp suite
+        run: |
+          set -euo pipefail
+          python -m compileall -q services/instacomp-ai/app services/instacomp-ai/scripts/import_supervised_203_trusted.py
+          PYTHONPATH=services/instacomp-ai pytest -q services/instacomp-ai/tests
+
+      - name: Persist tested runtime changes
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add \
+            services/instacomp-ai/app/main.py \
+            services/instacomp-ai/scripts/import_supervised_203_trusted.py
+          if ! git diff --cached --quiet; then
+            git commit -m "Resume supervised 203 import without re-analysis [skip ci]"
+            git push origin "HEAD:$EXPECTED_BRANCH"
+          fi

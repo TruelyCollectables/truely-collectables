@@ -1,0 +1,481 @@
+import {
+  extractInstaCompSerialNumber,
+  serialRunDisplayLabel,
+} from "../src/lib/instacomp-serial.ts";
+import { readFile } from "node:fs/promises";
+import ts from "typescript";
+
+const instacompSourceUrl = new URL("../src/lib/instacomp.ts", import.meta.url);
+const serialSourceUrl = new URL("../src/lib/instacomp-serial.ts", import.meta.url);
+const gradingCertSourceUrl = new URL("../src/lib/grading-cert.ts", import.meta.url);
+const draftTitleSourceUrl = new URL(
+  "../src/lib/instacomp-draft-title.ts",
+  import.meta.url
+);
+const instacompSource = (await readFile(instacompSourceUrl, "utf8"))
+  .replace('"./instacomp-serial"', JSON.stringify(serialSourceUrl.href))
+  .replace('"./grading-cert"', JSON.stringify(gradingCertSourceUrl.href));
+const draftTitleSource = (await readFile(draftTitleSourceUrl, "utf8")).replace(
+  '"./instacomp-serial"',
+  JSON.stringify(serialSourceUrl.href)
+);
+const transpiledInstaCompSource = ts.transpileModule(instacompSource, {
+  compilerOptions: {
+    module: ts.ModuleKind.ESNext,
+    target: ts.ScriptTarget.ES2022,
+  },
+}).outputText;
+const transpiledDraftTitleSource = ts.transpileModule(draftTitleSource, {
+  compilerOptions: {
+    module: ts.ModuleKind.ESNext,
+    target: ts.ScriptTarget.ES2022,
+  },
+}).outputText;
+const instacompModuleUrl = `data:text/javascript;base64,${Buffer.from(
+  transpiledInstaCompSource
+).toString("base64")}`;
+const draftTitleModuleUrl = `data:text/javascript;base64,${Buffer.from(
+  transpiledDraftTitleSource
+).toString("base64")}`;
+const {
+  buildInstaCompQueries,
+  filterAndRankExactMatches,
+  filterAndRankGuidanceMatches,
+} = await import(instacompModuleUrl);
+const { buildInstaCompDraftTitle } = await import(draftTitleModuleUrl);
+
+const cases = [
+  { input: "Serial 07/50", exact: "07/50", run: "/50" },
+  { input: "087 of 250", exact: "087/250", run: "/250" },
+  { input: "ONE OF ONE", exact: "1/1", run: "1/1" },
+  { input: "O7/5O", exact: "07/50", run: "/50" },
+  { input: "stamp 12｜99", exact: "12/99", run: "/99" },
+  { input: "copyright 2024/25; stamped 07/50", exact: "07/50", run: "/50" },
+  { input: "copyright 2024/25", exact: null, run: null },
+  { input: "bad OCR 99/25", exact: null, run: null },
+  { input: "bad OCR 0/25", exact: null, run: null },
+  { input: "not numbered", exact: null, run: null },
+];
+
+let failed = 0;
+let total = 0;
+
+function check(name, condition, detail = "") {
+  total += 1;
+  if (!condition) failed += 1;
+  console.log(`${condition ? "PASS" : "FAIL"} ${name}${detail ? ` - ${detail}` : ""}`);
+}
+
+for (const testCase of cases) {
+  const serial = extractInstaCompSerialNumber(testCase.input);
+  const exact = serial?.exact || null;
+  const run = serialRunDisplayLabel(testCase.input);
+  const passed = exact === testCase.exact && run === testCase.run;
+
+  check(
+    `serial ${JSON.stringify(testCase.input)}`,
+    passed,
+    `exact=${exact}, run=${run}`
+  );
+}
+
+const target = {
+  player: "Shohei Ohtani",
+  year: "2023",
+  brand: "Topps Chrome",
+  setName: "Update",
+  cardNumber: "USC17",
+  parallel: "Gold Refractor",
+  serialNumber: "07/50",
+  team: "Los Angeles Angels",
+  sport: "Baseball",
+  isRookie: false,
+  isAuto: false,
+  isRelic: false,
+  conditionGuess: "Raw",
+  confidence: 0.96,
+  notes: null,
+};
+
+const comp = (title, price) => ({
+  title,
+  price,
+  currency: "USD",
+  url: `https://example.com/${encodeURIComponent(title)}`,
+  imageUrl: null,
+  source: "fixture",
+  sourceLabel: "Fixture",
+  sourceCategory: "sold",
+});
+
+const query = buildInstaCompQueries(target);
+check("query uses print run instead of exact serial", query.primary.includes("/50") && !query.primary.includes("07/50"), query.primary);
+
+const draftTitle = buildInstaCompDraftTitle(target, "fallback.jpg");
+check(
+  "draft title uses print run instead of exact serial",
+  draftTitle.includes("/50") && !draftTitle.includes("07/50"),
+  draftTitle
+);
+
+const oneOfOneDraftTitle = buildInstaCompDraftTitle(
+  { ...target, serialNumber: "1/1", parallel: "Black Superfractor" },
+  "fallback.jpg"
+);
+check(
+  "draft title preserves true one-of-one",
+  oneOfOneDraftTitle.includes("1/1"),
+  oneOfOneDraftTitle
+);
+
+const invalidSerialDraftTitle = buildInstaCompDraftTitle(
+  { ...target, serialNumber: "99/25" },
+  "fallback.jpg"
+);
+check(
+  "invalid serial is omitted from draft title",
+  !invalidSerialDraftTitle.includes("/25") && !invalidSerialDraftTitle.includes("99/25"),
+  invalidSerialDraftTitle
+);
+
+const opcPlatinumDraftTitle = buildInstaCompDraftTitle(
+  {
+    player: "Connor Bedard",
+    year: "2024-25",
+    brand: "Upper Deck",
+    setName: "O-Pee-Chee Platinum",
+    cardNumber: "201",
+    parallel: "Limited Red",
+    serialNumber: null,
+    isRookie: true,
+  },
+  "fallback.jpg"
+);
+check(
+  "draft title treats Upper Deck as manufacturer for O-Pee-Chee Platinum",
+  opcPlatinumDraftTitle ===
+    "2024-25 O-Pee-Chee Platinum Connor Bedard Rookie Limited Red #201",
+  opcPlatinumDraftTitle
+);
+
+const upperDeckSeriesTwoDraftTitle = buildInstaCompDraftTitle(
+  {
+    player: "Matvei Michkov",
+    year: "2024-25",
+    brand: "Upper Deck",
+    setName: "Series 2",
+    cardNumber: "451",
+    parallel: "Young Guns",
+    serialNumber: null,
+    isRookie: true,
+  },
+  "fallback.jpg"
+);
+check(
+  "draft title keeps Upper Deck for Series 1/2/Extended releases",
+  upperDeckSeriesTwoDraftTitle ===
+    "2024-25 Upper Deck Series 2 Matvei Michkov Rookie Young Guns #451",
+  upperDeckSeriesTwoDraftTitle
+);
+
+const duplicateUpperDeckDraftTitle = buildInstaCompDraftTitle(
+  {
+    player: "Macklin Celebrini",
+    year: "2024-25",
+    brand: "Upper Deck",
+    setName: "Upper Deck Extended Series",
+    cardNumber: "701",
+    parallel: null,
+    serialNumber: null,
+    isRookie: true,
+  },
+  "fallback.jpg"
+);
+check(
+  "draft title does not repeat brand when set already includes it",
+  duplicateUpperDeckDraftTitle ===
+    "2024-25 Upper Deck Extended Series Macklin Celebrini Rookie #701",
+  duplicateUpperDeckDraftTitle
+);
+
+const repeatedReleaseDraftTitle = buildInstaCompDraftTitle(
+  {
+    player: "Connor Bedard",
+    year: "2024-25",
+    brand: "Upper Deck",
+    setName: "Upper Deck O-Pee-Chee Platinum O-Pee-Chee Platinum",
+    cardNumber: "201",
+    parallel: "Limited Red Limited Red",
+    serialNumber: null,
+    isRookie: true,
+  },
+  "fallback.jpg"
+);
+check(
+  "draft title collapses repeated release and parallel names",
+  repeatedReleaseDraftTitle ===
+    "2024-25 O-Pee-Chee Platinum Connor Bedard Rookie Limited Red #201",
+  repeatedReleaseDraftTitle
+);
+
+const playerAlreadyInParallelDraftTitle = buildInstaCompDraftTitle(
+  {
+    player: "Auston Matthews",
+    year: "2023-24",
+    brand: "Upper Deck",
+    setName: "MVP",
+    cardNumber: "47",
+    parallel: "Auston Matthews Silver Script",
+    serialNumber: null,
+    isRookie: false,
+  },
+  "fallback.jpg"
+);
+check(
+  "draft title avoids replacing specific parallel names while keeping one player",
+  playerAlreadyInParallelDraftTitle ===
+    "2023-24 Upper Deck MVP Auston Matthews Silver Script #47",
+  playerAlreadyInParallelDraftTitle
+);
+
+const baseParallelDraftTitle = buildInstaCompDraftTitle(
+  {
+    player: "Connor Bedard",
+    year: "2024-25",
+    brand: "Upper Deck",
+    setName: "O-Pee-Chee Platinum",
+    cardNumber: "201",
+    parallel: "Base",
+    serialNumber: null,
+    isRookie: true,
+  },
+  "fallback.jpg"
+);
+check(
+  "draft title suppresses generic base parallel",
+  baseParallelDraftTitle ===
+    "2024-25 O-Pee-Chee Platinum Connor Bedard Rookie #201",
+  baseParallelDraftTitle
+);
+
+const echoedParallelDraftTitle = buildInstaCompDraftTitle(
+  {
+    player: "Connor Bedard",
+    year: "2024-25",
+    brand: "Upper Deck",
+    setName: "O-Pee-Chee Platinum",
+    cardNumber: "201",
+    parallel: "Connor Bedard Limited Red Connor Bedard",
+    serialNumber: null,
+    isRookie: true,
+  },
+  "fallback.jpg"
+);
+check(
+  "draft title strips player echoes from parallel",
+  echoedParallelDraftTitle ===
+    "2024-25 O-Pee-Chee Platinum Connor Bedard Rookie Limited Red #201",
+  echoedParallelDraftTitle
+);
+
+const releaseEchoParallelDraftTitle = buildInstaCompDraftTitle(
+  {
+    player: "Connor Bedard",
+    year: "2024-25",
+    brand: "Upper Deck",
+    setName: "O-Pee-Chee Platinum",
+    cardNumber: "201",
+    parallel: "O-Pee-Chee Platinum Limited Red #201",
+    serialNumber: null,
+    isRookie: true,
+  },
+  "fallback.jpg"
+);
+check(
+  "draft title strips release and card-number echoes from parallel",
+  releaseEchoParallelDraftTitle ===
+    "2024-25 O-Pee-Chee Platinum Connor Bedard Rookie Limited Red #201",
+  releaseEchoParallelDraftTitle
+);
+
+const uncertainParallelDraftTitle = buildInstaCompDraftTitle(
+  {
+    player: "Jewell Loyd",
+    year: "2025",
+    brand: "Panini",
+    setName: "WNBA Select - Premier Level",
+    cardNumber: "142",
+    parallel: "Insert - exact type uncertain",
+    serialNumber: null,
+    isRookie: false,
+  },
+  "fallback.jpg"
+);
+check(
+  "draft title suppresses uncertain parallel labels",
+  uncertainParallelDraftTitle ===
+    "2025 Panini WNBA Select - Premier Level Jewell Loyd #142",
+  uncertainParallelDraftTitle,
+);
+
+const containedParallelDraftTitle = buildInstaCompDraftTitle(
+  {
+    player: "Matthew Robertson",
+    year: "2025-26",
+    brand: "Upper Deck",
+    setName: "SP Authentic - Future Watch Spectrum FX Level 1",
+    cardNumber: "S-50",
+    parallel: "Spectrum FX",
+    serialNumber: null,
+    isRookie: false,
+  },
+  "fallback.jpg"
+);
+check(
+  "draft title suppresses parallel already contained in set name",
+  containedParallelDraftTitle ===
+    "2025-26 SP Authentic - Future Watch Spectrum FX Level 1 Matthew Robertson #S-50",
+  containedParallelDraftTitle,
+);
+
+const spAuthenticOutliersDraftTitle = buildInstaCompDraftTitle(
+  {
+    player: "Connor McDavid",
+    year: "2025-26",
+    brand: "Upper Deck",
+    setName: "SP Authentic Hockey",
+    cardNumber: "O-8",
+    parallel: "Outliers",
+    serialNumber: null,
+    isRookie: false,
+  },
+  "fallback.jpg",
+);
+check(
+  "draft title treats Upper Deck as manufacturer for SP Authentic and strips sport words",
+  spAuthenticOutliersDraftTitle ===
+    "2025-26 SP Authentic Connor McDavid Outliers #O-8",
+  spAuthenticOutliersDraftTitle,
+);
+
+const invalidSerialQuery = buildInstaCompQueries({ ...target, serialNumber: "99/25" });
+check("invalid serial cannot constrain comp search", !invalidSerialQuery.primary.includes("/25"), invalidSerialQuery.primary);
+
+const uncertainInsertQuery = buildInstaCompQueries({
+  player: "Jewell Loyd",
+  year: "2025",
+  brand: "Panini",
+  setName: "WNBA Select - Premier Level",
+  cardNumber: "142",
+  parallel: "Insert - exact type uncertain",
+  serialNumber: null,
+  team: "Las Vegas Aces",
+  sport: "Basketball",
+  isRookie: false,
+  isAuto: false,
+  isRelic: false,
+  conditionGuess: "Raw",
+  confidence: 0.84,
+  notes: null,
+});
+check(
+  "uncertain insert label is omitted from comp search query",
+  !/insert|uncertain/i.test(uncertainInsertQuery.primary),
+  uncertainInsertQuery.primary,
+);
+
+const exactMatches = filterAndRankExactMatches(
+  [
+    comp("2023 Topps Chrome Update Shohei Ohtani Gold Refractor #USC17 07/50", 120),
+    comp("2022 Topps Chrome Update Shohei Ohtani Gold Refractor #USC17 11/50", 110),
+    comp("2023 Bowman Chrome Update Shohei Ohtani Gold Refractor #USC17 13/50", 105),
+    comp("2023 Topps Chrome Update Shohei Ohtani Gold Refractor #USC18 19/50", 95),
+    comp("2023 Topps Chrome Update Shohei Ohtani Gold Refractor #USC17 12/99", 70),
+    comp("2023 Topps Chrome Update Shohei Ohtani Blue Refractor #USC17 22/50", 90),
+    comp("2023 Topps Chrome Update Shohei Ohtani Gold Refractor #USC17 PSA 10 22/50", 250),
+    comp("Lot of 3 2023 Topps Chrome Update Shohei Ohtani Gold Refractor #USC17 18/50", 180),
+  ],
+  target,
+  10
+);
+check(
+  "exact ranking keeps only the valid year/brand/player/card/run/parallel comp",
+  exactMatches.length === 1 && exactMatches[0].price === 120,
+  `${exactMatches.length} match(es)`
+);
+
+const wnbaSelectMatches = filterAndRankExactMatches(
+  [
+    comp("2025 Select WNBA Jewell Loyd Premier Level #142", 6),
+    comp("2025 Select WNBA Jewell Loyd Courtside #142", 12),
+    comp("2025 Select WNBA Aja Wilson Premier Level #142", 8),
+  ],
+  {
+    player: "Jewell Loyd",
+    year: "2025",
+    brand: "Panini",
+    setName: "WNBA Select - Premier Level",
+    cardNumber: "142",
+    parallel: "Insert - exact type uncertain",
+    serialNumber: null,
+    team: "Las Vegas Aces",
+    sport: "Basketball",
+    isRookie: false,
+    isAuto: false,
+    isRelic: false,
+    conditionGuess: "Raw",
+    confidence: 0.84,
+    notes: null,
+  },
+  10,
+);
+check(
+  "WNBA Select comps can match without Panini brand word or uncertain insert term",
+  wnbaSelectMatches.length === 1 && wnbaSelectMatches[0].price === 6,
+  `${wnbaSelectMatches.length} match(es): ${wnbaSelectMatches.map((item) => item.title).join(" | ")}`,
+);
+
+const autographMatches = filterAndRankExactMatches(
+  [
+    comp("2023 Topps Chrome Update Shohei Ohtani Gold Refractor Auto #USC17 07/50", 400),
+    comp("2023 Topps Chrome Update Shohei Ohtani Gold Refractor #USC17 07/50", 120),
+  ],
+  { ...target, isAuto: true },
+  10
+);
+check(
+  "autograph targets require autograph evidence",
+  autographMatches.length === 1 && autographMatches[0].price === 400,
+  `${autographMatches.length} match(es)`
+);
+
+const relicMatches = filterAndRankExactMatches(
+  [
+    comp("2023 Topps Chrome Update Shohei Ohtani Gold Refractor Patch #USC17 07/50", 300),
+    comp("2023 Topps Chrome Update Shohei Ohtani Gold Refractor #USC17 07/50", 120),
+  ],
+  { ...target, isRelic: true },
+  10
+);
+check(
+  "relic targets require relic evidence",
+  relicMatches.length === 1 && relicMatches[0].price === 300,
+  `${relicMatches.length} match(es)`
+);
+
+const guidanceMatches = filterAndRankGuidanceMatches(
+  [comp("2023 Topps Chrome Update Shohei Ohtani Gold Refractor #USC17 12/100", 40)],
+  target,
+  10
+);
+check(
+  "guidance pricing adjusts a /100 comp to the /50 target",
+  guidanceMatches.length === 1 &&
+    guidanceMatches[0].price === 56.57 &&
+    guidanceMatches[0].flags.includes("serial adjusted from /100 to /50"),
+  guidanceMatches[0] ? `$${guidanceMatches[0].price}` : "no match"
+);
+
+console.log(`InstaComp™ accuracy simulations: ${total - failed}/${total} passed.`);
+
+if (failed > 0) process.exitCode = 1;
