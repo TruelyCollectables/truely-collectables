@@ -564,6 +564,41 @@ function musicComedyAutographFamilies() {
   }));
 }
 
+function marketTargetsFamilies(players) {
+  return players.flatMap((player) => {
+    const id = slug(player);
+    return [
+      {
+        familyId: `market-targets.${id}.rookie-card`,
+        scope: "market_targets",
+        lane: "market_signal_rookies",
+        watchedPerson: player,
+        itemType: "market_signal_rookie_card",
+        query: `${player} rookie card`,
+        required: true,
+      },
+      {
+        familyId: `market-targets.${id}.premium-parallel`,
+        scope: "market_targets",
+        lane: "market_signal_premium",
+        watchedPerson: player,
+        itemType: "market_signal_premium_parallel",
+        query: `${player} chrome refractor numbered parallel`,
+        required: true,
+      },
+      {
+        familyId: `market-targets.${id}.autograph`,
+        scope: "market_targets",
+        lane: "market_signal_cards",
+        watchedPerson: player,
+        itemType: "market_signal_autograph",
+        query: `${player} autograph auto signed`,
+        required: true,
+      },
+    ];
+  });
+}
+
 export function buildDealHunterEbayQueryFamilies({
   scope = "wnba",
   players = DEFAULT_BASEBALL_PROSPECTS,
@@ -594,6 +629,9 @@ export function buildDealHunterEbayQueryFamilies({
   if (normalizedScope === "music_comedy_autographs") {
     return musicComedyAutographFamilies();
   }
+  if (normalizedScope === "market_targets") {
+    return marketTargetsFamilies(prospectPlayers);
+  }
   if (normalizedScope === "all") {
     return [
       ...wnbaFamilies(),
@@ -603,6 +641,7 @@ export function buildDealHunterEbayQueryFamilies({
       ...prospectFamilies(prospectPlayers),
       ...signedBaseballFamilies(prospectPlayers),
       ...musicComedyAutographFamilies(),
+      ...marketTargetsFamilies(prospectPlayers),
     ];
   }
   throw new Error(`Unsupported Deal Hunter eBay scope: ${normalizedScope}`);
@@ -757,6 +796,19 @@ export function screenDealHunterEbayTitle({
     }
     if (MUSIC_COMEDY_AUTHENTICATOR.test(evidenceText)) {
       reviewReasons.push("authenticated_listing_allowed_but_not_operator_preference");
+    }
+  }
+
+  if (family?.scope === "market_targets") {
+    if (!analysis.targetMatch.matched) {
+      rejectionReasons.push("watched_player_not_matched");
+    } else if (!analysis.targetMatchedInTitle) {
+      reviewReasons.push("watched_player_supported_by_metadata_not_title_verify_image");
+    } else if (analysis.targetMatch.method === "fuzzy_name") {
+      reviewReasons.push("seller_name_typo_or_variant_detected_verify_image");
+    }
+    if (analysis.lotSignal) {
+      reviewReasons.push("lot_or_bundle_unit_economics_review_required");
     }
   }
 

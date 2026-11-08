@@ -447,7 +447,7 @@ export async function GET(request) {
     featureVersion: "WNBA_EBAY_HARDENING_V2",
     generatedAt: new Date().toISOString(),
     scope,
-    requestedPlayers: ["baseball_prospects", "signed_baseballs", "all"].includes(scope) ? players : [],
+    requestedPlayers: ["baseball_prospects", "signed_baseballs", "market_targets", "all"].includes(scope) ? players : [],
     deployment,
     marketplace: "eBay",
     searchEngine: "Production eBay Browse item_summary/search sorted newlyListed with 2x screening depth and rescue lanes",
