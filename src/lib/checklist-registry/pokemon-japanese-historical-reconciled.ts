@@ -31,7 +31,8 @@ export type PokemonJapaneseHistoricalEvidenceOrigin =
   | "source_number_crosswalk"
   | "source_energy_alias"
   | "official_numbered_addition"
-  | "official_unnumbered_energy_addition";
+  | "official_unnumbered_energy_addition"
+  | "official_unnumbered_addition";
 
 type ReconciledCard = {
   id: string;
@@ -406,7 +407,9 @@ function validateBundle(
       (row) => row.origin === "official_numbered_addition",
     ).length,
     unnumberedAdded: evidence.filter(
-      (row) => row.origin === "official_unnumbered_energy_addition",
+      (row) =>
+        row.origin === "official_unnumbered_energy_addition" ||
+        row.origin === "official_unnumbered_addition",
     ).length,
   };
   const sourceCount = counts.sourceNumber + counts.sourceEnergy;
@@ -604,6 +607,7 @@ export function parsePokemonJapaneseHistoricalReconciledBundle(
     source_energy_alias: 0,
     official_numbered_addition: 0,
     official_unnumbered_energy_addition: 0,
+    official_unnumbered_addition: 0,
   };
 
   for (const card of plan.cards) {
@@ -612,7 +616,8 @@ export function parsePokemonJapaneseHistoricalReconciledBundle(
     if (!evidence) continue;
     const existing = sourceNotesObject(card.sourceNotes);
     const variation =
-      evidence.origin === "official_unnumbered_energy_addition"
+      evidence.origin === "official_unnumbered_energy_addition" ||
+      evidence.origin === "official_unnumbered_addition"
         ? officialVariation(evidence.cardID)
         : null;
     card.sourceNotes = JSON.stringify({
@@ -672,8 +677,6 @@ export function parsePokemonJapaneseHistoricalReconciledBundle(
     source_number_crosswalk: bundle.official.sourceNumberCrosswalkCount,
     source_energy_alias: bundle.official.sourceEnergyAliasCount,
     official_numbered_addition: bundle.official.numberedAddedCardCount,
-    official_unnumbered_energy_addition:
-      bundle.official.unnumberedAddedCardCount,
   };
   for (const origin of Object.keys(expected) as Array<
     keyof typeof expected
@@ -686,6 +689,17 @@ export function parsePokemonJapaneseHistoricalReconciledBundle(
         `Materialized ${materialized[origin]} ${origin} cards; expected ${expected[origin]}.`,
       );
     }
+  }
+  const materializedUnnumbered =
+    materialized.official_unnumbered_energy_addition +
+    materialized.official_unnumbered_addition;
+  if (materializedUnnumbered !== bundle.official.unnumberedAddedCardCount) {
+    issue(
+      issues,
+      "historical_cards_not_materialized",
+      "error",
+      `Materialized ${materializedUnnumbered} unnumbered official cards; expected ${bundle.official.unnumberedAddedCardCount}.`,
+    );
   }
   if (!issues.some((entry) => entry.severity === "error")) {
     issue(

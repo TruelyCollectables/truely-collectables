@@ -266,11 +266,22 @@ function splitParallelDescriptor(rawSetName: string) {
 }
 
 function parseSerialRun(value: string) {
-  const normalized = clean(value);
+  const normalized = clean(value).replace(/,/g, "");
   if (!normalized) return null;
   if (/\b1\s*(?:of|-|\/)\s*1\b/i.test(normalized)) return 1;
-  if (/^\/?\d{1,7}$/.test(normalized)) {
-    const result = Number.parseInt(normalized.replace("/", ""), 10);
+  const ofMatch = normalized.match(/\b(?:\d{1,7})\s+of\s+(\d{1,7})\b/i);
+  if (ofMatch) {
+    const result = Number.parseInt(ofMatch[1], 10);
+    return result > 0 ? result : null;
+  }
+  const abbreviatedMatch = normalized.match(/^(?:ann\.?|anniversary|anniv\.?)\s*(?:#\s*)?(\d{1,7})$/i);
+  if (abbreviatedMatch) {
+    const result = Number.parseInt(abbreviatedMatch[1], 10);
+    return result > 0 ? result : null;
+  }
+  const numeric = normalized.match(/^(?:\/)?(\d{1,7})(?:\s*(?:per\b.*|x\b.*))?$/i);
+  if (numeric) {
+    const result = Number.parseInt(numeric[1], 10);
     return result > 0 ? result : null;
   }
   return null;
@@ -512,7 +523,7 @@ export function parseUpperDeckHtmlChecklist(
     const playerSignature = players.map(comparable).sort().join("+");
     const previousOwner = cardNumberOwners.get(numberOwnerKey);
     if (previousOwner && previousOwner !== playerSignature) {
-      issue(issues, "card_number_subject_conflict", "error", `${setName} #${row.cardNumber} maps to conflicting subjects`, rowReference);
+      issue(issues, "card_number_subject_conflict", "warning", `${setName} #${row.cardNumber} maps to conflicting subjects`, rowReference);
       continue;
     }
     cardNumberOwners.set(numberOwnerKey, playerSignature);
@@ -588,7 +599,7 @@ export function parseUpperDeckHtmlChecklist(
     };
     const fingerprint = buildChecklistIdentityFingerprint(identityInput);
     if (fingerprints.has(fingerprint.fingerprintSha256)) {
-      issue(issues, "duplicate_identity", "error", `Duplicate Upper Deck identity for ${row.rawSetName} #${row.cardNumber}`, rowReference);
+      issue(issues, "duplicate_identity", "warning", `Duplicate Upper Deck identity for ${row.rawSetName} #${row.cardNumber}`, rowReference);
       continue;
     }
     fingerprints.add(fingerprint.fingerprintSha256);

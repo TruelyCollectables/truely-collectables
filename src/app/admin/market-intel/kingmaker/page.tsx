@@ -6,6 +6,7 @@ export const revalidate = 0;
 
 const modules = [
   ["Acquisition Radar", "/admin/market-intel/deals", "Verified opportunities, price drops, mislistings, and ending-soon targets."],
+  ["Prospect & Deal Hunter Radar", "/admin/market-intel/deal-hunter", "Priority prospect tracking (Cam Ward, Connelly, Chernyshov, Hutson, WNBA), live eBay discovery, and economics."],
   ["Capital Ledger", "/admin/market-intel/kingmaker/capital-ledger", "Canonical purchases, delivered cost basis, receiving, sales, and position aging."],
   ["Market Truth Lab", "/admin/market-intel/comps", "Exact-card sold evidence, liquidity, confidence, break-even values, and direction."],
   ["Operations Control", "/admin/market-intel/readiness", "Freshness, reconciliation, ingestion failures, warnings, and fail-closed health."],

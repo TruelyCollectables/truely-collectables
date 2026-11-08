@@ -4,6 +4,24 @@ import { createSupabaseServerClient } from "../../../../lib/supabase-server";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+type PageProps = {
+  searchParams?: Promise<{
+    triggered?: string;
+    error?: string;
+  }>;
+};
+
+const PROSPECT_ROSTER = [
+  { name: "Cam Ward", sport: "Football", team: "Miami Hurricanes", priority: "100.0", role: "QB / Heisman Frontrunner", status: "ACTIVE" },
+  { name: "Trevor Connelly", sport: "Hockey", team: "Vegas Golden Knights", priority: "99.5", role: "1st Round Pick / Providence NCAA", status: "ACTIVE" },
+  { name: "Igor Chernyshov", sport: "Hockey", team: "San Jose Sharks", priority: "99.0", role: "Saginaw Spirit / Surging #6 Beckett Hot List", status: "ACTIVE" },
+  { name: "Lane Hutson", sport: "Hockey", team: "Montreal Canadiens", priority: "98.5", role: "Electric Rookie Defenseman", status: "ACTIVE" },
+  { name: "Kiki Iriafen", sport: "Basketball", team: "Washington Mystics", priority: "98.0", role: "USC / WNBA Draft Sleeper", status: "ACTIVE" },
+  { name: "Sonia Citron", sport: "Basketball", team: "Washington Mystics", priority: "97.5", role: "Notre Dame / WNBA Draft Sleeper", status: "ACTIVE" },
+  { name: "Olivia Miles", sport: "Basketball", team: "Notre Dame", priority: "97.0", role: "Elite Playmaker / WNBA Sleeper", status: "ACTIVE" },
+  { name: "Paige Bueckers", sport: "Basketball", team: "Dallas Wings", priority: "96.5", role: "UConn / Consensus #1 WNBA Prospect", status: "ACTIVE" },
+] as const;
+
 function money(value: unknown) {
   const number = Number(value);
   return Number.isFinite(number) ? `$${number.toFixed(2)}` : "—";
@@ -32,7 +50,8 @@ function tone(label: string) {
   return "border-neutral-200 bg-white";
 }
 
-export default async function MacDealHunterPage() {
+export default async function MacDealHunterPage({ searchParams }: PageProps) {
+  const query = await searchParams;
   const supabase = createSupabaseServerClient({ admin: true });
   const [runResult, candidateResult] = await Promise.all([
     supabase
@@ -60,28 +79,92 @@ export default async function MacDealHunterPage() {
   return (
     <main className="min-h-screen bg-neutral-100 px-4 py-6 text-neutral-950 sm:px-6 lg:px-8">
       <section className="mx-auto max-w-[1500px] rounded-[2rem] border border-neutral-900 bg-neutral-950 p-6 text-white shadow-2xl lg:p-8">
-        <Link
-          href="/admin/market-intel"
-          className="inline-flex rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-black"
-        >
-          ← Market Intel
-        </Link>
-        <p className="mt-5 text-xs font-black uppercase tracking-[0.2em] text-cyan-300">
-          Mac-Owned Automation
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex flex-wrap items-center gap-3">
+            <Link
+              href="/admin/market-intel/kingmaker"
+              className="inline-flex rounded-full border border-amber-300/30 bg-amber-300/10 px-4 py-2 text-sm font-black text-amber-300 hover:bg-amber-300/20"
+            >
+              ← KINGMAKER Command
+            </Link>
+            <Link
+              href="/admin/market-intel"
+              className="inline-flex rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-black text-neutral-300 hover:bg-white/20"
+            >
+              Market Intel
+            </Link>
+          </div>
+          <form method="post" action="/api/admin/market-intel/deal-hunter/run">
+            <button
+              type="submit"
+              className="inline-flex items-center gap-2 rounded-full bg-emerald-400 px-6 py-2.5 text-sm font-black text-black shadow-lg transition hover:bg-emerald-300 hover:shadow-emerald-400/20"
+            >
+              ⚡ TRIGGER LIVE RUN NOW
+            </button>
+          </form>
+        </div>
+
+        <p className="mt-6 text-xs font-black uppercase tracking-[0.2em] text-cyan-300">
+          KINGMAKER Acquisition Radar & Live Scanner
         </p>
-        <h1 className="mt-2 text-4xl font-black md:text-5xl">InstaComp AI Deal Hunter</h1>
+        <h1 className="mt-2 text-4xl font-black md:text-5xl">Prospect & Deal Hunter Command</h1>
         <p className="mt-3 max-w-4xl font-semibold text-neutral-300">
-          The physical Mac owns discovery, front/back InstaComp identification, exact sold comps,
-          economics, duplicate suppression, and alerts. ChatGPT tasks are not part of this runtime.
+          The physical Mac owns discovery across priority prospect query families, front/back InstaComp identification,
+          exact sold comps, economics, and decision-grade alerts.
         </p>
       </section>
 
       <div className="mx-auto max-w-[1500px] space-y-6 py-6">
-        {loadError ? (
-          <section className="rounded-3xl border border-rose-300 bg-rose-50 p-5 font-bold text-rose-950">
-            {loadError}. Apply the 20260806 Mac Deal Hunter scheduler migration.
+        {query?.triggered === "1" ? (
+          <section className="rounded-3xl border border-emerald-400 bg-emerald-50 p-5 font-bold text-emerald-950 shadow-sm">
+            ✓ Deal Hunter run successfully dispatched to Mac mini. Discovery and evaluation are in progress.
           </section>
         ) : null}
+
+        {query?.error ? (
+          <section className="rounded-3xl border border-rose-400 bg-rose-50 p-5 font-bold text-rose-950 shadow-sm">
+            ⚠ Failed to trigger run: {decodeURIComponent(query.error)}
+          </section>
+        ) : null}
+
+        {loadError ? (
+          <section className="rounded-3xl border border-rose-300 bg-rose-50 p-5 font-bold text-rose-950">
+            {loadError}.
+          </section>
+        ) : null}
+
+        {/* Priority Target Roster */}
+        <section className="rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-4 border-b border-neutral-100 pb-4">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-neutral-500">Live Syndicate Targets</p>
+              <h2 className="text-2xl font-black">Active Prospect Acquisition Roster</h2>
+            </div>
+            <div className="text-right text-xs font-bold text-neutral-500">
+              <span className="text-emerald-600 font-black">8 Active Targets</span> · Cooper Flagg & Jaxson Dart Excluded
+            </div>
+          </div>
+          <div className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {PROSPECT_ROSTER.map((target) => (
+              <div
+                key={target.name}
+                className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4 transition hover:border-neutral-400"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="rounded-full bg-emerald-100 px-2.5 py-0.5 text-xs font-black text-emerald-800">
+                    Priority {target.priority}
+                  </span>
+                  <span className="text-[10px] font-black uppercase tracking-wider text-neutral-500">
+                    {target.sport}
+                  </span>
+                </div>
+                <h3 className="mt-2 text-lg font-black text-neutral-900">{target.name}</h3>
+                <p className="text-xs font-bold text-neutral-600">{target.team}</p>
+                <p className="mt-2 text-xs font-semibold text-neutral-500">{target.role}</p>
+              </div>
+            ))}
+          </div>
+        </section>
 
         <section
           className={`rounded-3xl border p-5 shadow-sm ${

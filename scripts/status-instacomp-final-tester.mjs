@@ -1204,6 +1204,7 @@ if (jsonOutput) {
   console.log(JSON.stringify(readiness, null, 2));
 } else {
   console.log("TCOS InstaComp™ final tester readiness:");
+  console.log(`- scope: local 100-card trial readiness, not live Kingmaker queue state`);
   console.log(`- target ready by local: ${readiness.targetReadyByLocal}`);
   console.log(`- priority: ${readiness.priority}`);
   console.log(`- tester URL: ${readiness.testerUrl}`);

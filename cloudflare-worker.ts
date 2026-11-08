@@ -565,6 +565,8 @@ async function cloudflareSocialAiCopy(request: Request, env: WorkerEnv, ctx: Exe
 
 const worker = {
   async fetch(request: Request, env: WorkerEnv, ctx: ExecutionContextLike) {
+    // Mark the native Worker runtime so image normalization never imports Sharp.
+    (globalThis as Record<string, unknown>).__TRUELY_CLOUDFLARE_NATIVE_FETCH__ = fetch;
     const url = new URL(request.url);
     if (url.protocol === "http:") {
       url.protocol = "https:";

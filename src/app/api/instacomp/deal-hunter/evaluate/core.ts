@@ -626,9 +626,11 @@ export async function POST(request: NextRequest) {
     const listingTitleHint = text(listing.title, 1000);
     if (listingTitleHint) internalForm.set("listingTitleHint", listingTitleHint);
     const internalHeaders = new Headers({ Accept: "application/json" });
+    const macKey = request.headers.get("x-instacomp-ai-key");
+    if (macKey) internalHeaders.set("x-instacomp-ai-key", macKey);
     internalHeaders.set(
       "x-tcos-instacomp-service-token",
-      getInstaCompServiceToken(),
+      request.headers.get("x-tcos-instacomp-service-token") || getInstaCompServiceToken(),
     );
     const internalRequest = new NextRequest(
       new URL("/api/instacomp/live-scan", request.url),

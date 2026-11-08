@@ -23,6 +23,7 @@ const OUTPUT = resolve(
   process.env.MAINSTREAM_CHECKLIST_OUTPUT ||
     ".checklist-discovery/mainstream-backlog-receipt.json",
 );
+const TRUSTED_SOURCE_NAME_RE = /(upper deck|topps|panini|beckett|gts|go gts)/i;
 const APPLY = process.env.MAINSTREAM_CHECKLIST_APPLY !== "false";
 const SELF_TEST = process.env.MAINSTREAM_CHECKLIST_SELF_TEST === "true";
 const RECONCILE_ONLY = process.env.MAINSTREAM_CHECKLIST_RECONCILE_ONLY === "true";
@@ -333,7 +334,7 @@ async function main() {
 
   const selected = manifest.entries.filter(
     (entry, index) => index % BATCH_COUNT === BATCH_INDEX,
-  );
+  ).filter((entry) => TRUSTED_SOURCE_NAME_RE.test(String(entry.sourceName || "")));
   const startedAt = new Date().toISOString();
   const results = await parallelMap(selected, WORKERS, (entry) =>
     processEntry(db, entry),
@@ -351,6 +352,7 @@ async function main() {
     startedAt,
     completedAt: new Date().toISOString(),
     mode: APPLY ? "apply" : "validate",
+    trustedSourceFilter: String(TRUSTED_SOURCE_NAME_RE),
     batch: { index: BATCH_INDEX, count: BATCH_COUNT, selected: selected.length },
     workers: WORKERS,
     statuses,

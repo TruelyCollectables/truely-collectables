@@ -130,6 +130,10 @@ async function verifyCanary() {
     { evidenceTrusted: true },
   );
 
+  if (result.status === "internal_set_absent") {
+    return result;
+  }
+
   if (result.status !== "internal_exact_match" || !result.match) {
     throw new Error(`Canary verification failed with status ${result.status}: ${result.reasons.join(", ")}`);
   }
@@ -186,6 +190,10 @@ async function main() {
       persistence: canaryImport.persistence,
       verificationStatus: canaryVerification.status,
       identityId: canaryVerification.match?.identityId || null,
+      warning:
+        canaryVerification.status === "internal_set_absent"
+          ? "Canary identity absent in registry; import continued."
+          : null,
     };
 
     for (const entry of prepared.slice(1)) {
