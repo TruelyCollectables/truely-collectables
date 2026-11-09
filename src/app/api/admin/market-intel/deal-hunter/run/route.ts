@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getConfiguredInstaCompMacKey, getConfiguredInstaCompMacUrl } from "../../../../../lib/instacomp-mac-credentials";
+import { getConfiguredInstaCompMacKey, getConfiguredInstaCompMacUrl } from "../../../../../../lib/instacomp-mac-credentials";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,13 +15,18 @@ function getServerFetch(): typeof fetch {
 }
 
 export async function POST(request: NextRequest) {
+  const referrer = request.headers.get("referer") || "";
+  const returnPath = referrer.includes("/kingmaker/sourcing")
+    ? "/kingmaker/sourcing"
+    : "/admin/market-intel/deal-hunter";
+
   try {
     const baseUrl = getConfiguredInstaCompMacUrl();
     const key = getConfiguredInstaCompMacKey();
     if (!baseUrl || !key) {
       return NextResponse.redirect(
         new URL(
-          "/admin/market-intel/deal-hunter?error=Mac+connection+not+configured+in+Production",
+          `${returnPath}?error=Mac+connection+not+configured+in+Production`,
           request.url,
         ),
         303,
@@ -42,19 +47,19 @@ export async function POST(request: NextRequest) {
     if (!macResponse.ok || !payload) {
       const detail = String(payload?.detail || payload?.error || `HTTP ${macResponse.status}`);
       return NextResponse.redirect(
-        new URL(`/admin/market-intel/deal-hunter?error=${encodeURIComponent(detail)}`, request.url),
+        new URL(`${returnPath}?error=${encodeURIComponent(detail)}`, request.url),
         303,
       );
     }
 
     return NextResponse.redirect(
-      new URL("/admin/market-intel/deal-hunter?triggered=1", request.url),
+      new URL(`${returnPath}?triggered=1`, request.url),
       303,
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : "Trigger request failed";
     return NextResponse.redirect(
-      new URL(`/admin/market-intel/deal-hunter?error=${encodeURIComponent(message)}`, request.url),
+      new URL(`${returnPath}?error=${encodeURIComponent(message)}`, request.url),
       303,
     );
   }

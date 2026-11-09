@@ -18,7 +18,7 @@ const navigation = [
   { href: "/kingmaker/resale-ready", label: "Resale Ready", exact: false },
   { href: "/kingmaker/inventory", label: "Inventory", exact: false },
   { href: "/kingmaker/intelligence", label: "Intelligence", exact: false },
-  { href: "/kingmaker/sourcing", label: "Sourcing", exact: false },
+  { href: "/kingmaker/sourcing", label: "Deal Hunter & Sourcing", exact: false },
   { href: "/kingmaker/offers", label: "Offers", exact: false },
   { href: "/kingmaker/orders", label: "Orders", exact: false },
   { href: "/kingmaker/marketplaces", label: "Marketplaces", exact: false },
