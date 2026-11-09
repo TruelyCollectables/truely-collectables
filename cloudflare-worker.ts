@@ -12,7 +12,7 @@ import { default as handler } from "./.open-next/worker.js";
  */
 const DEAL_HUNTER_TIME_ZONE = "America/Denver";
 const DEAL_HUNTER_HOURS = "7,11,15,19,21";
-const INCIDENT_DISABLE_SCHEDULED_JOBS = true;
+const INCIDENT_DISABLE_SCHEDULED_JOBS = false;
 const INCIDENT_ALLOWED_SCHEDULED_JOB_PREFIXES = [
   "/api/cron/ebay-order-sale-sync",
   "/api/cron/social-publisher",
