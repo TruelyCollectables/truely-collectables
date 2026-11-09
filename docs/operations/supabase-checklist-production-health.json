@@ -1,6 +1,6 @@
 {
   "schema": "tcos.supabase.checklistProductionHealth.v3",
-  "checkedAt": "2026-08-14T04:41:58Z",
+  "checkedAt": "2026-11-09T02:50:04Z",
   "managementProject": {
     "httpCode": "200",
     "data": {
@@ -15,37 +15,47 @@
     "services": [
       {
         "name": "db",
-        "healthy": null,
-        "status": "UNHEALTHY",
-        "error": "Failed to connect to database: connect ECONNREFUSED 2600:1f14:2c31:7601:26cf:1b26:1bde:69cf:5432"
+        "healthy": true,
+        "status": "ACTIVE_HEALTHY",
+        "error": null
       },
       {
         "name": "rest",
-        "healthy": null,
-        "status": "UNHEALTHY",
-        "error": "Failed to retrieve project's rest service health"
+        "healthy": true,
+        "status": "ACTIVE_HEALTHY",
+        "error": null
       },
       {
         "name": "storage",
-        "healthy": null,
-        "status": "UNHEALTHY",
-        "error": "Storage is not healthy"
+        "healthy": true,
+        "status": "ACTIVE_HEALTHY",
+        "error": null
       },
       {
         "name": "auth",
-        "healthy": null,
-        "status": "UNHEALTHY",
-        "error": "upstream connect error or disconnect/reset before headers. retried and the latest reset reason: remote connection failure, transport failure reason: delayed connect error: 111"
+        "healthy": true,
+        "status": "ACTIVE_HEALTHY",
+        "error": null
       }
     ],
     "error": null,
     "transportError": null
   },
   "readOnlyDatabaseQuery": {
-    "httpCode": "400",
-    "result": {
-      "message": "Failed to run sql query: connect ECONNREFUSED 2600:1f14:2c31:7601:26cf:1b26:1bde:69cf:5432"
-    },
+    "httpCode": "201",
+    "result": [
+      {
+        "health": {
+          "max_connections": 60,
+          "total_connections": 26,
+          "active_connections": 1,
+          "waiting_connections": 25,
+          "waiting_locks": 0,
+          "checklist_catalog_readable": true,
+          "blockers": []
+        }
+      }
+    ],
     "transportError": null
   }
 }
