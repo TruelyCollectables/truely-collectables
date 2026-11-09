@@ -1,0 +1,423 @@
+{
+  "generatedAt": "2026-11-09T02:49:54Z",
+  "automaticChecklistDiscoveryRuns": [
+    {
+      "id": 42553031258,
+      "run_number": 153,
+      "run_attempt": 1,
+      "event": "push",
+      "status": "queued",
+      "conclusion": null,
+      "head_sha": "1e560d89f3f4fb957b3f0cf06a26c33b574fb422",
+      "head_branch": "main",
+      "created_at": "2026-11-09T02:49:30Z",
+      "run_started_at": "2026-11-09T02:49:30Z",
+      "updated_at": "2026-11-09T02:49:30Z",
+      "html_url": "https://github.com/TruelyCollectables/truely-collectables/actions/runs/42553031258"
+    },
+    {
+      "id": 32387047691,
+      "run_number": 72,
+      "run_attempt": 1,
+      "event": "push",
+      "status": "completed",
+      "conclusion": "failure",
+      "head_sha": "201f848111bbe609aaba3dffd910f33c6522430e",
+      "head_branch": "main",
+      "created_at": "2026-08-20T15:35:31Z",
+      "run_started_at": "2026-08-20T15:35:31Z",
+      "updated_at": "2026-08-20T15:36:56Z",
+      "html_url": "https://github.com/TruelyCollectables/truely-collectables/actions/runs/32387047691"
+    },
+    {
+      "id": 32386697333,
+      "run_number": 71,
+      "run_attempt": 1,
+      "event": "push",
+      "status": "completed",
+      "conclusion": "failure",
+      "head_sha": "1b7fb1bef6435c757b75d45e1d05cc4e0ef62ff0",
+      "head_branch": "main",
+      "created_at": "2026-08-20T15:32:00Z",
+      "run_started_at": "2026-08-20T15:32:00Z",
+      "updated_at": "2026-08-20T15:33:25Z",
+      "html_url": "https://github.com/TruelyCollectables/truely-collectables/actions/runs/32386697333"
+    },
+    {
+      "id": 32385386879,
+      "run_number": 70,
+      "run_attempt": 1,
+      "event": "push",
+      "status": "completed",
+      "conclusion": "failure",
+      "head_sha": "908fb003c63bf7b08b3a5e200009af33323fd662",
+      "head_branch": "main",
+      "created_at": "2026-08-20T15:18:57Z",
+      "run_started_at": "2026-08-20T15:18:57Z",
+      "updated_at": "2026-08-20T15:20:40Z",
+      "html_url": "https://github.com/TruelyCollectables/truely-collectables/actions/runs/32385386879"
+    },
+    {
+      "id": 32375443462,
+      "run_number": 69,
+      "run_attempt": 1,
+      "event": "push",
+      "status": "completed",
+      "conclusion": "failure",
+      "head_sha": "cc309735a5a852ad40228c3565efa0c88085827d",
+      "head_branch": "main",
+      "created_at": "2026-08-20T13:38:42Z",
+      "run_started_at": "2026-08-20T13:38:42Z",
+      "updated_at": "2026-08-20T13:40:32Z",
+      "html_url": "https://github.com/TruelyCollectables/truely-collectables/actions/runs/32375443462"
+    },
+    {
+      "id": 32306642878,
+      "run_number": 67,
+      "run_attempt": 1,
+      "event": "push",
+      "status": "completed",
+      "conclusion": "failure",
+      "head_sha": "dabaa9a3ecc058512e9875cd40bc92ca53b69780",
+      "head_branch": "main",
+      "created_at": "2026-08-19T21:59:29Z",
+      "run_started_at": "2026-08-19T21:59:29Z",
+      "updated_at": "2026-08-19T23:52:57Z",
+      "html_url": "https://github.com/TruelyCollectables/truely-collectables/actions/runs/32306642878"
+    },
+    {
+      "id": 32306022821,
+      "run_number": 66,
+      "run_attempt": 1,
+      "event": "push",
+      "status": "completed",
+      "conclusion": "failure",
+      "head_sha": "419ec80f18ceb350d3df1fb17b5fe3938939c913",
+      "head_branch": "main",
+      "created_at": "2026-08-19T21:51:53Z",
+      "run_started_at": "2026-08-19T21:51:53Z",
+      "updated_at": "2026-08-19T21:56:07Z",
+      "html_url": "https://github.com/TruelyCollectables/truely-collectables/actions/runs/32306022821"
+    },
+    {
+      "id": 32305201341,
+      "run_number": 65,
+      "run_attempt": 1,
+      "event": "push",
+      "status": "completed",
+      "conclusion": "skipped",
+      "head_sha": "def40491e196b0f62b397a99729d063816e05cea",
+      "head_branch": "main",
+      "created_at": "2026-08-19T21:42:00Z",
+      "run_started_at": "2026-08-19T21:42:00Z",
+      "updated_at": "2026-08-19T21:42:24Z",
+      "html_url": "https://github.com/TruelyCollectables/truely-collectables/actions/runs/32305201341"
+    },
+    {
+      "id": 32304511410,
+      "run_number": 64,
+      "run_attempt": 1,
+      "event": "push",
+      "status": "completed",
+      "conclusion": "cancelled",
+      "head_sha": "7d29d34c9c2f8e254a88b85ee771018921adb6d1",
+      "head_branch": "main",
+      "created_at": "2026-08-19T21:33:48Z",
+      "run_started_at": "2026-08-19T21:33:48Z",
+      "updated_at": "2026-08-19T21:42:24Z",
+      "html_url": "https://github.com/TruelyCollectables/truely-collectables/actions/runs/32304511410"
+    },
+    {
+      "id": 32201311780,
+      "run_number": 62,
+      "run_attempt": 1,
+      "event": "push",
+      "status": "completed",
+      "conclusion": "skipped",
+      "head_sha": "cd675629a863c1de1d5b840b14a64ec36b8d7c62",
+      "head_branch": "main",
+      "created_at": "2026-08-19T00:27:24Z",
+      "run_started_at": "2026-08-19T00:27:24Z",
+      "updated_at": "2026-08-19T00:27:34Z",
+      "html_url": "https://github.com/TruelyCollectables/truely-collectables/actions/runs/32201311780"
+    }
+  ],
+  "registryStatus": {
+    "ok": true,
+    "ingestRevision": "2026-08-18-hockey-reliability-v2",
+    "generatedAt": "2026-11-09T02:49:54.457Z",
+    "upperDeck2021PlusCatalogRows": 483,
+    "currentRevisionRows": 1,
+    "currentRevisionHockeyRows": 1,
+    "statusCounts": {
+      "quarantined": 1
+    },
+    "sportCounts": {
+      "Hockey": 1
+    },
+    "unresolvedCount": 1,
+    "unresolved": [
+      {
+        "sourceUrl": "https://upperdeck.com/checklist/2025-26-nhl-ultimate-collection-checklist/",
+        "releaseName": "2025 26 nhl ultimate collection checklist",
+        "status": "quarantined",
+        "sport": "Hockey",
+        "lastCheckedAt": "2026-08-31T20:58:16.422+00:00",
+        "issueSummary": [
+          {
+            "code": "reference_parallel_rows_not_deterministic",
+            "message": "No deterministic parallel rows were parsed from this source.",
+            "severity": "warning"
+          },
+          {
+            "code": "reference_card_number_subject_conflict",
+            "message": "2025-26 NHL Ultimate Collection #107 maps to conflicting subjects.",
+            "severity": "error"
+          },
+          {
+            "code": "reference_card_number_subject_conflict",
+            "message": "2025-26 NHL Ultimate Collection #7 maps to conflicting subjects.",
+            "severity": "error"
+          },
+          {
+            "code": "reference_card_number_subject_conflict",
+            "message": "2025-26 NHL Ultimate Collection #10 maps to conflicting subjects.",
+            "severity": "error"
+          },
+          {
+            "code": "reference_card_number_subject_conflict",
+            "message": "2025-26 NHL Ultimate Collection #38 maps to conflicting subjects.",
+            "severity": "error"
+          },
+          {
+            "code": "reference_card_number_subject_conflict",
+            "message": "2025-26 NHL Ultimate Collection #23 maps to conflicting subjects.",
+            "severity": "error"
+          },
+          {
+            "code": "reference_card_number_subject_conflict",
+            "message": "2025-26 NHL Ultimate Collection #62 maps to conflicting subjects.",
+            "severity": "error"
+          },
+          {
+            "code": "reference_card_number_subject_conflict",
+            "message": "2025-26 NHL Ultimate Collection #88 maps to conflicting subjects.",
+            "severity": "error"
+          },
+          {
+            "code": "reference_card_number_subject_conflict",
+            "message": "2025-26 NHL Ultimate Collection #46 maps to conflicting subjects.",
+            "severity": "error"
+          },
+          {
+            "code": "reference_card_number_subject_conflict",
+            "message": "2025-26 NHL Ultimate Collection #6 maps to conflicting subjects.",
+            "severity": "error"
+          },
+          {
+            "code": "reference_card_number_subject_conflict",
+            "message": "2025-26 NHL Ultimate Collection #34 maps to conflicting subjects.",
+            "severity": "error"
+          },
+          {
+            "code": "reference_card_number_subject_conflict",
+            "message": "2025-26 NHL Ultimate Collection #41 maps to conflicting subjects.",
+            "severity": "error"
+          },
+          {
+            "code": "reference_card_number_subject_conflict",
+            "message": "2025-26 NHL Ultimate Collection #54 maps to conflicting subjects.",
+            "severity": "error"
+          },
+          {
+            "code": "reference_card_number_subject_conflict",
+            "message": "2025-26 NHL Ultimate Collection #69 maps to conflicting subjects.",
+            "severity": "error"
+          },
+          {
+            "code": "reference_card_number_subject_conflict",
+            "message": "2025-26 NHL Ultimate Collection #120 maps to conflicting subjects.",
+            "severity": "error"
+          },
+          {
+            "code": "reference_card_number_subject_conflict",
+            "message": "2025-26 NHL Ultimate Collection #134 maps to conflicting subjects.",
+            "severity": "error"
+          },
+          {
+            "code": "reference_card_number_subject_conflict",
+            "message": "2025-26 NHL Ultimate Collection #161 maps to conflicting subjects.",
+            "severity": "error"
+          },
+          {
+            "code": "reference_card_number_subject_conflict",
+            "message": "2025-26 NHL Ultimate Collection #191 maps to conflicting subjects.",
+            "severity": "error"
+          },
+          {
+            "code": "reference_card_number_subject_conflict",
+            "message": "2025-26 NHL Ultimate Collection #9 maps to conflicting subjects.",
+            "severity": "error"
+          },
+          {
+            "code": "reference_card_number_subject_conflict",
+            "message": "2025-26 NHL Ultimate Collection #12 maps to conflicting subjects.",
+            "severity": "error"
+          },
+          {
+            "code": "reference_card_number_subject_conflict",
+            "message": "2025-26 NHL Ultimate Collection #14 maps to conflicting subjects.",
+            "severity": "error"
+          },
+          {
+            "code": "reference_card_number_subject_conflict",
+            "message": "2025-26 NHL Ultimate Collection #28 maps to conflicting subjects.",
+            "severity": "error"
+          },
+          {
+            "code": "reference_card_number_subject_conflict",
+            "message": "2025-26 NHL Ultimate Collection #30 maps to conflicting subjects.",
+            "severity": "error"
+          },
+          {
+            "code": "reference_card_number_subject_conflict",
+            "message": "2025-26 NHL Ultimate Collection #41 maps to conflicting subjects.",
+            "severity": "error"
+          },
+          {
+            "code": "reference_card_number_subject_conflict",
+            "message": "2025-26 NHL Ultimate Collection #42 maps to conflicting subjects.",
+            "severity": "error"
+          },
+          {
+            "code": "reference_card_number_subject_conflict",
+            "message": "2025-26 NHL Ultimate Collection #46 maps to conflicting subjects.",
+            "severity": "error"
+          },
+          {
+            "code": "reference_card_number_subject_conflict",
+            "message": "2025-26 NHL Ultimate Collection #59 maps to conflicting subjects.",
+            "severity": "error"
+          },
+          {
+            "code": "reference_card_number_subject_conflict",
+            "message": "2025-26 NHL Ultimate Collection #70 maps to conflicting subjects.",
+            "severity": "error"
+          },
+          {
+            "code": "reference_card_number_subject_conflict",
+            "message": "2025-26 NHL Ultimate Collection #74 maps to conflicting subjects.",
+            "severity": "error"
+          },
+          {
+            "code": "reference_card_number_subject_conflict",
+            "message": "2025-26 NHL Ultimate Collection #76 maps to conflicting subjects.",
+            "severity": "error"
+          },
+          {
+            "code": "reference_card_number_subject_conflict",
+            "message": "2025-26 NHL Ultimate Collection #83 maps to conflicting subjects.",
+            "severity": "error"
+          },
+          {
+            "code": "reference_card_number_subject_conflict",
+            "message": "2025-26 NHL Ultimate Collection #86 maps to conflicting subjects.",
+            "severity": "error"
+          },
+          {
+            "code": "reference_card_number_subject_conflict",
+            "message": "2025-26 NHL Ultimate Collection #90 maps to conflicting subjects.",
+            "severity": "error"
+          },
+          {
+            "code": "reference_card_number_subject_conflict",
+            "message": "2025-26 NHL Ultimate Collection #100 maps to conflicting subjects.",
+            "severity": "error"
+          },
+          {
+            "code": "reference_card_number_subject_conflict",
+            "message": "2025-26 NHL Ultimate Collection #135 maps to conflicting subjects.",
+            "severity": "error"
+          },
+          {
+            "code": "reference_card_number_subject_conflict",
+            "message": "2025-26 NHL Ultimate Collection #144 maps to conflicting subjects.",
+            "severity": "error"
+          },
+          {
+            "code": "reference_card_number_subject_conflict",
+            "message": "2025-26 NHL Ultimate Collection #172 maps to conflicting subjects.",
+            "severity": "error"
+          },
+          {
+            "code": "reference_card_number_subject_conflict",
+            "message": "2025-26 NHL Ultimate Collection #181 maps to conflicting subjects.",
+            "severity": "error"
+          },
+          {
+            "code": "reference_card_number_subject_conflict",
+            "message": "2025-26 NHL Ultimate Collection #2 maps to conflicting subjects.",
+            "severity": "error"
+          },
+          {
+            "code": "reference_card_number_subject_conflict",
+            "message": "2025-26 NHL Ultimate Collection #45 maps to conflicting subjects.",
+            "severity": "error"
+          },
+          {
+            "code": "reference_card_number_subject_conflict",
+            "message": "2025-26 NHL Ultimate Collection #50 maps to conflicting subjects.",
+            "severity": "error"
+          },
+          {
+            "code": "reference_card_number_subject_conflict",
+            "message": "2025-26 NHL Ultimate Collection #64 maps to conflicting subjects.",
+            "severity": "error"
+          },
+          {
+            "code": "reference_card_number_subject_conflict",
+            "message": "2025-26 NHL Ultimate Collection #73 maps to conflicting subjects.",
+            "severity": "error"
+          },
+          {
+            "code": "reference_card_number_subject_conflict",
+            "message": "2025-26 NHL Ultimate Collection #8 maps to conflicting subjects.",
+            "severity": "error"
+          },
+          {
+            "code": "reference_card_number_subject_conflict",
+            "message": "2025-26 NHL Ultimate Collection #26 maps to conflicting subjects.",
+            "severity": "error"
+          },
+          {
+            "code": "reference_card_number_subject_conflict",
+            "message": "2025-26 NHL Ultimate Collection #39 maps to conflicting subjects.",
+            "severity": "error"
+          },
+          {
+            "code": "reference_card_number_subject_conflict",
+            "message": "2025-26 NHL Ultimate Collection #113 maps to conflicting subjects.",
+            "severity": "error"
+          },
+          {
+            "code": "reference_card_number_subject_conflict",
+            "message": "2025-26 NHL Ultimate Collection #114 maps to conflicting subjects.",
+            "severity": "error"
+          },
+          {
+            "code": "reference_card_number_subject_conflict",
+            "message": "2025-26 NHL Ultimate Collection #127 maps to conflicting subjects.",
+            "severity": "error"
+          },
+          {
+            "code": "reference_card_number_subject_conflict",
+            "message": "2025-26 NHL Ultimate Collection #147 maps to conflicting subjects.",
+            "severity": "error"
+          }
+        ]
+      }
+    ],
+    "latestCheckedAt": "2026-08-31T20:58:16.422Z"
+  },
+  "registryStatusError": null
+}
