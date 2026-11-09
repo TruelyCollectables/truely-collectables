@@ -1,4 +1,5 @@
 import { createSupabaseServerClient } from "../../../lib/supabase-server";
+import { getConfiguredInstaCompMacKey, getConfiguredInstaCompMacUrl } from "../../../lib/instacomp-mac-credentials";
 import DealHunterSourcingClient, {
   type ProspectTarget,
   type DealCandidate,
@@ -26,16 +27,31 @@ const PROSPECT_TARGETS: ProspectTarget[] = [
   { name: "Paige Bueckers", sport: "Basketball", team: "Dallas Wings", priority: "96.5", role: "UConn / Consensus #1 WNBA Prospect", status: "ACTIVE" },
 ];
 
+const EXCLUDED_REGEX = /\b(cooper\s+flagg|jaxson\s+dart)\b/i;
+
 export default async function KingmakerSourcingPage({ searchParams }: PageProps) {
   const query = await searchParams;
   const supabase = createSupabaseServerClient({ admin: true });
 
+  const sevenDaysAgo = Date.now() - 7 * 86400 * 1000;
+
+  // Asynchronously clean up stale dummy runs or ancient runs in Supabase
+  void (async () => {
+    try {
+      await supabase.from("tcos_deal_hunter_runs").delete().eq("discovery_count", 0).eq("evaluated_count", 0);
+      await supabase.from("tcos_deal_hunter_runs").delete().lt("completed_at", new Date(sevenDaysAgo).toISOString());
+    } catch {
+      // Non-blocking cleanup
+    }
+  })();
+
+  // 1. Load baseline from Supabase
   const [runsResult, candidatesResult, outboxResult, activeEbayResult] = await Promise.all([
     supabase
       .from("tcos_deal_hunter_runs")
       .select("*")
       .order("completed_at", { ascending: false })
-      .limit(20),
+      .limit(30),
     supabase
       .from("tcos_deal_hunter_candidates")
       .select("*")
@@ -53,7 +69,7 @@ export default async function KingmakerSourcingPage({ searchParams }: PageProps)
       .gt("quantity", 0),
   ]);
 
-  const runs: DealHunterRun[] = (runsResult.data || []).map((r) => ({
+  const supabaseRuns: DealHunterRun[] = (runsResult.data || []).map((r) => ({
     id: r.id,
     status: r.status || "completed",
     discovery_count: Number(r.discovery_count || 0),
@@ -65,7 +81,7 @@ export default async function KingmakerSourcingPage({ searchParams }: PageProps)
     created_at: r.created_at || undefined,
   }));
 
-  const candidates: DealCandidate[] = (candidatesResult.data || []).map((c) => ({
+  const supabaseCandidates: DealCandidate[] = (candidatesResult.data || []).map((c) => ({
     id: c.id,
     title: c.title || "Trading Card",
     watched_person: c.watched_person || null,
@@ -83,6 +99,93 @@ export default async function KingmakerSourcingPage({ searchParams }: PageProps)
     alertworthy: c.alertworthy === true,
     created_at: c.created_at || undefined,
   }));
+
+  // 2. Load live candidates directly from Mac tunnel when available
+  let macRuns: DealHunterRun[] = [];
+  let macCandidates: DealCandidate[] = [];
+
+  const baseUrl = getConfiguredInstaCompMacUrl();
+  const key = getConfiguredInstaCompMacKey();
+
+  if (baseUrl && key) {
+    try {
+      const [runsRes, candRes] = await Promise.all([
+        fetch(`${baseUrl}/v1/deal-hunter/runs?limit=20`, {
+          headers: { "X-InstaComp-AI-Key": key, Accept: "application/json" },
+          cache: "no-store",
+          signal: AbortSignal.timeout(5000),
+        }).catch(() => null),
+        fetch(`${baseUrl}/v1/deal-hunter/candidates?limit=250`, {
+          headers: { "X-InstaComp-AI-Key": key, Accept: "application/json" },
+          cache: "no-store",
+          signal: AbortSignal.timeout(5000),
+        }).catch(() => null),
+      ]);
+
+      if (runsRes?.ok) {
+        const body = (await runsRes.json().catch(() => null)) as { runs?: any[] } | null;
+        if (Array.isArray(body?.runs)) {
+          macRuns = body.runs.map((r: any) => ({
+            id: r.run_id || r.id,
+            status: r.status || "completed",
+            discovery_count: Number(r.discovery_count || 0),
+            evaluated_count: Number(r.evaluated_count || 0),
+            actionable_count: Number(r.actionable_count || 0),
+            manual_review_count: Number(r.manual_review_count || 0),
+            failure_count: Number(r.failure_count || 0),
+            completed_at: r.completed_at || r.started_at || null,
+            created_at: r.started_at || undefined,
+          }));
+        }
+      }
+
+      if (candRes?.ok) {
+        const body = (await candRes.json().catch(() => null)) as { candidates?: any[] } | null;
+        if (Array.isArray(body?.candidates)) {
+          macCandidates = body.candidates.map((c: any) => {
+            const images = Array.isArray(c.image_urls) ? c.image_urls : [];
+            return {
+              id: c.candidate_key || c.id,
+              title: c.title || "Trading Card",
+              watched_person: c.watched_person || null,
+              marketplace: c.marketplace || "eBay",
+              seller_name: c.seller_name || null,
+              delivered_cost: Number(c.delivered_cost || 0),
+              conservative_resale: Number(c.conservative_resale || 0),
+              expected_net_profit: Number(c.expected_net_profit || 0),
+              roi_percent: Number(c.roi_percent || 0),
+              deal_label: c.deal_label || null,
+              listing_url: c.listing_url || "#",
+              image_url: c.image_url || images[0] || null,
+              evaluation: c.error_message ? { reason: c.error_message } : null,
+              actionable: c.actionable === true || c.actionable === 1,
+              alertworthy: c.alertworthy === true || c.alertworthy === 1,
+              created_at: c.created_at || undefined,
+            };
+          });
+        }
+      }
+    } catch {
+      // Non-blocking fallback to Supabase
+    }
+  }
+
+  // Filter out ancient runs (54d+ ago) and empty dummy runs (0 discovered, 0 evaluated)
+  const combinedRuns = macRuns.length > 0 ? macRuns : supabaseRuns;
+  const runs = combinedRuns.filter((r) => {
+    if (r.discovery_count === 0 && r.evaluated_count === 0) return false;
+    if (r.completed_at && new Date(r.completed_at).getTime() < sevenDaysAgo) return false;
+    return true;
+  });
+
+  // Filter out any candidates matching excluded targets (Cooper Flagg & Jaxson Dart)
+  const rawCandidates = macCandidates.length > 0 ? macCandidates : supabaseCandidates;
+  const candidates = rawCandidates.filter((c) => {
+    if (EXCLUDED_REGEX.test(c.title || "") || EXCLUDED_REGEX.test(c.watched_person || "")) {
+      return false;
+    }
+    return true;
+  });
 
   const pendingOutboxCount = Number(outboxResult.count || 0);
   const activeEbayCount = Number(activeEbayResult.count || 0);

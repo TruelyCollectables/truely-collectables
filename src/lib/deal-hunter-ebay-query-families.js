@@ -6,6 +6,7 @@ const WNBA_PLAYERS = Object.freeze([
   { player: "Dominique Malonga", team: "Seattle Storm" },
   { player: "Sonia Citron", team: "Washington Mystics", nonBaseSinglesAndLotsOnly: true },
   { player: "Kiki Iriafen", team: "Washington Mystics", nonBaseSinglesAndLotsOnly: true },
+  { player: "Olivia Miles", team: "Notre Dame", nonBaseSinglesAndLotsOnly: true },
   { player: "Aneesah Morrow", team: "Connecticut Sun", nonBaseSinglesAndLotsOnly: true },
   { player: "Saniya Rivers", team: "Connecticut Sun", nonBaseSinglesAndLotsOnly: true },
   { player: "Sarah Ashlee Barker", team: "Los Angeles Sparks", nonBaseSinglesAndLotsOnly: true },
@@ -665,6 +666,9 @@ export function screenDealHunterEbayTitle({
   });
 
   if (!value) rejectionReasons.push("missing_title");
+  if (/\b(cooper\s+flagg|jaxson\s+dart)\b/i.test(evidenceText)) {
+    rejectionReasons.push("prospect_explicitly_excluded");
+  }
   if (PROHIBITED_LISTING.test(evidenceText)) {
     rejectionReasons.push("custom_reprint_digital_break_or_mystery");
   }
