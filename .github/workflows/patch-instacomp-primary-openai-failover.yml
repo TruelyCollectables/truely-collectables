@@ -1,10 +1,6 @@
 name: Patch InstaComp Primary OpenAI Failover
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/patch-instacomp-primary-openai-failover.yml"
   workflow_dispatch:
 
 permissions:
@@ -98,9 +94,9 @@ jobs:
             }
             return ai;
           },
-        },
-      ]);
-'''
+                  },
+                ]);
+          '''
           replacement = '''        {
           provider: "instacomp_internal",
           family: "instacomp_internal",
@@ -120,8 +116,8 @@ jobs:
             }
             return ai;
           },
-        },
-        {
+                  },
+                  {
           provider: "openai_primary",
           family: "openai",
           configured: Boolean(OPENAI_API_KEY),
@@ -133,9 +129,9 @@ jobs:
               params.externalOcr,
               { readerFocus: "primary" },
             ),
-        },
-      ]);
-'''
+                  },
+                ]);
+          '''
 
           marker = 'provider: "openai_primary"'
           if marker in text:

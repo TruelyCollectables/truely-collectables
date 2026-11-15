@@ -36,8 +36,8 @@ jobs:
           addition = '''        {
           href: "/admin/market-intel/kingmaker/morning-intelligence",
           label: "KINGMAKER Morning Intelligence",
-        },
-'''
+                  },
+          '''
 
           if route not in source:
               if source.count(marker) != 1:

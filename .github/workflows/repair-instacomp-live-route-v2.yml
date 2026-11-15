@@ -1,10 +1,6 @@
 name: Repair InstaComp Live Route V2
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/repair-instacomp-live-route-v2.yml"
   workflow_dispatch:
 
 permissions:
@@ -51,10 +47,10 @@ jobs:
                   r'(import\s*\{\s*formatUntrustedOcrEvidence,\s*normalizeOpenAiCompatibleBaseUrl,\s*openAiCompatibleProviderFamily,\s*resolveInstaCompCouncilPolicy,?\s*\}\s*from\s*"\.\./\.\./\.\./\.\./lib/instacomp-ai-council-security";)'
               )
               replacement = r'''\1
-import {
-  prioritizeIndependentCouncilProviders,
-  shouldContinueCouncilRuntime,
-} from "../../../../lib/instacomp-ai-council-runtime";'''
+          import {
+            prioritizeIndependentCouncilProviders,
+            shouldContinueCouncilRuntime,
+          } from "../../../../lib/instacomp-ai-council-runtime";'''
               text, count = security.subn(replacement, text, count=1)
               if count != 1:
                   raise SystemExit('Could not insert live council runtime import exactly once.')
@@ -66,13 +62,13 @@ import {
                   r'const configuredFamilies = Array\.from\(\s*new Set\(configuredPlan\.map\(\(provider\) => provider\.family\)\),?\s*\);'
               )
               replacement = '''const providerPlan = buildAiCouncilProviderPlan();
-  const configuredPlan = prioritizeIndependentCouncilProviders(
-    providerPlan.filter((provider) => provider.configured),
-    "openai",
-  );
-  const configuredFamilies = Array.from(
-    new Set(configuredPlan.map((provider) => provider.family)),
-  );'''
+            const configuredPlan = prioritizeIndependentCouncilProviders(
+              providerPlan.filter((provider) => provider.configured),
+              "openai",
+            );
+            const configuredFamilies = Array.from(
+              new Set(configuredPlan.map((provider) => provider.family)),
+            );'''
               text, count = plan.subn(replacement, text, count=1)
               if count != 1:
                   raise SystemExit('Could not replace configured provider plan exactly once.')
@@ -83,20 +79,20 @@ import {
                   r'while\s*\(\s*completedReaders < desiredReaders\s*&&\s*cursor < configuredPlan\.length\s*\)\s*\{'
               )
               replacement = '''let cursor = 0;
-  let completedReaders = 0;
-  let completedFamilies: string[] = [];
+            let completedReaders = 0;
+            let completedFamilies: string[] = [];
 
-  while (
-    shouldContinueCouncilRuntime({
-      completedReaders,
-      desiredReaders,
-      completedFamilies,
-      configuredFamilies,
-      cursor,
-      configuredReaderCount: configuredPlan.length,
-      primaryFamily: "openai",
-    })
-  ) {'''
+            while (
+              shouldContinueCouncilRuntime({
+                completedReaders,
+                desiredReaders,
+                completedFamilies,
+                configuredFamilies,
+                cursor,
+                configuredReaderCount: configuredPlan.length,
+                primaryFamily: "openai",
+              })
+            ) {'''
               text, count = loop.subn(replacement, text, count=1)
               if count != 1:
                   raise SystemExit('Could not replace live council loop exactly once.')
@@ -107,13 +103,13 @@ import {
                   r'completedReaders = allAttempts\.filter\(\(attempt\) => attempt\.reader\)\.length;'
               )
               replacement = '''allAttempts.push(...batchAttempts);
-    const completed = allAttempts.flatMap((attempt) =>
-      attempt.reader ? [attempt.reader] : [],
-    );
-    completedReaders = completed.length;
-    completedFamilies = Array.from(
-      new Set(completed.map((reader) => reader.family)),
-    );'''
+              const completed = allAttempts.flatMap((attempt) =>
+                attempt.reader ? [attempt.reader] : [],
+              );
+              completedReaders = completed.length;
+              completedFamilies = Array.from(
+                new Set(completed.map((reader) => reader.family)),
+              );'''
               text, count = update.subn(replacement, text, count=1)
               if count != 1:
                   raise SystemExit('Could not replace council completion accounting exactly once.')

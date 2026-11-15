@@ -1,11 +1,7 @@
 name: Temporary Certify eBay Difference Repair 20260728
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - ".github/workflows/temporary-certify-ebay-difference-repair-20260728.yml"
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -169,8 +165,8 @@ jobs:
           replacement = '''errorSample: sync.errors.slice(0, 5).map((entry) => ({
           itemId: entry.itemId,
           error: safeErrorMessage(entry.error, "Unknown listing sync error"),
-        })),
-        changedSample: sync.actions
+                  })),
+                  changedSample: sync.actions
           .filter((entry) =>
             ["insert", "update", "deactivate", "error"].includes(entry.action),
           )

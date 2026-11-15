@@ -1,10 +1,6 @@
 name: Force InstaComp Independent Reader Route
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/force-instacomp-independent-reader-route.yml"
   workflow_dispatch:
 
 permissions:
@@ -47,20 +43,20 @@ jobs:
           if 'instacomp-ai-council-runtime' not in text:
               pattern = r'(import \{\n  formatUntrustedOcrEvidence,\n  normalizeOpenAiCompatibleBaseUrl,\n  openAiCompatibleProviderFamily,\n  resolveInstaCompCouncilPolicy,\n\} from "\.\./\.\./\.\./\.\./lib/instacomp-ai-council-security";\n)'
               replacement = r'''\1import {
-  prioritizeIndependentCouncilProviders,
-  shouldContinueCouncilRuntime,
-} from "../../../../lib/instacomp-ai-council-runtime";
-'''
+            prioritizeIndependentCouncilProviders,
+            shouldContinueCouncilRuntime,
+          } from "../../../../lib/instacomp-ai-council-runtime";
+          '''
               text, count = re.subn(pattern, replacement, text, count=1)
               if count != 1:
                   raise SystemExit('Could not insert runtime import into live route.')
 
           pattern = r'''  const providerPlan = buildAiCouncilProviderPlan\(\);\n  const configuredPlan = providerPlan\.filter\(\(provider\) => provider\.configured\);'''
           replacement = '''  const providerPlan = buildAiCouncilProviderPlan();
-  const configuredPlan = prioritizeIndependentCouncilProviders(
-    providerPlan.filter((provider) => provider.configured),
-    "openai",
-  );'''
+            const configuredPlan = prioritizeIndependentCouncilProviders(
+              providerPlan.filter((provider) => provider.configured),
+              "openai",
+            );'''
           if 'const configuredPlan = prioritizeIndependentCouncilProviders(' not in text:
               text, count = re.subn(pattern, replacement, text, count=1)
               if count != 1:
@@ -68,20 +64,20 @@ jobs:
 
           pattern = r'''  let cursor = 0;\n  let completedReaders = 0;\n\n  while \(\n    completedReaders < desiredReaders &&\n    cursor < configuredPlan\.length\n  \) \{'''
           replacement = '''  let cursor = 0;
-  let completedReaders = 0;
-  let completedFamilies: string[] = [];
+            let completedReaders = 0;
+            let completedFamilies: string[] = [];
 
-  while (
-    shouldContinueCouncilRuntime({
-      completedReaders,
-      desiredReaders,
-      completedFamilies,
-      configuredFamilies,
-      cursor,
-      configuredReaderCount: configuredPlan.length,
-      primaryFamily: "openai",
-    })
-  ) {'''
+            while (
+              shouldContinueCouncilRuntime({
+                completedReaders,
+                desiredReaders,
+                completedFamilies,
+                configuredFamilies,
+                cursor,
+                configuredReaderCount: configuredPlan.length,
+                primaryFamily: "openai",
+              })
+            ) {'''
           if 'let completedFamilies: string[] = [];' not in text:
               text, count = re.subn(pattern, replacement, text, count=1)
               if count != 1:
@@ -89,14 +85,14 @@ jobs:
 
           pattern = r'''    allAttempts\.push\(\.\.\.batchAttempts\);\n    completedReaders = allAttempts\.filter\(\(attempt\) => attempt\.reader\)\.length;\n  \}'''
           replacement = '''    allAttempts.push(...batchAttempts);
-    const completed = allAttempts.flatMap((attempt) =>
-      attempt.reader ? [attempt.reader] : [],
-    );
-    completedReaders = completed.length;
-    completedFamilies = Array.from(
-      new Set(completed.map((reader) => reader.family)),
-    );
-  }'''
+              const completed = allAttempts.flatMap((attempt) =>
+                attempt.reader ? [attempt.reader] : [],
+              );
+              completedReaders = completed.length;
+              completedFamilies = Array.from(
+                new Set(completed.map((reader) => reader.family)),
+              );
+            }'''
           if 'const completed = allAttempts.flatMap' not in text:
               text, count = re.subn(pattern, replacement, text, count=1)
               if count != 1:

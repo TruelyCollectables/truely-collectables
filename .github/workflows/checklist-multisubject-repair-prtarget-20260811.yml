@@ -50,6 +50,8 @@ jobs:
 
       - name: Commit only permanent parser change
         shell: bash
+        env:
+          PR_HEAD_REF: ${{ github.event.pull_request.head.ref }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
@@ -58,4 +60,4 @@ jobs:
           git add scripts/mainstream-checklist/source-tools.mjs
           test "$(git diff --cached --name-only | tr '\n' ' ')" = "scripts/mainstream-checklist/source-tools.mjs "
           git commit -m "Support source-proven multi-subject checklist cards"
-          git push origin HEAD:${{ github.event.pull_request.head.ref }}
+          git push origin "HEAD:refs/heads/$PR_HEAD_REF"
