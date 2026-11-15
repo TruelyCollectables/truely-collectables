@@ -25,8 +25,11 @@ type WorkerCache = {
 const appWorker = worker as WorkerLike;
 const STOREFRONT_EDGE_RETENTION_SECONDS = 7 * 24 * 60 * 60;
 const STOREFRONT_EDGE_FRESH_MS = 60_000;
-const STOREFRONT_COLD_RENDER_TIMEOUT_MS = 5_000;
-const EDGE_FAILSAFE_VERSION = "storefront-failsafe-v2";
+// Inventory-backed cold renders can take longer than five seconds.
+// Keep the timeout bounded while allowing normal catalog hydration to finish.
+const STOREFRONT_COLD_RENDER_TIMEOUT_MS = 15_000;
+const EDGE_FAILSAFE_VERSION = "storefront-failsafe-v3";
+const refreshInFlight = new Map<string, Promise<void>>();
 
 function getDefaultCache(): WorkerCache | null {
   try {
@@ -210,11 +213,20 @@ export default {
     if (cached) {
       const age = snapshotAgeMs(cached);
       if (age > STOREFRONT_EDGE_FRESH_MS && cache) {
-        ctx.waitUntil(
-          refreshSnapshot(request, env, ctx, cache).catch((error) => {
-            console.warn("Background storefront edge refresh failed", error);
-          }),
-        );
+        // Do not start a new full-inventory render for every request in the
+        // same isolate while the cached response is stale.
+        const refreshKey = key.url;
+        if (!refreshInFlight.has(refreshKey)) {
+          const refresh = refreshSnapshot(request, env, ctx, cache)
+            .catch((error) => {
+              console.warn("Background storefront edge refresh failed", error);
+            })
+            .finally(() => {
+              refreshInFlight.delete(refreshKey);
+            });
+          refreshInFlight.set(refreshKey, refresh);
+          ctx.waitUntil(refresh);
+        }
       }
       return cachedResponseForBrowser(
         cached,
