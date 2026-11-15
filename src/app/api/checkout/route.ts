@@ -86,7 +86,12 @@ export async function POST(request: Request) {
         { status: 503 },
       );
     }
-    const stripe = new Stripe(stripeRuntime.stripeKey);
+    // Workers must use fetch; Node's default HTTP transport can hang indefinitely here.
+    const stripe = new Stripe(stripeRuntime.stripeKey, {
+      httpClient: Stripe.createFetchHttpClient(),
+      maxNetworkRetries: 1,
+      timeout: 12000,
+    });
     const checkoutInventoryEngine = new InventoryEngine(
       storeId,
       new InventoryRepository(storeId, supabase),
