@@ -634,6 +634,21 @@ export async function POST(request: Request) {
       reservationExpiresAt: reservation.expiresAt,
     });
   } catch (error: any) {
+    // Log only diagnostic identifiers, never Stripe credentials or customer data.
+    console.error("Checkout processing failed", {
+      name: String(error?.name || "UnknownError"),
+      type: String(error?.type || ""),
+      code: String(error?.code || ""),
+      statusCode: Number(error?.statusCode || 0),
+      requestId: String(error?.requestId || ""),
+      stage: checkoutJournal
+        ? checkoutJournal.stripeSessionId
+          ? "session_created"
+          : checkoutJournal.reservationCreated
+            ? "reservation_created"
+            : "attempt_claimed"
+        : "pre_claim",
+    });
     if (checkoutJournal) {
       let reservationMayBeReleased = checkoutJournal.stripeSessionId === null;
 
