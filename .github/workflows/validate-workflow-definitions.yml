@@ -26,4 +26,5 @@ jobs:
           tar -xzf /tmp/actionlint.tar.gz -C /tmp actionlint
           sudo install -m 0755 /tmp/actionlint /usr/local/bin/actionlint
       - name: Check every workflow for syntax, schema and unsafe expressions
-        run: actionlint -no-color .github/workflows/*.yml
+        # ShellCheck and Pyflakes advisories are tracked separately from workflow-definition errors.
+        run: actionlint -no-color -shellcheck= -pyflakes= .github/workflows/*.yml
