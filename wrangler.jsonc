@@ -15,6 +15,10 @@
     {
       "binding": "WORKER_SELF_REFERENCE",
       "service": "truely-collectables"
+    },
+    {
+      "binding": "PRODUCTION_EMAIL_WORKER",
+      "service": "truely-collectables-preview"
     }
   ],
   "triggers": {
