@@ -13,15 +13,27 @@ function validCronAuthorization(request: Request, secret: string) {
 }
 
 export async function GET(request: Request) {
-  const secret = process.env.CRON_SECRET;
-  if (!secret || secret.length < 16) {
+  const { getCloudflareContext } = await import("@opennextjs/cloudflare");
+  let runtimeSecrets: Record<string, unknown> = {};
+  try {
+    runtimeSecrets = getCloudflareContext().env as Record<string, unknown>;
+  } catch {
+    // Non-Workers execution uses the Node environment.
+  }
+  const secrets = [
+    runtimeSecrets.CRON_SECRET,
+    runtimeSecrets.TCOS_CRON_SECRET,
+    process.env.CRON_SECRET,
+    process.env.TCOS_CRON_SECRET,
+  ].filter((value): value is string => typeof value === "string" && value.length >= 16);
+  if (secrets.length === 0) {
     return Response.json(
       { error: "Scheduled order notification delivery is not configured." },
       { status: 503 },
     );
   }
 
-  if (!validCronAuthorization(request, secret)) {
+  if (!secrets.some((secret) => validCronAuthorization(request, secret))) {
     return Response.json({ error: "Unauthorized" }, { status: 401 });
   }
 
