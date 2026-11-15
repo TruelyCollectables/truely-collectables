@@ -84,6 +84,7 @@ type WorkerEnv = {
   AI?: WorkersAiBinding;
   CRON_SECRET?: string;
   TCOS_CRON_SECRET?: string;
+  RESEND_API_KEY?: string;
   INSTACOMP_AI_LOCAL_URL?: string;
   INSTACOMP_AI_LOCAL_KEY?: string;
   INSTACOMP_AI_API_KEY?: string;
@@ -565,6 +566,9 @@ async function cloudflareSocialAiCopy(request: Request, env: WorkerEnv, ctx: Exe
 
 const worker = {
   async fetch(request: Request, env: WorkerEnv, ctx: ExecutionContextLike) {
+    // Make the encrypted Worker binding available to the Next server bundle.
+    // Build-time process.env substitutions do not reliably expose new secrets.
+    (globalThis as Record<string, unknown>).__TCOS_RESEND_RUNTIME_KEY__ = env.RESEND_API_KEY || "";
     // Mark the native Worker runtime so image normalization never imports Sharp.
     (globalThis as Record<string, unknown>).__TRUELY_CLOUDFLARE_NATIVE_FETCH__ = fetch;
     const url = new URL(request.url);
