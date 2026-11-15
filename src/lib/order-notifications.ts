@@ -391,7 +391,9 @@ export async function deliverOrderNotification(params: {
     };
   }
 
-  const resendApiKey = process.env.RESEND_API_KEY;
+  // Read the Cloudflare runtime secret dynamically. Next's build-time environment
+  // substitution can otherwise freeze an absent RESEND_API_KEY into the bundle.
+  const resendApiKey = globalThis.process?.env?.["RESEND_API_KEY"];
   if (!resendApiKey) {
     return markNotificationFailed({
       supabase: params.supabase,
