@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export async function generateMetadata(): Promise<Metadata> {
-  const supabase = createSupabaseServerClient();
+  const supabase = createSupabaseServerClient({ admin: true });
   const storeSettings = await getStoreSettings(supabase);
 
   return {
@@ -23,7 +23,7 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default async function SellerTermsPage() {
-  const supabase = createSupabaseServerClient();
+  const supabase = createSupabaseServerClient({ admin: true });
   const storeSettings = await getStoreSettings(supabase);
 
   return (

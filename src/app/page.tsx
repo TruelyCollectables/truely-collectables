@@ -27,7 +27,7 @@ function CardImage({ card, sizes }: { card: UniversalInventoryItem; sizes: strin
 }
 
 export default async function Home() {
-  const supabase = createSupabaseServerClient();
+  const supabase = createSupabaseServerClient({ admin: true });
   const storeSettings = await getStoreSettings(supabase);
   let products: UniversalInventoryItem[] = [];
 

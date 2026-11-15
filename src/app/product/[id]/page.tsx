@@ -172,7 +172,7 @@ export default async function ProductPage({
 
   const quantity = Number(product.quantity || 0);
   const isSoldOut = quantity <= 0 || product.status !== "active";
-  const supabase = createSupabaseServerClient();
+  const supabase = createSupabaseServerClient({ admin: true });
   const storeSettings = await getStoreSettings(supabase);
   const productUrl = `${configuredSiteOrigin()}/product/${product.legacyProductId}`;
   const imageUrl = absoluteUrl(product.imageUrl);

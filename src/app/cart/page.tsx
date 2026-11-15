@@ -21,7 +21,7 @@ export const metadata: Metadata = {
 };
 
 export default async function CartPage() {
-  const supabase = createSupabaseServerClient();
+  const supabase = createSupabaseServerClient({ admin: true });
   const storeSettings = await getStoreSettings(supabase);
 
   return (
