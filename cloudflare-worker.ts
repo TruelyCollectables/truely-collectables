@@ -69,7 +69,9 @@ const cronJobs: readonly CronJob[] = [
   },
   { path: "/api/cron/ebay-order-sale-sync?lookbackDays=2", schedule: "*/5 * * * *" },
   { path: "/api/cron/social-publisher", schedule: "*/5 * * * *" },
-  { path: "/api/cron/ebay-store-fixed-price-sync", schedule: "2,17,32,47 * * * *" },
+  // Full-catalog eBay enumeration is expensive. Limit to four passes/day
+  // while lightweight sale/order reconciliation continues every five minutes.
+  { path: "/api/cron/ebay-store-fixed-price-sync", schedule: "17 */6 * * *" },
   { path: "/api/cron/order-notifications", schedule: "*/5 * * * *" },
   { path: "/api/cron/seller-ebay-reconciliation", schedule: "7,22,37,52 * * * *" },
   { path: "/api/cron/sold-collectible-archive", schedule: "11 * * * *" },
@@ -430,31 +432,41 @@ function incidentAllowsScheduledJob(path: string) {
 }
 
 async function runCronRoute(env: WorkerEnv, path: string): Promise<void> {
-  const secret = cronSecret(env);
-  if (!secret) {
-    throw new Error("TCOS_CRON_SECRET/CRON_SECRET is not configured in the Cloudflare Worker.");
+  const isEmailRetry = path.startsWith("/api/cron/order-notifications");
+  const primarySecret = cronSecret(env);
+  // The scheduler and the routed email Worker have separate secret namespaces.
+  // A 401 means no email retry was executed, so we may safely retry with
+  // the other configured cron credential without losing or duplicating mail.
+  const secrets = isEmailRetry
+    ? Array.from(new Set([env.TCOS_CRON_SECRET, env.CRON_SECRET]
+        .filter((value): value is string => typeof value === "string" && value.length >= 16)))
+    : [primarySecret].filter(Boolean);
+  if (secrets.length === 0) {
+    throw new Error("Cloudflare cron authorization is not configured.");
   }
 
-  const request = new Request(new URL(path, "https://truelycollectables.internal"), {
-    method: "GET",
-    headers: {
-      Authorization: `Bearer ${secret}`,
-      "User-Agent": "truely-collectables-cloudflare-cron/1.0",
-      "X-TCOS-Scheduler": "cloudflare",
-    },
-  });
-
-  // Order emails must run in the routed Worker that owns RESEND_API_KEY,
-  // not the scheduler Worker with its separate secret namespace.
-  const target = path.startsWith("/api/cron/order-notifications")
+  const target = isEmailRetry
     ? env.PRODUCTION_EMAIL_WORKER
     : env.WORKER_SELF_REFERENCE;
-  if (!target) throw new Error("Production email Worker binding is missing.");
-  const response = await target.fetch(request);
-  if (!response.ok) {
-    const body = (await response.text().catch(() => "")).slice(0, 500);
-    throw new Error(`Cron route ${path} returned ${response.status}: ${body}`);
+  if (!target) throw new Error("Cloudflare scheduled service binding is missing.");
+
+  let lastResponse: Response | undefined;
+  for (const secret of secrets) {
+    const request = new Request(new URL(path, "https://truelycollectables.internal"), {
+      method: "GET",
+      headers: {
+        Authorization: `Bearer ${secret}`,
+        "User-Agent": "truely-collectables-cloudflare-cron/1.0",
+        "X-TCOS-Scheduler": "cloudflare",
+      },
+    });
+    lastResponse = await target.fetch(request);
+    if (lastResponse.ok) return;
+    if (!isEmailRetry || lastResponse.status !== 401) break;
   }
+
+  const body = (await lastResponse?.text().catch(() => "") || "").slice(0, 500);
+  throw new Error(`Cron route ${path} returned ${lastResponse?.status || 503}: ${body}`);
 }
 
 const SOCIAL_AI_PROVIDERS = ["facebook", "instagram", "threads", "pinterest", "tiktok", "x"] as const;

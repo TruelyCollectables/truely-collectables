@@ -899,6 +899,9 @@ export default function SellerInventoryPage() {
     setReadinessFilter(finalReadiness);
     setSourceFilter(finalSource);
     setFocusInventoryItemId(finalInventoryItemId);
+    // Reset pagination with the same user action that changes the filters.
+    // Avoid a synchronous state update inside a React effect.
+    setRenderLimit(80);
     syncInventoryUrl({
       search: finalSearch,
       status: finalStatus,
@@ -1153,10 +1156,6 @@ export default function SellerInventoryPage() {
     }, 2500);
     return () => window.clearTimeout(timer);
   }, [focusInventoryItemId, filteredItems.length]);
-
-  useEffect(() => {
-    setRenderLimit(80);
-  }, [search, statusFilter, readinessFilter, sourceFilter, focusInventoryItemId]);
 
   const renderedItems = useMemo(
     () =>
