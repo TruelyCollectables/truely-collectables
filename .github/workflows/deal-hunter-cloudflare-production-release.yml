@@ -241,11 +241,11 @@ jobs:
               const valid =
                 response.status === 200 &&
                 response.headers.get('x-truely-origin') === 'cloudflare-worker' &&
-                response.headers.get('x-truely-edge-version') === 'storefront-failsafe-v2' &&
+                response.headers.get('x-truely-edge-version') === 'storefront-failsafe-v3' &&
                 payload?.ok === true &&
                 payload?.schema === 'TRUELY_EDGE_HEALTH_V1' &&
                 payload?.databaseIndependent === true &&
-                payload?.failsafeVersion === 'storefront-failsafe-v2';
+                payload?.failsafeVersion === 'storefront-failsafe-v3';
               if (valid) {
                 console.log('Production storefront edge fail-safe verified without touching Postgres.');
                 process.exit(0);
