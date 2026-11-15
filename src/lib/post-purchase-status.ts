@@ -52,7 +52,11 @@ function configuredStripeKeys() {
 async function retrieveCheckoutSession(sessionId: string) {
   for (const stripeKey of configuredStripeKeys()) {
     try {
-      const stripe = new Stripe(stripeKey);
+      const stripe = new Stripe(stripeKey, {
+        httpClient: Stripe.createFetchHttpClient(),
+        maxNetworkRetries: 1,
+        timeout: 12000,
+      });
       const session = await stripe.checkout.sessions.retrieve(sessionId);
       return session;
     } catch {
