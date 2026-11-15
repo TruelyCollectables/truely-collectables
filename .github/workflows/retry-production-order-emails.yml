@@ -1,0 +1,21 @@
+name: Retry production order emails
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  retry:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Retry queued notifications using production cron authorization
+        env:
+          CRON_SECRET: ${{ secrets.TCOS_CRON_SECRET }}
+        run: |
+          set -euo pipefail
+          test -n "$CRON_SECRET"
+          status=$(curl -sS --max-time 90 -o /tmp/order-notification-retry.json -w '%{http_code}' \
+            -H "Authorization: Bearer $CRON_SECRET" \
+            'https://truelycollectables.com/api/cron/order-notifications')
+          node -e 'const fs=require("fs");const r=JSON.parse(fs.readFileSync("/tmp/order-notification-retry.json","utf8")); console.log(JSON.stringify({success:r.success,scanned:r.scanned,sent:r.sent,failed:r.failed,deferred:r.deferred,error:r.error||null}));'
+          test "$status" = 200
