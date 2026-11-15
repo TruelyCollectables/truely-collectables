@@ -393,12 +393,22 @@ export async function deliverOrderNotification(params: {
 
   // Read the Cloudflare runtime secret dynamically. Next's build-time environment
   // substitution can otherwise freeze an absent RESEND_API_KEY into the bundle.
-  const resendApiKey = String(
+  let resendApiKey = String(
     (globalThis as typeof globalThis & { __TCOS_RESEND_RUNTIME_KEY__?: string })
       .__TCOS_RESEND_RUNTIME_KEY__ ||
       globalThis.process?.env?.["RESEND_API_KEY"] ||
       "",
   ).trim();
+  if (!resendApiKey) {
+    try {
+      const { getCloudflareContext } = await import("@opennextjs/cloudflare");
+      resendApiKey = String(
+        (getCloudflareContext().env as Record<string, unknown>).RESEND_API_KEY || "",
+      ).trim();
+    } catch {
+      // Node-based tests do not provide Cloudflare request context.
+    }
+  }
   if (!resendApiKey) {
     return markNotificationFailed({
       supabase: params.supabase,
