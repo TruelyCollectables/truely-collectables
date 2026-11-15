@@ -78,6 +78,8 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Install the OpenNext runtime required by the Next.js build
+        run: npm install --no-save --package-lock=false @opennextjs/cloudflare@1.20.2
       - name: Run storefront taxonomy regressions
         run: node --import tsx scripts/run-storefront-taxonomy-regressions.ts
       - name: Run storefront feature evidence regressions
