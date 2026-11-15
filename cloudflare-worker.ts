@@ -70,6 +70,7 @@ const cronJobs: readonly CronJob[] = [
   { path: "/api/cron/ebay-order-sale-sync?lookbackDays=2", schedule: "*/5 * * * *" },
   { path: "/api/cron/social-publisher", schedule: "*/5 * * * *" },
   { path: "/api/cron/ebay-store-fixed-price-sync", schedule: "2,17,32,47 * * * *" },
+  { path: "/api/cron/order-notifications", schedule: "*/5 * * * *" },
   { path: "/api/cron/seller-ebay-reconciliation", schedule: "7,22,37,52 * * * *" },
   { path: "/api/cron/sold-collectible-archive", schedule: "11 * * * *" },
   { path: "/api/cron/companion-back-image-sync", schedule: "23 9 * * *" },
@@ -89,6 +90,9 @@ type WorkerEnv = {
   INSTACOMP_AI_LOCAL_KEY?: string;
   INSTACOMP_AI_API_KEY?: string;
   WORKER_SELF_REFERENCE: {
+    fetch(request: Request): Promise<Response>;
+  };
+  PRODUCTION_EMAIL_WORKER?: {
     fetch(request: Request): Promise<Response>;
   };
 };
@@ -440,7 +444,13 @@ async function runCronRoute(env: WorkerEnv, path: string): Promise<void> {
     },
   });
 
-  const response = await env.WORKER_SELF_REFERENCE.fetch(request);
+  // Order emails must run in the routed Worker that owns RESEND_API_KEY,
+  // not the scheduler Worker with its separate secret namespace.
+  const target = path.startsWith("/api/cron/order-notifications")
+    ? env.PRODUCTION_EMAIL_WORKER
+    : env.WORKER_SELF_REFERENCE;
+  if (!target) throw new Error("Production email Worker binding is missing.");
+  const response = await target.fetch(request);
   if (!response.ok) {
     const body = (await response.text().catch(() => "")).slice(0, 500);
     throw new Error(`Cron route ${path} returned ${response.status}: ${body}`);
