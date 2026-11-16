@@ -1,9 +1,11 @@
 import { createHash } from "node:crypto";
 import { after, NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedAccountFromRequest } from "../../../../lib/kingmaker-local-auth";
+import { effectiveInstaCompPricingGroupKey } from "../../../../lib/instacomp-pricing-group";
 import {
   archiveKingmakerMacReviewFallback,
   findMacDuplicateByImagePair,
+  listMacMasterListingGroup,
   refreshKingmakerMacMarketForScan,
   runKingmakerMacScan,
   sha256File,
@@ -107,6 +109,8 @@ export async function POST(request: NextRequest) {
     const duplicate = await findMacDuplicateByImagePair(inputImagePairSha256);
 
     if (duplicate && !forceFreshIdentity) {
+      const dual = ((duplicate.metadata as any)?.dual_marketplace || {});
+      const isLive = duplicate.status === "active" || ["website", "ebay", "mercari", "both", "all3"].includes(duplicate.folder || "");
       return NextResponse.json(
         {
           success: true,
@@ -124,6 +128,23 @@ export async function POST(request: NextRequest) {
             status: duplicate.status,
             price: duplicate.price,
             quantity: duplicate.quantity,
+            matchType: "exact_scan_pair",
+          },
+          exactMatch: {
+            found: true,
+            existingInventoryItemId: duplicate.inventoryItemId,
+            existingTitle: duplicate.title,
+            existingQuantity: Number(duplicate.quantity || 1),
+            existingPrice: Number(duplicate.price || 0),
+            status: duplicate.status,
+            folder: duplicate.folder || "pending",
+            isLive,
+            channels: {
+              website: Boolean(dual.website?.status === "active" || duplicate.folder === "website" || duplicate.folder === "both" || duplicate.folder === "all3"),
+              ebay: Boolean(dual.ebay?.status === "active" || duplicate.folder === "ebay" || duplicate.folder === "both" || duplicate.folder === "all3"),
+              mercari: Boolean(dual.mercari?.status === "active" || duplicate.folder === "mercari" || duplicate.folder === "all3"),
+            },
+            newInventoryItemId: duplicate.inventoryItemId,
             matchType: "exact_scan_pair",
           },
           durationMs: Date.now() - startedAt,
@@ -144,7 +165,7 @@ export async function POST(request: NextRequest) {
         searchMarket: false,
         forceFreshIdentity,
         replaceManualIdentity,
-        scanTimeoutMs: forceFreshIdentity ? 12_000 : 10_000,
+        scanTimeoutMs: forceFreshIdentity ? 25_000 : 25_000,
         fastPassOnly: !forceFreshIdentity,
       });
     } catch (error) {
@@ -165,17 +186,71 @@ export async function POST(request: NextRequest) {
     if ((result.inventoryItem.metadata?.verifiedCsv as Record<string, unknown> | undefined)?.authority === "seller_verified_csv_v1") {
       return NextResponse.json({ success: true, stage: "verified_csv_comparison", identityComplete: true, inventoryItemId: result.inventoryItem.inventoryItemId, title: result.inventoryItem.title, verifiedFieldsLocked: true, imagesPreserved: true, lessonCaptured: true, ai: result.ai }, { headers: noStoreHeaders() });
     }
+    let immediateMarket: Record<string, unknown> | null = null;
+    let immediatePricingSucceeded = false;
     if (result.identityComplete) {
-      after(async () => {
-        try {
-          await refreshKingmakerMacMarketForScan(
+      try {
+        const refreshed = await Promise.race([
+          refreshKingmakerMacMarketForScan(
             result.scan,
             result.inventoryItem.inventoryItemId,
-          );
-        } catch (error) {
-          console.error("KINGMAKER background market refresh failed", error);
+          ),
+          new Promise<null>((resolve) => setTimeout(() => resolve(null), 22_000)),
+        ]);
+        if (refreshed) {
+          immediateMarket = refreshed as unknown as Record<string, unknown>;
+          immediatePricingSucceeded = Boolean(refreshed.suggestedPrice);
+        } else {
+          after(async () => {
+            try {
+              await refreshKingmakerMacMarketForScan(
+                result.scan,
+                result.inventoryItem.inventoryItemId,
+              );
+            } catch (error) {
+              console.error("KINGMAKER background market refresh failed", error);
+            }
+          });
         }
-      });
+      } catch (error) {
+        console.error("KINGMAKER immediate market refresh failed", error);
+      }
+    }
+
+    let exactMatch: Record<string, unknown> | null = null;
+    const groupKey = effectiveInstaCompPricingGroupKey(result.inventoryItem.metadata);
+    if (groupKey) {
+      try {
+        const existingRows = await listMacMasterListingGroup(groupKey, { compact: false, timeoutMs: 5_000 });
+        const existing = existingRows.find((row) => {
+          const id = String(row.inventoryItemId || row.id || "");
+          if (!id || id === result.inventoryItem.inventoryItemId) return false;
+          return row.status !== "archived";
+        });
+        if (existing) {
+          const dual = ((existing.metadata as any)?.dual_marketplace || {});
+          const isLive = existing.status === "active" || ["website", "ebay", "mercari", "both", "all3"].includes(existing.folder || "");
+          exactMatch = {
+            found: true,
+            existingInventoryItemId: existing.inventoryItemId || existing.id,
+            existingTitle: existing.title,
+            existingQuantity: Number(existing.quantity || 1),
+            existingPrice: Number(existing.price || 0),
+            status: existing.status,
+            folder: existing.folder || "pending",
+            isLive,
+            channels: {
+              website: Boolean(dual.website?.status === "active" || existing.folder === "website" || existing.folder === "both" || existing.folder === "all3"),
+              ebay: Boolean(dual.ebay?.status === "active" || existing.folder === "ebay" || existing.folder === "both" || existing.folder === "all3"),
+              mercari: Boolean(dual.mercari?.status === "active" || existing.folder === "mercari" || existing.folder === "all3"),
+            },
+            newInventoryItemId: result.inventoryItem.inventoryItemId,
+            matchType: "exact_identity_group",
+          };
+        }
+      } catch {
+        // Non-blocking duplicate lookup
+      }
     }
 
     return NextResponse.json(
@@ -208,10 +283,17 @@ export async function POST(request: NextRequest) {
             > | undefined)?.backImageUrl || null,
         },
         pricing: result.identityComplete
-          ? { status: "background_refresh_queued", suggestedPrice: null }
+          ? immediateMarket
+            ? {
+                status: immediatePricingSucceeded ? "comped" : "no_exact_sold_comps",
+                suggestedPrice: immediateMarket.suggestedPrice ?? null,
+                marketSummary: immediateMarket.marketSummary ?? null,
+              }
+            : { status: "background_refresh_queued", suggestedPrice: null }
           : null,
-        pricingSucceeded: false,
-        pricingBackgroundQueued: result.identityComplete,
+        pricingSucceeded: immediatePricingSucceeded,
+        pricingBackgroundQueued: result.identityComplete && !immediateMarket,
+        exactMatch,
         imagesPreserved: true,
         stagingMirrored: false,
         imagePairSha256: result.scan.image_pair_sha256 || null,

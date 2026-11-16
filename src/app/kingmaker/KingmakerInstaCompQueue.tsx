@@ -39,6 +39,23 @@ type IntakeResult = {
     title?: string | null;
     status?: string | null;
   } | null;
+  exactMatch?: {
+    found?: boolean;
+    existingInventoryItemId?: string;
+    existingTitle?: string;
+    existingQuantity?: number;
+    existingPrice?: number;
+    status?: string;
+    folder?: string;
+    isLive?: boolean;
+    newInventoryItemId?: string;
+    matchType?: string;
+    channels?: {
+      website?: boolean;
+      ebay?: boolean;
+      mercari?: boolean;
+    };
+  } | null;
 };
 
 type QueueStatus = "queued" | "working" | "pending" | "review" | "error";
@@ -54,6 +71,10 @@ type QueueCard = {
   error: string | null;
   durationMs: number | null;
   savingPrice: boolean;
+  dismissedMatch?: boolean;
+  merged?: boolean;
+  mergeMessage?: string;
+  merging?: boolean;
 };
 
 const CONCURRENCY = 1;
@@ -110,8 +131,8 @@ function identityRows(result: IntakeResult | null) {
 
 function statusText(card: QueueCard) {
   if (card.status === "queued") return "Queued";
-  if (card.status === "working") return "Mac orientation + exact Registry identification";
-  if (card.status === "pending") return "Identity saved — pricing is running in background";
+  if (card.status === "working") return "Coding AI + InstaComp identifying & comping";
+  if (card.status === "pending") return suggestedPrice(card.result) ? "Identified & comped — ready to price" : "Identity saved — pricing queued";
   if (card.status === "review" && card.result?.resumedExisting)
     return "Existing scan resumed — saved for review";
   if (card.status === "review" && card.result?.code?.startsWith("DUPLICATE"))
@@ -323,6 +344,49 @@ export default function KingmakerInstaCompQueue() {
     }
   }
 
+  async function handleMergeExactMatch(card: QueueCard) {
+    const existingId = card.result?.exactMatch?.existingInventoryItemId;
+    const newId = card.result?.inventoryItemId || card.result?.exactMatch?.newInventoryItemId;
+    if (!existingId || !newId) return;
+    patch(card.id, { merging: true, error: null });
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      if (!session?.access_token) throw new Error("Seller login required.");
+      const response = await fetch("/api/kingmaker/merge-intake-card", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          newInventoryItemId: newId,
+          existingInventoryItemId: existingId,
+          ebayStrategy: "increase_existing",
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.success !== true) {
+        throw new Error(data.error || "Could not merge exact match.");
+      }
+      patch(card.id, {
+        merging: false,
+        merged: true,
+        mergeMessage:
+          data.message ||
+          `Merged +1 copy into existing listing. Total Quantity: ${data.totalQuantity}.`,
+      });
+    } catch (err) {
+      patch(card.id, {
+        merging: false,
+        error: err instanceof Error ? err.message : "Merge failed.",
+      });
+    }
+  }
+
+  function handleKeepSeparate(card: QueueCard) {
+    patch(card.id, { dismissedMatch: true });
+  }
+
   return (
     <section aria-labelledby="kingmaker-instacomp-heading" className="mt-7">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -334,9 +398,8 @@ export default function KingmakerInstaCompQueue() {
             Drop card fronts + backs here
           </h2>
           <p className="mt-2 max-w-4xl leading-7 text-slate-300">
-            One intake does the fast physical job first: Mac orientation, exact Registry identity,
-            and a saved Pending Listing. Exact eBay comps and pricing continue in the background
-            after identity is saved. Nothing publishes automatically.
+            One intake runs Coding AI + InstaComp physical vision, Mac orientation, and immediate
+            eBay sold comping — no checklists. Nothing publishes automatically.
           </p>
         </div>
         <Link
@@ -468,6 +531,77 @@ export default function KingmakerInstaCompQueue() {
                   ))}
                 </div>
                 <div className="min-w-0">
+                  {card.result?.exactMatch?.found ? (
+                    card.merged ? (
+                      <div className="mb-4 rounded-2xl border border-emerald-500 bg-emerald-950/70 p-4 text-emerald-200">
+                        <div className="flex items-center gap-2 font-black text-emerald-300">
+                          <span className="text-lg">✓</span>
+                          <span>MERGED INTO EXISTING LISTING</span>
+                        </div>
+                        <p className="mt-1 text-xs text-emerald-300">{card.mergeMessage}</p>
+                      </div>
+                    ) : !card.dismissedMatch ? (
+                      <div className="mb-4 rounded-2xl border-2 border-amber-400 bg-gradient-to-br from-amber-950/90 via-slate-900 to-slate-950 p-4 text-white shadow-xl shadow-amber-950/40">
+                        <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-amber-300">
+                          <span className="animate-pulse text-base">⚡</span>
+                          <span>Exact Match Found in Inventory</span>
+                        </div>
+                        <h4 className="mt-1.5 text-base font-black text-amber-100">
+                          DO YOU WANT TO MERGE THIS CARD WITH THE SAME MATCH?
+                        </h4>
+                        <div className="mt-2.5 rounded-xl border border-amber-500/30 bg-black/50 p-3 text-xs leading-5">
+                          <p className="font-bold text-slate-200">
+                            Match: <span className="text-white">{card.result.exactMatch.existingTitle}</span>
+                          </p>
+                          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-slate-300">
+                            <span>
+                              Quantity: <strong className="text-white">{card.result.exactMatch.existingQuantity ?? 1}</strong>
+                              {" → "}
+                              <strong className="text-emerald-400">{(card.result.exactMatch.existingQuantity ?? 1) + 1}</strong>
+                            </span>
+                            <span>
+                              Price: <strong className="text-white">{card.result.exactMatch.existingPrice ? money(card.result.exactMatch.existingPrice) : "—"}</strong>
+                            </span>
+                            <span>
+                              Folder: <strong className="uppercase text-amber-200">{card.result.exactMatch.folder || "pending"}</strong>
+                            </span>
+                            {card.result.exactMatch.channels ? (
+                              <span className="flex items-center gap-1">
+                                Channels:
+                                {card.result.exactMatch.channels.website ? (
+                                  <span className="rounded bg-sky-900/60 px-1.5 py-0.5 text-[10px] font-bold text-sky-200">Website</span>
+                                ) : null}
+                                {card.result.exactMatch.channels.ebay ? (
+                                  <span className="rounded bg-blue-900/60 px-1.5 py-0.5 text-[10px] font-bold text-blue-200">eBay</span>
+                                ) : null}
+                                {card.result.exactMatch.channels.mercari ? (
+                                  <span className="rounded bg-rose-900/60 px-1.5 py-0.5 text-[10px] font-bold text-rose-200">Mercari (qty: 1)</span>
+                                ) : null}
+                              </span>
+                            ) : null}
+                          </div>
+                        </div>
+                        <div className="mt-3.5 flex flex-wrap gap-2.5">
+                          <button
+                            type="button"
+                            disabled={card.merging}
+                            onClick={() => void handleMergeExactMatch(card)}
+                            className="rounded-xl bg-gradient-to-r from-amber-400 via-emerald-400 to-emerald-300 px-4 py-2.5 text-xs font-black text-slate-950 transition hover:brightness-110 disabled:opacity-50"
+                          >
+                            {card.merging ? "Merging…" : "➕ Yes, Merge with Existing Match (+1 Qty)"}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={card.merging}
+                            onClick={() => handleKeepSeparate(card)}
+                            className="rounded-xl border border-slate-600 bg-slate-800/80 px-3.5 py-2.5 text-xs font-bold text-slate-300 transition hover:border-slate-400 hover:text-white"
+                          >
+                            Keep as Separate Listing
+                          </button>
+                        </div>
+                      </div>
+                    ) : null
+                  ) : null}
                   {card.result?.cardUuid ? (
                     <div className="rounded-xl border border-emerald-900 bg-emerald-950/30 p-3">
                       <p className="text-xs font-black uppercase tracking-wider text-emerald-300">Permanent card UUID</p>

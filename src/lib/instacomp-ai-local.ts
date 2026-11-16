@@ -82,6 +82,7 @@ export type InstaCompAiLocalScan = {
     | "visual_memory"
     | "trusted_text_memory"
     | "checklist_registry"
+    | "coding_ai_physical_vision"
     | "ollama_backup"
     | "none";
   visual_match_score?: number | null;

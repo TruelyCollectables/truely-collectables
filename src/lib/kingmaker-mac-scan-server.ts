@@ -109,10 +109,17 @@ export function scanIdentity(scan: InstaCompAiLocalScan) {
   const trustedByMac =
     scanStatus === "trusted_memory_match" ||
     scanStatus === "autonomy_auto_accept" ||
+    scan.pricing_allowed === true ||
     Object.keys(trusted).length > 0;
+  const codingAiIdentified =
+    scan.match_source === "coding_ai_physical_vision" &&
+    scan.pricing_allowed === true &&
+    Boolean(identityValue(trusted, "player")) &&
+    Boolean(identityValue(trusted, "card_number", "cardNumber"));
   const exact =
-    checklistOutcome === "exact_match" &&
-    Boolean(text(scan.checklist?.identity_id, 200)) &&
+    (codingAiIdentified ||
+      (checklistOutcome === "exact_match" &&
+        Boolean(text(scan.checklist?.identity_id, 200)))) &&
     trustedByMac;
 
   // Exact Registry truth always wins. Review-required scans still retain every
@@ -181,7 +188,7 @@ export async function searchMacMarketForIdentity(params: {
   const year = text(identity.year, 20);
   const player = text(identity.player || identity.playerName, 180);
   const cardNumber = text(identity.cardNumber || identity.card_number, 80);
-  if (!year || !player || !cardNumber || !params.registryIdentityId) return null;
+  if (!year || !player || !cardNumber) return null;
 
   const response = await fetch(`${macBaseUrl()}/v1/market-comp/search`, {
     method: "POST",

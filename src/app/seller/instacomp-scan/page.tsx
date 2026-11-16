@@ -30,6 +30,23 @@ type ScannerResult = {
     serialNumber?: string | null;
     serialRun?: number | null;
   };
+  exactMatch?: {
+    found?: boolean;
+    existingInventoryItemId?: string;
+    existingTitle?: string;
+    existingQuantity?: number;
+    existingPrice?: number;
+    status?: string;
+    folder?: string;
+    isLive?: boolean;
+    newInventoryItemId?: string;
+    matchType?: string;
+    channels?: {
+      website?: boolean;
+      ebay?: boolean;
+      mercari?: boolean;
+    };
+  } | null;
 };
 
 function money(value: number) {
@@ -90,6 +107,10 @@ export default function InstaCompScanPage() {
   const [result, setResult] = useState<ScannerResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [savingPrice, setSavingPrice] = useState(false);
+  const [merging, setMerging] = useState(false);
+  const [merged, setMerged] = useState(false);
+  const [mergeMessage, setMergeMessage] = useState("");
+  const [dismissedMatch, setDismissedMatch] = useState(false);
   const [error, setError] = useState("");
   const [stage, setStage] = useState(
     "Ready for required front and back photos",
@@ -132,6 +153,9 @@ export default function InstaCompScanPage() {
     setBusy(true);
     setError("");
     setResult(null);
+    setMerged(false);
+    setMergeMessage("");
+    setDismissedMatch(false);
     try {
       setStage("Authenticating seller account");
       const session = await getFreshAccountSession(5 * 60, false);
@@ -177,8 +201,8 @@ export default function InstaCompScanPage() {
       if (payload.identityComplete === true) {
         setStage(
           payload.pricingSucceeded
-            ? "Exact checklist identity and verified comps complete"
-            : "Exact checklist identity saved; pricing needs a retry",
+            ? "Physical identity and verified comps complete"
+            : "Physical identity saved; pricing needs a retry",
         );
       } else if (payload.inventoryItemId) {
         setStage(
@@ -239,12 +263,54 @@ export default function InstaCompScanPage() {
     }
   }
 
+  async function handleMergeExactMatch() {
+    const existingId = result?.exactMatch?.existingInventoryItemId;
+    const newId = result?.inventoryItemId || result?.exactMatch?.newInventoryItemId;
+    if (!existingId || !newId) return;
+    setMerging(true);
+    setError("");
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      if (!session?.access_token) throw new Error("Seller login required.");
+      const response = await fetch("/api/kingmaker/merge-intake-card", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          newInventoryItemId: newId,
+          existingInventoryItemId: existingId,
+          ebayStrategy: "increase_existing",
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.success !== true) {
+        throw new Error(data.error || "Could not merge exact match.");
+      }
+      setMerged(true);
+      setMergeMessage(
+        data.message ||
+          `Merged +1 copy into existing listing. Total Quantity: ${data.totalQuantity}.`,
+      );
+      setStage("Merged +1 copy into existing listing");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Merge failed.");
+    } finally {
+      setMerging(false);
+    }
+  }
+
   function reset() {
     setFront(null);
     setBack(null);
     setResult(null);
     setError("");
     setStage("Ready for required front and back photos");
+    setMerging(false);
+    setMerged(false);
+    setMergeMessage("");
+    setDismissedMatch(false);
   }
 
   return (
@@ -271,7 +337,7 @@ export default function InstaCompScanPage() {
             Single-card guided scanner
           </p>
           <h2 className="text-3xl font-black">
-            Front + Back → Core Identity → Color + Pattern + Serial → Checklist
+            Front + Back → Coding AI + InstaComp Vision → Immediate eBay Comps
           </h2>
           <p className="mt-2 max-w-4xl text-sm text-slate-300">
             Images are oriented from printed writing. The scanner first reads year,
@@ -365,6 +431,77 @@ export default function InstaCompScanPage() {
               saved draft, and pricing choices will appear here.
             </p>
           ) : null}
+          {result?.exactMatch?.found ? (
+            merged ? (
+              <div className="mt-4 rounded-2xl border border-emerald-500 bg-emerald-950/70 p-4 text-emerald-200">
+                <div className="flex items-center gap-2 font-black text-emerald-300">
+                  <span className="text-lg">✓</span>
+                  <span>MERGED INTO EXISTING LISTING</span>
+                </div>
+                <p className="mt-1 text-xs text-emerald-300">{mergeMessage}</p>
+              </div>
+            ) : !dismissedMatch ? (
+              <div className="mt-4 rounded-2xl border-2 border-amber-400 bg-gradient-to-br from-amber-950/90 via-slate-900 to-slate-950 p-5 text-white shadow-xl shadow-amber-950/40">
+                <div className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-amber-300">
+                  <span className="animate-pulse text-base">⚡</span>
+                  <span>Exact Match Found in Inventory</span>
+                </div>
+                <h3 className="mt-1.5 text-lg font-black text-amber-100">
+                  DO YOU WANT TO MERGE THIS CARD WITH THE SAME MATCH?
+                </h3>
+                <div className="mt-3 rounded-xl border border-amber-500/30 bg-black/50 p-3.5 text-xs leading-5">
+                  <p className="font-bold text-slate-200">
+                    Match: <span className="text-white">{result.exactMatch.existingTitle}</span>
+                  </p>
+                  <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-slate-300">
+                    <span>
+                      Quantity: <strong className="text-white">{result.exactMatch.existingQuantity ?? 1}</strong>
+                      {" → "}
+                      <strong className="text-emerald-400">{(result.exactMatch.existingQuantity ?? 1) + 1}</strong>
+                    </span>
+                    <span>
+                      Price: <strong className="text-white">{result.exactMatch.existingPrice ? money(result.exactMatch.existingPrice) : "—"}</strong>
+                    </span>
+                    <span>
+                      Folder: <strong className="uppercase text-amber-200">{result.exactMatch.folder || "pending"}</strong>
+                    </span>
+                    {result.exactMatch.channels ? (
+                      <span className="flex items-center gap-1">
+                        Channels:
+                        {result.exactMatch.channels.website ? (
+                          <span className="rounded bg-sky-900/60 px-1.5 py-0.5 text-[10px] font-bold text-sky-200">Website</span>
+                        ) : null}
+                        {result.exactMatch.channels.ebay ? (
+                          <span className="rounded bg-blue-900/60 px-1.5 py-0.5 text-[10px] font-bold text-blue-200">eBay</span>
+                        ) : null}
+                        {result.exactMatch.channels.mercari ? (
+                          <span className="rounded bg-rose-900/60 px-1.5 py-0.5 text-[10px] font-bold text-rose-200">Mercari (qty: 1)</span>
+                        ) : null}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+                <div className="mt-4 flex flex-wrap gap-3">
+                  <button
+                    type="button"
+                    disabled={merging}
+                    onClick={() => void handleMergeExactMatch()}
+                    className="rounded-xl bg-gradient-to-r from-amber-400 via-emerald-400 to-emerald-300 px-5 py-3 text-xs font-black text-slate-950 transition hover:brightness-110 disabled:opacity-50"
+                  >
+                    {merging ? "Merging…" : "➕ Yes, Merge with Existing Match (+1 Qty)"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={merging}
+                    onClick={() => setDismissedMatch(true)}
+                    className="rounded-xl border border-slate-600 bg-slate-800/80 px-4 py-3 text-xs font-bold text-slate-300 transition hover:border-slate-400 hover:text-white"
+                  >
+                    Keep as Separate Listing
+                  </button>
+                </div>
+              </div>
+            ) : null
+          ) : null}
           {duplicate ? (
             <div className="mt-4 rounded-xl border border-amber-600 bg-amber-950/50 p-4">
               <p className="font-black text-amber-200">Duplicate recognized</p>
@@ -439,7 +576,7 @@ export default function InstaCompScanPage() {
               >
                 <p className="font-black">
                   {result.identityComplete
-                    ? "Exact checklist identity resolved"
+                    ? "Coding AI + InstaComp identity resolved"
                     : "Saved safely — exact parallel review required"}
                 </p>
                 <p className="mt-1 text-sm text-slate-300">{result.title}</p>
