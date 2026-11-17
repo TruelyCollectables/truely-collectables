@@ -95,6 +95,27 @@ export function companionBackListingImageUrl(value: unknown) {
   }
 }
 
+export function kingmakerListingBackImageUrl(value: unknown) {
+  try {
+    const url = new URL(cleanImageUrl(value));
+    const storage = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL || "");
+    const bucket = process.env.INSTACOMP_DRAFT_IMAGE_BUCKET || "tcos-product-images";
+    const prefix = `/storage/v1/object/public/${bucket}/kingmaker-listing-pairs/`;
+    if (
+      url.protocol !== "https:" ||
+      url.origin !== storage.origin ||
+      url.username ||
+      url.password ||
+      url.search ||
+      !url.pathname.startsWith(prefix) ||
+      !/^[a-z0-9-]{1,80}\/[a-f0-9]{64}\/front\.jpg$/.test(url.pathname.slice(prefix.length))
+    ) return "";
+    return companionBackListingImageUrl(url);
+  } catch {
+    return "";
+  }
+}
+
 export function normalizeListingImageUrls(values: unknown[]) {
   const images: string[] = [];
   const identities = new Set<string>();

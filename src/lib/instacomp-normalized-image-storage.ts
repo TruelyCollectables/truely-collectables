@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { createSupabaseServerClient } from "./supabase-server";
 
 const IMAGE_BUCKET =
@@ -94,6 +94,51 @@ async function upload(params: {
   if (error) throw error;
   return params.supabase.storage.from(IMAGE_BUCKET).getPublicUrl(path).data
     .publicUrl;
+}
+
+export async function persistKingmakerListingPhotoPair(params: {
+  inventoryItemId: string;
+  front: { bytes: ArrayBuffer; sha256: string | null };
+  back: { bytes: ArrayBuffer; sha256: string | null };
+}): Promise<[string, string]> {
+  const sha256 = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
+  const images = [params.front, params.back].map((image) => {
+    const bytes = Buffer.from(image.bytes);
+    const hash = sha256(bytes);
+    if (
+      bytes.length < 1_000 || bytes.length > MAX_IMAGE_BYTES ||
+      !bytes.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff])) ||
+      (image.sha256 && image.sha256 !== hash)
+    ) throw new Error("The archived card photo did not match its JPEG receipt.");
+    return { bytes, hash };
+  });
+  if (images[0].hash === images[1].hash) {
+    throw new Error("Card front and back must be distinct photos.");
+  }
+  const pairHash = createHash("sha256").update(images.map(({ hash }) => hash).join("")).digest("hex");
+  const supabase = createSupabaseServerClient({ admin: true });
+  const bucket = supabase.storage.from(IMAGE_BUCKET);
+  const prefix = `kingmaker-listing-pairs/${safePart(params.inventoryItemId)}/${pairHash}`;
+
+  const urls = await Promise.all(images.map(async ({ bytes, hash }, index) => {
+    const side = index === 0 ? "front" : "back";
+    const path = `${prefix}/${side}.jpg`;
+    const { error } = await bucket.upload(path, bytes, {
+      contentType: "image/jpeg",
+      cacheControl: "31536000",
+      upsert: false,
+    });
+    // The same pair can be uploaded by a previous request or a concurrent retry.
+    const url = bucket.getPublicUrl(path).data.publicUrl;
+    const response = await fetch(url, { cache: "no-store", signal: AbortSignal.timeout(10_000) });
+    if (
+      !response.ok ||
+      response.headers.get("content-type")?.split(";")[0] !== "image/jpeg" ||
+      sha256(new Uint8Array(await response.arrayBuffer())) !== hash
+    ) throw new Error(error?.message || `The public card ${side} photo failed read-back.`);
+    return url;
+  }));
+  return [urls[0], urls[1]];
 }
 
 function assignedPair(rows: StoredImageRow[]) {

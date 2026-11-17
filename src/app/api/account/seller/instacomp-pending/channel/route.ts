@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { getAuthenticatedAccountFromRequest as getCanonicalSellerAccount } from "../../../../../../lib/account-auth";
 import {
   ensureAccountStoreMembership,
@@ -29,7 +28,8 @@ import {
   verifyStorefrontProduct,
 } from "../../../../../../lib/storefront-publication-client";
 import { postInstaCompMacAccounting } from "../../../../../../lib/instacomp-mac-accounting-client";
-import { getInstaCompAiLocalPublicImageUrls } from "../../../../../../lib/instacomp-ai-local";
+import { getInstaCompAiLocalArchivedImage } from "../../../../../../lib/instacomp-ai-local";
+import { persistKingmakerListingPhotoPair } from "../../../../../../lib/instacomp-normalized-image-storage";
 import {
   getMacMasterListingRow,
   listMacMasterListingGroup,
@@ -89,7 +89,7 @@ function trustedPublicCardImageUrl(raw: unknown): string | null {
   }
 }
 
-async function verifiedPersistedImagePair(instaComp: UnknownRecord): Promise<[string, string] | null> {
+function verifiedPersistedImagePair(instaComp: UnknownRecord): [string, string] | null {
   const front = trustedPublicCardImageUrl(instaComp.frontImageUrl);
   const back = trustedPublicCardImageUrl(instaComp.backImageUrl);
   if (!front || !back || front === back) return null;
@@ -534,40 +534,33 @@ export async function POST(request: Request) {
           .filter((value): value is string => Boolean(value)),
       ),
     );
-    if (scanId && (imageUrls.length < 2 || imageUrls[0] === imageUrls[1])) {
+    let publicImagePair = verifiedPersistedImagePair(instaComp);
+    const publishing = action !== "save" && action !== "prepare-mercari";
+    const usesArchiveUrl = imageUrls.some((url) =>
+      /^https?:\/\/[^/]+\/(?:api\/kingmaker\/scan-image(?:[?#]|$)|v1\/(?:public\/)?scans\/)/i.test(url),
+    );
+    const needsPublishedPair = publishing && !publicImagePair &&
+      (usesArchiveUrl || (scanId && imageUrls.length < 2));
+    if (needsPublishedPair) {
       try {
-        const signed = await getInstaCompAiLocalPublicImageUrls({
-          scanId,
-          ttlSeconds: 1_209_600,
-          timeoutMs: 10_000,
-        });
-        imageUrls = [signed.front, signed.back];
+        if (!scanId) throw new Error("The card listing has no scan ID for its photos.");
+        const [front, back] = await Promise.all([
+          getInstaCompAiLocalArchivedImage({ scanId, side: "front", timeoutMs: 12_000 }),
+          getInstaCompAiLocalArchivedImage({ scanId, side: "back", timeoutMs: 12_000 }),
+        ]);
+        publicImagePair = await persistKingmakerListingPhotoPair({ inventoryItemId: keeperId, front, back });
       } catch (error) {
-        if (action !== "save") {
-          const persistedPair = await verifiedPersistedImagePair(instaComp);
-          if (persistedPair) {
-            imageUrls = persistedPair;
-          } else if (imageUrls.length >= 2 && imageUrls[0] !== imageUrls[1]) {
-            // Keep valid distinct public image URLs already present on the card
-          } else if (imageUrls.length >= 1) {
-            // Graceful fallback to verified card image so a 502 on scan auth never blocks listing
-            imageUrls = [imageUrls[0], imageUrls[0]];
-          } else {
-            return Response.json(
-              {
-                success: false,
-                code: "MAC_LISTING_IMAGES_UNAVAILABLE",
-                error:
-                  error instanceof Error
-                    ? error.message
-                    : "Mac-local listing images could not be authorized.",
-              },
-              { status: 503 },
-            );
-          }
-        }
+        return Response.json(
+          {
+            success: false,
+            code: "MAC_LISTING_IMAGES_UNAVAILABLE",
+            error: error instanceof Error ? error.message : "Card listing photos could not be published.",
+          },
+          { status: 503 },
+        );
       }
     }
+    if (publicImagePair) imageUrls = publicImagePair;
     const linkedWebsiteIdentity = linkedProduct
       ? classifyWebsiteProductIdentity({
           metadata,
@@ -768,6 +761,12 @@ export async function POST(request: Request) {
       ...metadata,
       instacomp: {
         ...instaComp,
+        ...(publicImagePair ? {
+          frontImageUrl: publicImagePair[0],
+          backImageUrl: publicImagePair[1],
+          hasBackImage: true,
+          imagePersistenceVerified: true,
+        } : {}),
         pricingGroupKey: groupKey || effectiveInstaCompPricingGroupKey(metadata),
         commercialQuantity: totalQuantity,
         commercialKeeperInventoryItemId: keeperId,

@@ -1,6 +1,7 @@
 import Image from "next/image";
 import SoldOverlay from "../../components/SoldOverlay";
 import {
+  kingmakerListingBackImageUrl,
   listingImageAltText,
   listingImageLabel,
   selectFrontBackListingImages,
@@ -16,8 +17,9 @@ async function loadFrontBackImages(params: {
   inventoryItemId: string | null;
   primaryImageUrl: string | null;
 }) {
-  const fallback = selectFrontBackListingImages([params.primaryImageUrl]);
-  if (!params.inventoryItemId) return fallback;
+  const companion = kingmakerListingBackImageUrl(params.primaryImageUrl);
+  const fallback = selectFrontBackListingImages([params.primaryImageUrl, companion]);
+  if (companion || !params.inventoryItemId) return fallback;
 
   try {
     const supabase = createSupabaseServerClient({ admin: true });
