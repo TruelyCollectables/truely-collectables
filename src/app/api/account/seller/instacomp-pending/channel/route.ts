@@ -9,7 +9,11 @@ import {
   calculateDualMarketplacePricing,
   normalizeDualMarketplaceFeeProfile,
 } from "../../../../../../lib/dual-marketplace-pricing";
-import { createDualMarketplaceListingDraft } from "../../../../../../lib/dual-marketplace-listing";
+import {
+  createDualMarketplaceListingDraft,
+  normalizeCardManufacturedYear,
+  normalizeManufacturedYearAspects,
+} from "../../../../../../lib/dual-marketplace-listing";
 import { assertSafeEbayListingContent } from "../../../../../../lib/ebay-listing-content";
 import { effectiveInstaCompPricingGroupKey } from "../../../../../../lib/instacomp-pricing-group";
 import { isInstaCompPublicationIdentityConfirmed } from "../../../../../../lib/instacomp-publication-identity";
@@ -944,6 +948,7 @@ export async function POST(request: Request) {
                 title: String(requested.title || keeper.title || websiteTitle || ebayTitle || generated.websiteTitle || "Trading Card"),
                 description: plainDescription || `Exact card shown in photos. ${String(keeper.title || "Trading card")}.`,
                 price: mercariPrice,
+                year: normalizeCardManufacturedYear(keeper.title) || normalizeCardManufacturedYear(generated.identity.year),
                 sport: generated.identity.sport,
                 category: text(keeper.category, 240),
                 imageUrls: imageUrls.slice(0, 12),
@@ -1030,12 +1035,12 @@ export async function POST(request: Request) {
             quantity: totalQuantity,
             price: ebayPrice,
             imageUrls,
-            aspects: {
+            aspects: normalizeManufacturedYearAspects({
               ...(record(record(nextMetadata.dual_marketplace).ebay).aspects as Record<string, string[]>),
               ...((record(record(nextMetadata.dual_marketplace).ebay).aspects as Record<string, string[]>)?.Sport?.length
                 ? {}
                 : { Sport: [text(keeper.sport, 100) || text(generated.identity.sport, 100) || "Basketball"] }),
-            },
+            }, normalizeCardManufacturedYear(keeper.title) || generated.identity.year),
             categoryId:
               text(record(record(nextMetadata.dual_marketplace).ebay).categoryId, 40) ||
               generated.ebayCategoryId,

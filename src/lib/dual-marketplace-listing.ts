@@ -380,6 +380,27 @@ function generatedTitle(identity: DualMarketplaceCardIdentity, fallback: string)
   return compactEbayTitle(raw || fallback.replace(/\s+/g, " ").trim() || "Trading Card", 80);
 }
 
+/** Mercari/eBay manufactured-year fields accept one four-digit year, not a sports season. */
+export function normalizeCardManufacturedYear(value: unknown): string | null {
+  const match = String(value ?? "").match(/(?<!\d)(?:19|20)\d{2}(?!\d)/);
+  return match?.[0] || null;
+}
+
+/** Preserve the full Season aspect but never send a range as Year Manufactured. */
+export function normalizeManufacturedYearAspects(
+  original: Record<string, string[]>,
+  yearHint: unknown,
+): Record<string, string[]> {
+  const aspects = { ...original };
+  const year =
+    normalizeCardManufacturedYear(yearHint) ||
+    normalizeCardManufacturedYear(aspects["Season"]?.[0]) ||
+    normalizeCardManufacturedYear(aspects["Year Manufactured"]?.[0]);
+  if (year) aspects["Year Manufactured"] = [year];
+  else delete aspects["Year Manufactured"];
+  return aspects;
+}
+
 function buildAspects(identity: DualMarketplaceCardIdentity) {
   const aspects: Record<string, string[]> = {};
 
@@ -395,7 +416,7 @@ function buildAspects(identity: DualMarketplaceCardIdentity) {
   add("Set", identity.setName);
   add("Series", identity.series || identity.setName);
   add("Season", identity.year);
-  add("Year Manufactured", identity.year);
+  add("Year Manufactured", normalizeCardManufacturedYear(identity.year));
   add("Card Number", identity.cardNumber);
   add("Parallel/Variety", identity.parallel || "[Base]");
   if (identity.subset) add("Subset", identity.subset);
