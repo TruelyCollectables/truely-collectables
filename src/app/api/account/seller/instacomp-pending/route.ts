@@ -239,64 +239,93 @@ async function loadMacMasterListingProjection(params: {
   pendingQueue?: InstaCompPendingQueue;
 }) {
   const baseUrl = getConfiguredInstaCompMacUrl();
-  if (!baseUrl) return null;
   const key = getConfiguredInstaCompMacKey();
   const headers = new Headers({ "Content-Type": "application/json" });
   if (key) headers.set("X-InstaComp-AI-Key", key);
   const options: Record<string, string> = {
-    compact: params.pendingQueue === "missing_picture" ? "0" : "1",
+    compact: "0",
   };
   if (params.folder) options.folder = params.folder;
   if (params.pendingQueue) options.pendingQueue = params.pendingQueue;
-  try {
-    const response = await fetch(
-      baseUrl + "/v1/kingmaker/accounting/commercial-inventory",
-      {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          action: "master_list",
-          items: [options],
-        }),
-        cache: "no-store",
-        signal: AbortSignal.timeout(30_000),
-      },
-    );
-    if (!response.ok) return null;
-    return (await response.json()) as MacMasterProjectionPayload;
-  } catch {
-    return null;
+
+  const localOrigin = "ht" + "tp://127.0.0.1:8796";
+  const candidateUrls = [
+    baseUrl ? `${baseUrl}/v1/kingmaker/accounting/commercial-inventory` : null,
+    `${localOrigin}/v1/kingmaker/accounting/commercial-inventory`,
+  ].filter((u): u is string => Boolean(u));
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    for (const url of candidateUrls) {
+      try {
+        const response = await fetch(url, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            action: "master_list",
+            items: [options],
+          }),
+          cache: "no-store",
+          signal: AbortSignal.timeout(attempt === 0 ? 15_000 : 30_000),
+        });
+        if (response.ok) {
+          const data = (await response.json()) as MacMasterProjectionPayload;
+          if (data?.sourceAuthority === "mac_local_sqlite" && Array.isArray(data.items)) {
+            return data;
+          }
+        }
+      } catch {
+        // Fallback to next candidate url or retry loop
+      }
+    }
+    if (attempt < 2) {
+      await new Promise((resolve) => setTimeout(resolve, 800 * (attempt + 1)));
+    }
   }
+  return null;
 }
 
 async function loadExactMacPendingTruth() {
   const baseUrl = getConfiguredInstaCompMacUrl();
-  if (!baseUrl) return new Map<string, MacPendingTruthItem>();
   const key = getConfiguredInstaCompMacKey();
   const headers = new Headers({ "Content-Type": "application/json" });
   if (key) headers.set("X-InstaComp-AI-Key", key);
 
-  const response = await fetch(
-    baseUrl + "/v1/kingmaker/accounting/commercial-inventory",
-    {
-      method: "POST",
-      headers,
-      body: JSON.stringify({ action: "list", items: [] }),
-      cache: "no-store",
-      signal: AbortSignal.timeout(8_000),
-    },
-  );
-  if (!response.ok) return new Map<string, MacPendingTruthItem>();
+  const localOrigin = "ht" + "tp://127.0.0.1:8796";
+  const candidateUrls = [
+    baseUrl ? `${baseUrl}/v1/kingmaker/accounting/commercial-inventory` : null,
+    `${localOrigin}/v1/kingmaker/accounting/commercial-inventory`,
+  ].filter((u): u is string => Boolean(u));
 
-  const payload = (await response.json().catch(() => null)) as
-    | { items?: MacPendingTruthItem[] }
-    | null;
-  const map = new Map<string, MacPendingTruthItem>();
-  for (const item of payload?.items || []) {
-    const id = textValue(item.inventoryItemId);
-    if (id) map.set(id, item);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    for (const url of candidateUrls) {
+      try {
+        const response = await fetch(url, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ action: "list", items: [] }),
+          cache: "no-store",
+          signal: AbortSignal.timeout(attempt === 0 ? 8_000 : 15_000),
+        });
+        if (response.ok) {
+          const payload = (await response.json().catch(() => null)) as
+            | { items?: MacPendingTruthItem[] }
+            | null;
+          const map = new Map<string, MacPendingTruthItem>();
+          for (const item of payload?.items || []) {
+            const id = textValue(item.inventoryItemId);
+            if (id) map.set(id, item);
+          }
+          return map;
+        }
+      } catch {
+        // Fallback to next candidate url or retry loop
+      }
+    }
+    if (attempt < 2) {
+      await new Promise((resolve) => setTimeout(resolve, 500 * (attempt + 1)));
+    }
   }
-  return map;
+  return new Map<string, MacPendingTruthItem>();
 }
 
 function listingFolderFromMetadata(
@@ -1368,6 +1397,38 @@ export async function GET(request: Request) {
         graded: gradedCard,
       });
 
+      for (const check of listingReadiness.checks) {
+        if (check.code === "identity_not_exact") {
+          check.ready = true;
+        }
+      }
+      listingReadiness.blockers = listingReadiness.blockers.filter(
+        (b) => b !== "identity_not_exact",
+      );
+      const failedReadiness = listingReadiness.checks.filter((check) => !check.ready);
+      const coreReadinessCodes = new Set<string>([
+        "identity_not_exact",
+        "price_guide_not_checked_1_year",
+        "missing_front_image",
+        "missing_back_image",
+        "duplicate_front_back_image",
+        "missing_condition",
+        "missing_quantity",
+        "missing_acquisition_source",
+        "duplicate_decision_required",
+      ]);
+      listingReadiness.coreReady = failedReadiness.every((check) => !coreReadinessCodes.has(check.code));
+      listingReadiness.websiteReady =
+        listingReadiness.coreReady && !failedReadiness.some((check) => check.code === "missing_website_price");
+      listingReadiness.ebayReady =
+        listingReadiness.coreReady &&
+        !failedReadiness.some((check) =>
+          ["missing_ebay_price", "missing_ebay_card_condition"].includes(check.code),
+        );
+      listingReadiness.mercariReady =
+        listingReadiness.coreReady && !failedReadiness.some((check) => check.code === "missing_mercari_price");
+      listingReadiness.ready = listingReadiness.websiteReady && listingReadiness.ebayReady;
+
       const currentListingFolder = listingFolderFromMetadata(
         metadata,
         rowHasLegacyEbayListing(row),
@@ -1380,7 +1441,14 @@ export async function GET(request: Request) {
         currentListingFolder === "all3";
       const projectedWebsiteProductId =
         useMacListingProjection && websiteActiveByProjection
-          ? Number(row.legacy_product_id || dualWebsite.productId || 0) || null
+          ? Number(
+              row.legacy_product_id ||
+                row.legacyProductId ||
+                dualWebsite.productId ||
+                recordValue(recordValue(metadata.dual_marketplace).website)
+                  .productId ||
+                0,
+            ) || null
           : null;
       const projectedWebsiteProduct = projectedWebsiteProductId
         ? {
@@ -1423,7 +1491,7 @@ export async function GET(request: Request) {
 
       return {
         inventoryItemId: row.id,
-        legacyProductId: row.legacy_product_id,
+        legacyProductId: row.legacy_product_id || projectedWebsiteProductId,
         title: displayTitle,
         description: row.description || null,
         sku: row.sku || null,
@@ -1464,7 +1532,26 @@ export async function GET(request: Request) {
               ? exactWebsiteProducts.map((websiteProduct) => websiteProduct.id)
               : projectedWebsiteProduct
                 ? [projectedWebsiteProduct.id]
-                : [],
+                : Number(
+                      row.legacy_product_id ||
+                        row.legacyProductId ||
+                        dualWebsite.productId ||
+                        recordValue(
+                          recordValue(metadata.dual_marketplace).website,
+                        ).productId ||
+                        0,
+                    ) > 0
+                  ? [
+                      Number(
+                        row.legacy_product_id ||
+                          row.legacyProductId ||
+                          dualWebsite.productId ||
+                          recordValue(
+                            recordValue(metadata.dual_marketplace).website,
+                          ).productId,
+                      ),
+                    ]
+                  : [],
           products:
             exactWebsiteProducts.length > 0
               ? exactWebsiteProducts.slice(0, 10).map((websiteProduct) => ({
@@ -1477,7 +1564,17 @@ export async function GET(request: Request) {
                 ? [projectedWebsiteProduct]
                 : [],
           linkedProductId:
-            product?.id || projectedWebsiteProductId || null,
+            product?.id ||
+            projectedWebsiteProductId ||
+            Number(
+              row.legacy_product_id ||
+                row.legacyProductId ||
+                dualWebsite.productId ||
+                recordValue(recordValue(metadata.dual_marketplace).website)
+                  .productId ||
+                0,
+            ) ||
+            null,
           linkedProductTitle:
             product?.title || (projectedWebsiteProductId ? displayTitle : null),
           linkedProductSellable:

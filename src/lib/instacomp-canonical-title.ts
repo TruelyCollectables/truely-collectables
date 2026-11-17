@@ -182,7 +182,7 @@ export function buildInstaCompRegistryExactTitle(identityValue: unknown) {
   const cardNumber = text(identity.cardNumber ?? identity.card_number).replace(/^#/, "");
   if (cardNumber) add(`#${cardNumber}`);
   add(identity.player ?? identity.playerName ?? identity.subject);
-  add(identity.team);
+  // Team names are never added to listing titles
   const exactParallel = text(identity.parallel ?? identity.checklistParallel ?? identity.parallelName);
   if (exactParallel && comparable(exactParallel) !== "base") add(exactParallel);
   add(identity.variation);

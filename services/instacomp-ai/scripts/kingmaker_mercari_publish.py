@@ -15,7 +15,7 @@ def _osascript(source: str) -> str:
         input=source,
         text=True,
         capture_output=True,
-        timeout=20,
+        timeout=35,
         check=False,
     )
     if completed.returncode != 0:
@@ -24,46 +24,69 @@ def _osascript(source: str) -> str:
 
 
 _JOB_WINDOW_ID: int | None = None
-_JOB_TAB_ID: int | None = None
 _RETURN_TAB_INDEX: int | None = None
+_JOB_TAB_INDEX: int | None = None
+_CREATED_TAB: bool = False
 
 
 def _open_job_window(url: str) -> None:
-    global _JOB_WINDOW_ID, _JOB_TAB_ID, _RETURN_TAB_INDEX
+    global _JOB_WINDOW_ID, _RETURN_TAB_INDEX, _JOB_TAB_INDEX, _CREATED_TAB
+    # Silent background execution:
+    # 1. Zero 'activate' calls (never steals macOS application focus).
+    # 2. Zero 'set index of w to 1' calls (never raises the browser window).
+    # 3. Zero 'set active tab index' calls (never switches away from KINGMAKER or user's active tab).
+    target_json = json.dumps(url)
     source = (
         'tell application "Google Chrome"\n'
-        '  activate\n'
+        '  repeat with w in windows\n'
+        '    set tabIdx to 1\n'
+        '    repeat with t in tabs of w\n'
+        '      if (URL of t contains "mercari.com") and (URL of t does not contain "about:blank") then\n'
+        f'        set URL of t to {target_json}\n'
+        '        repeat 60 times\n'
+        '          if (loading of t is false) and (URL of t contains "mercari.com") then exit repeat\n'
+        '          delay 0.2\n'
+        '        end repeat\n'
+        '        return (id of w as text) & ":" & (tabIdx as text) & ":existing"\n'
+        '      end if\n'
+        '      set tabIdx to tabIdx + 1\n'
+        '    end repeat\n'
+        '  end repeat\n'
         '  if (count of windows) = 0 then make new window\n'
         '  set w to front window\n'
-        '  set returnIndex to active tab index of w\n'
-        f'  set t to make new tab at end of tabs of w with properties {{URL:{json.dumps(url)}}}\n'
-        '  set active tab index of w to (count of tabs of w)\n'
-        '  return (id of w as text) & ":" & (id of t as text) & ":" & (returnIndex as text)\n'
+        f'  set t to make new tab at end of tabs of w with properties {{URL:{target_json}}}\n'
+        '  set newIdx to count of tabs of w\n'
+        '  repeat 60 times\n'
+        '    if (loading of t is false) and (URL of t contains "mercari.com") then exit repeat\n'
+        '    delay 0.2\n'
+        '  end repeat\n'
+        '  return (id of w as text) & ":" & (newIdx as text) & ":created"\n'
         'end tell'
     )
     raw = _osascript(source)
     try:
-        win, tab, return_index = raw.strip().split(":", 2)
-        _JOB_WINDOW_ID = int(win)
-        _JOB_TAB_ID = int(tab)
-        _RETURN_TAB_INDEX = int(return_index)
-    except (ValueError, AttributeError) as exc:
+        parts = raw.strip().split(":")
+        _JOB_WINDOW_ID = int(parts[0])
+        _JOB_TAB_INDEX = int(parts[1])
+        _CREATED_TAB = len(parts) >= 3 and parts[2] == "created"
+        _RETURN_TAB_INDEX = None
+    except (ValueError, AttributeError, IndexError) as exc:
         raise RuntimeError(f"Mercari automation tab could not be created: {raw}") from exc
 
 
 def _close_job_tab() -> None:
-    global _JOB_WINDOW_ID, _JOB_TAB_ID, _RETURN_TAB_INDEX
-    if _JOB_WINDOW_ID is None or _JOB_TAB_ID is None:
+    global _JOB_WINDOW_ID, _RETURN_TAB_INDEX, _JOB_TAB_INDEX, _CREATED_TAB
+    if not _CREATED_TAB or _JOB_WINDOW_ID is None or _JOB_TAB_INDEX is None:
+        _JOB_WINDOW_ID = None
+        _JOB_TAB_INDEX = None
+        _CREATED_TAB = False
+        _RETURN_TAB_INDEX = None
         return
-    return_index = max(1, int(_RETURN_TAB_INDEX or 1))
     source = (
         'tell application "Google Chrome"\n'
         '  try\n'
         f'    set w to first window whose id is {_JOB_WINDOW_ID}\n'
-        f'    set t to first tab of w whose id is {_JOB_TAB_ID}\n'
-        '    close t\n'
-        f'    if (count of tabs of w) >= {return_index} then set active tab index of w to {return_index}\n'
-        '    set index of w to 1\n'
+        f'    close tab {_JOB_TAB_INDEX} of w\n'
         '  end try\n'
         'end tell'
     )
@@ -73,17 +96,19 @@ def _close_job_tab() -> None:
         pass
     finally:
         _JOB_WINDOW_ID = None
-        _JOB_TAB_ID = None
+        _JOB_TAB_INDEX = None
+        _CREATED_TAB = False
         _RETURN_TAB_INDEX = None
 
 
 def _job_window_prefix() -> str:
-    if _JOB_WINDOW_ID is None or _JOB_TAB_ID is None:
+    global _JOB_WINDOW_ID, _JOB_TAB_INDEX
+    if _JOB_WINDOW_ID is None or _JOB_TAB_INDEX is None:
         raise RuntimeError("Mercari automation tab is not initialized.")
     return (
         'tell application "Google Chrome"\n'
         f'  set w to first window whose id is {_JOB_WINDOW_ID}\n'
-        f'  set t to first tab of w whose id is {_JOB_TAB_ID}\n'
+        f'  set t to tab {_JOB_TAB_INDEX} of w\n'
     )
 
 
@@ -97,30 +122,35 @@ def _chrome_js(js: str) -> str:
 
 
 def _navigate(url: str) -> None:
-    if _JOB_WINDOW_ID is None:
+    if _JOB_WINDOW_ID is None or _JOB_TAB_INDEX is None:
         _open_job_window(url)
         return
     source = (
         _job_window_prefix()
         + f'  set URL of t to {json.dumps(url)}\n'
-        + '  set index of w to 1\n'
-        + '  activate\n'
+        + '  repeat 60 times\n'
+        + '    if (loading of t is false) and (URL of t does not contain "about:blank") then exit repeat\n'
+        + '    delay 0.2\n'
+        + '  end repeat\n'
         + 'end tell'
     )
     _osascript(source)
 
-def _wait_js(js: str, timeout: float = 25.0, interval: float = 0.5) -> str:
+
+def _wait_js(js: str, timeout: float = 40.0, interval: float = 0.5) -> str:
     deadline = time.time() + timeout
     last = ""
+    last_error = ""
     while time.time() < deadline:
         try:
             last = _chrome_js(js)
             if last not in {"", "false", "0", "null", "undefined"}:
                 return last
-        except Exception:
-            pass
+        except Exception as exc:
+            last_error = f"{type(exc).__name__}: {exc}"[:300]
         time.sleep(interval)
-    raise RuntimeError(f"Mercari browser step timed out. Last state: {last or 'none'}")
+    detail = f" Last error: {last_error}" if last_error else ""
+    raise RuntimeError(f"Mercari browser step timed out. Last state: {last or 'none'}.{detail}")
 
 
 def _profile_name() -> str:
@@ -134,7 +164,16 @@ def _profile_name() -> str:
     if match:
         return match.group(1).strip()
     handle = re.search(r"\n@([^\n]+)", body)
-    return handle.group(1).strip() if handle else ""
+    if handle:
+        return handle.group(1).strip()
+    auth_check = _chrome_js(
+        "(()=>{const b=document.body?.innerText||'';"
+        "return (document.querySelector('[data-testid=UserAvatar], [data-testid=ProfileMenu], a[href*=\\\"/mypage/\\\"]') || b.includes('Log out') || b.includes('My page')) ? 'auth' : ''})()"
+    )
+    if auth_check == "auth":
+        return "authenticated_user"
+    return ""
+
 
 def _mercari_category(item: dict) -> str:
     explicit_sport = str(item.get("sport") or "").strip().lower()
@@ -216,10 +255,88 @@ def _select_category(item: dict) -> str:
     raise RuntimeError(f"Mercari category {primary} could not be selected, and the Other Sports fallback was unavailable.")
 
 
+def _ensure_buyer_paid_shipping() -> dict:
+    """Force buyer-paid shipping across Mercari's current and legacy payer controls."""
+    state_js = r'''(()=>{
+      const root=document.querySelector('#sellShippingPayerId');
+      if(!root) return JSON.stringify({ok:false,reason:'shipping_payer_control_missing'});
+      const input=root.querySelector('input');
+      const checked=root.querySelector('input[type=radio]:checked');
+      return JSON.stringify({
+        ok:true,
+        inputType:input?.type||'',
+        inputValue:String(input?.value||''),
+        checkedValue:String(checked?.value||''),
+        rootText:String(root.innerText||'').replace(/\s+/g,' ').trim(),
+      });
+    })()'''
+
+    def read_state() -> dict:
+        raw = _chrome_js(state_js)
+        try:
+            return json.loads(raw or "{}")
+        except json.JSONDecodeError as exc:
+            raise RuntimeError("Mercari shipping payer state could not be read.") from exc
+
+    def buyer_paid(state: dict) -> bool:
+        value = str(state.get("inputValue") or state.get("checkedValue") or "").strip().lower()
+        text = str(state.get("rootText") or "").strip().lower()
+        return (
+            value == "no"
+            or value.startswith("no ")
+            or value in {"buyer", "buyer_paid", "buyer-pays", "buyer_pays"}
+            or "buyer pays" in value
+            or "buyer pays" in text
+            or "buyer-paid" in text
+        ) and "yes (recommended)" not in value
+
+    state = read_state()
+    if not state.get("ok"):
+        raise RuntimeError("Mercari shipping payer control is unavailable; listing blocked before publish.")
+    if buyer_paid(state):
+        return state
+
+    legacy = _chrome_js(
+        "(()=>{const root=document.querySelector('#sellShippingPayerId');"
+        "const radios=Array.from(root?.querySelectorAll('input[type=radio]')||[]);"
+        "const target=radios.find(r=>String(r.value||'').trim().toLowerCase()==='no')||"
+        "radios.find(r=>/buyer\\s*(pays|pay)/i.test((r.closest('label')?.innerText||r.getAttribute('aria-label')||'')));"
+        "if(!target)return 'absent';if(!target.checked)target.click();return target.checked?'selected':'failed'})()"
+    )
+    if legacy == "selected":
+        time.sleep(0.25)
+        state = read_state()
+        if buyer_paid(state):
+            return state
+
+    opened = _chrome_js(
+        "(()=>{const b=document.querySelector('div[data-testid=ShippingPayerOption]');"
+        "if(!b)return 'missing';b.click();return 'opened'})()"
+    )
+    if opened != "opened":
+        raise RuntimeError("Mercari free-shipping selector could not be opened; listing blocked before publish.")
+    time.sleep(0.5)
+
+    _wait_js("document.querySelector('[data-testid=FreeShippingNoButton]') ? 'ready' : ''", timeout=8)
+    chosen = _chrome_js(
+        "(()=>{const b=document.querySelector('[data-testid=FreeShippingNoButton]');"
+        "if(!b)return 'no-option-missing';b.click();return 'clicked:No'})()"
+    )
+    if not chosen.startswith("clicked:"):
+        raise RuntimeError(f"Mercari buyer-paid shipping option could not be selected ({chosen}); listing blocked before publish.")
+    time.sleep(0.5)
+
+    state = read_state()
+    if not buyer_paid(state):
+        raise RuntimeError(
+            f"Mercari still shows seller-paid/free shipping after selecting No ({chosen}); listing blocked before publish. "
+            + json.dumps(state, separators=(",", ":"))[:500]
+        )
+    return state
+
 
 def _configure_shipping(price: float) -> str:
     service = "USPS First-Class Envelope" if price < 20 else "USPS Ground Advantage"
-    # Force Mercari prepaid shipping; TCOS cards use a 3 oz package profile.
     selected = _chrome_js("(()=>{const r=document.querySelector('input[name=deliveryOptions][value=MERCARI]');if(!r)return 'missing';if(!r.checked)r.click();return r.checked?'selected':'failed'})()")
     if selected != "selected":
         raise RuntimeError("Mercari prepaid shipping could not be selected.")
@@ -252,14 +369,41 @@ def _configure_shipping(price: float) -> str:
     _wait_js(f"(()=>{{const e=document.querySelector('[data-testid=SelectShipping]');return e&&String(e.value||'').includes({service_json})?'saved':''}})()", timeout=10)
     return service
 
+
+def _mercari_title(raw_title: str) -> str:
+    title = str(raw_title or "").strip()
+    if len(title) <= 80:
+        return title
+    replacements = [
+        ("Rookie Photo Variation", "Photo Var"),
+        ("Photo Variation", "Photo Var"),
+        ("Mini-Diamonds Refractor", "Mini-Diamonds"),
+        ("Signatures", "Signatures"),
+        ("Autograph", "Auto"),
+        ("Red and Blue Prizm", "Red/Blue Prizm"),
+        ("Premium Box Set Prizm", "Box Set Prizm"),
+        ("Carolina Blue Prizm", "Carolina Blue"),
+        ("White Seismic Prizm", "White Seismic"),
+        ("Silver Prizm Autograph", "Silver Auto"),
+        ("Silver Prizm", "Silver"),
+        ("Football ", ""),
+    ]
+    for old, new in replacements:
+        if len(title) <= 80:
+            break
+        title = title.replace(old, new)
+    if len(title) > 80:
+        words = title[:80].rsplit(" ", 1)
+        title = words[0] if len(words) > 1 else title[:80]
+    return title.strip()
+
+
 def _mercari_description(value: object) -> str:
     return str(value or "").strip()[:1000] or "Exact card shown in photos."
 
 
 def _fill_item(item: dict) -> tuple[str, str]:
-    title = str(item.get("title") or "").strip()
-    if len(title) > 80:
-        raise RuntimeError("Mercari title exceeds the 80-character limit. Shorten the exact KINGMAKER title before publishing; TCOS will not rewrite it.")
+    title = _mercari_title(item.get("title"))
     description = _mercari_description(item.get("description"))
     price = round(float(item.get("price") or 0), 2)
     image_urls = [str(x).strip() for x in (item.get("imageUrls") or []) if str(x).strip()][:12]
@@ -267,13 +411,13 @@ def _fill_item(item: dict) -> tuple[str, str]:
         raise RuntimeError("Mercari requires title, 5+ word description, price >= $1, and front/back images.")
 
     _open_job_window("https://www.mercari.com/mypage/")
-    _wait_js("(()=>{const u=location.href.toLowerCase();const b=document.body?.innerText||'';return (u.includes('/login')||u.includes('/signup')||b.includes('My profile'))?'session-ready':''})()", timeout=25)
+    _wait_js("(()=>{const u=location.href.toLowerCase();const b=document.body?.innerText||'';return (u.includes('/login')||u.includes('/signup')||b.includes('My profile')||b.includes('Sell on Mercari')||document.querySelector('[data-testid=UserAvatar], [data-testid=ProfileMenu]'))?'session-ready':''})()", timeout=40)
     account = _profile_name()
     if not account:
         raise RuntimeError("Mercari is not logged in in the dedicated Chrome automation tab.")
 
     _navigate("https://www.mercari.com/sell/")
-    _wait_js("document.querySelector('[name=sellName]') && document.querySelector('[data-testid=SaveDraftButton]') ? 'ready' : ''")
+    _wait_js("document.querySelector('[name=sellName]') && document.querySelector('[data-testid=SaveDraftButton]') ? 'ready' : ''", timeout=40)
 
     values = json.dumps({"title": title, "description": description, "price": f"{price:.2f}"})
     fill_js = f"""(()=>{{const v={values};const set=(name,val)=>{{const e=document.querySelector('[name=\\\"'+name+'\\\"]');if(!e)throw new Error('missing '+name);const p=e.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(p,'value').set.call(e,val);e.dispatchEvent(new Event('input',{{bubbles:true}}));e.dispatchEvent(new Event('change',{{bubbles:true}}));}};set('sellName',v.title);set('sellDescription',v.description);set('sellPrice',v.price);return 'filled'}})()"""
@@ -285,21 +429,19 @@ def _fill_item(item: dict) -> tuple[str, str]:
     _chrome_js(upload_js)
     state = _wait_js(
         f"(()=>{{const v=localStorage.getItem({json.dumps(token)})||'';return v.startsWith('dispatched:')?v:(v.startsWith('error:')?v:'')}})()",
-        timeout=25,
+        timeout=35,
     )
     if state.startswith("error:"):
         raise RuntimeError(state)
 
     category = _select_category(item)
     _configure_shipping(price)
+    _ensure_buyer_paid_shipping()
     _chrome_js("(()=>{const l=document.querySelector('[data-testid=ConditionLikeNew]');if(!l)throw new Error('Like new condition missing');l.click();return 'condition'})()")
-    _wait_js("document.querySelector('input#2[name=sellCondition]')?.checked ? 'condition' : ''")
+    _wait_js("document.querySelector('input#2[name=sellCondition]')?.checked ? 'condition' : ''", timeout=15)
 
-    # Smart Pricing is not rendered for every Mercari listing/price tier.
-    # When present, force it OFF. When absent, continue: there is nothing to disable.
     smart_state = _chrome_js("(()=>{const b=document.querySelector('[data-testid=SmartPricingButton], [data-testid=SmartSellingButton]');if(!b)return 'absent';const pressed=b.getAttribute('aria-pressed');const text=(b.innerText||'').trim().toLowerCase();if(pressed==='true'||text==='on'){b.click();return 'clicked-off'}return 'off'})()")
     if smart_state == "clicked-off":
-        # Mercari sometimes asks for a second confirmation before Smart Selling/Pricing is disabled.
         deadline = time.time() + 10
         while time.time() < deadline:
             _confirm_smart_selling_prompt()
@@ -310,9 +452,7 @@ def _fill_item(item: dict) -> tuple[str, str]:
         else:
             raise RuntimeError("Mercari Smart Selling/Pricing could not be turned off.")
 
-    free_shipping = _chrome_js("(()=>{const root=document.querySelector('#sellShippingPayerId');const checked=root?.querySelector('input[type=radio]:checked');return checked?.value||''})()")
-    if free_shipping and free_shipping.lower().startswith("yes"):
-        raise RuntimeError("Mercari free shipping is enabled; TCOS will not publish until shipping payer is reviewed.")
+    _ensure_buyer_paid_shipping()
     return account, category
 
 
@@ -320,7 +460,7 @@ def _save_ready_draft(title: str) -> dict:
     result = _chrome_js("(()=>{const b=document.querySelector('[data-testid=SaveDraftButton]');if(!b||b.disabled)return 'blocked';b.click();return 'clicked'})()")
     if result != "clicked":
         raise RuntimeError("Mercari Save draft is blocked.")
-    _wait_js("location.href.includes('/mypage/listings/draft/') ? location.href : ''", timeout=25)
+    _wait_js("location.href.includes('/mypage/listings/draft/') ? location.href : ''", timeout=30)
     url = _chrome_js("location.href")
     body = _chrome_js("document.body.innerText.slice(0,12000)")
     if "/action-required/" in url or "Action Required" in body:
@@ -361,12 +501,13 @@ def _force_exact_title(title: str) -> None:
 
 def _publish_draft(draft_url: str, exact_title: str) -> str:
     _navigate(draft_url)
-    _wait_js("((document.querySelector('[data-testid=ListButton]')||Array.from(document.querySelectorAll('button')).find(b=>(b.innerText||'').trim()==='List')) && document.querySelector('[name=sellName]')) ? 'ready' : ''", timeout=20)
+    _wait_js("((document.querySelector('[data-testid=ListButton]')||Array.from(document.querySelectorAll('button')).find(b=>(b.innerText||'').trim()==='List')) && document.querySelector('[name=sellName]')) ? 'ready' : ''", timeout=30)
     if _chrome_js("document.body.innerText.includes('requires an update') ? 'missing' : ''"):
         raise RuntimeError("Mercari draft is not ready to publish.")
+    _ensure_buyer_paid_shipping()
     _force_exact_title(exact_title)
 
-    deadline = time.time() + 40
+    deadline = time.time() + 45
     last_state = ""
     while time.time() < deadline:
         url = _chrome_js("location.href")
@@ -385,7 +526,6 @@ def _publish_draft(draft_url: str, exact_title: str) -> str:
             "if(!b)return 'list-missing';if(b.disabled)return 'list-disabled';b.click();return 'list-clicked';})()"
         )
         if last_state == "list-clicked":
-            # Give Mercari time to either navigate or show the Smart Selling confirmation.
             settle_deadline = time.time() + 6
             while time.time() < settle_deadline:
                 url = _chrome_js("location.href")
@@ -404,25 +544,143 @@ def _publish_draft(draft_url: str, exact_title: str) -> str:
     raise RuntimeError(f"Mercari did not complete the final List step. Last state: {last_state}. Page: {body[:500]}")
 
 
+def _verify_existing_item(item: dict) -> dict:
+    item_id = str(item.get("itemId") or "").strip()
+    if not re.fullmatch(r"m\d+", item_id):
+        raise RuntimeError("Mercari verification requires an exact item ID.")
+    item_url = str(item.get("itemUrl") or "").strip() or f"https://www.mercari.com/us/item/{item_id}/"
+    expected_title = str(item.get("title") or "").strip()
+    _open_job_window(item_url)
+    try:
+        _wait_js("document.body && document.body.innerText.length>100 ? 'ready' : ''", timeout=30)
+        final_url = _chrome_js("location.href")
+        body = _chrome_js("document.body.innerText.slice(0,10000)")
+        edit_href = _chrome_js("(()=>{const n=Array.from(document.querySelectorAll('a,button')).find(x=>(x.innerText||'').trim()==='Edit item');return n?.closest('a')?.href||n?.href||''})()")
+        lower = body.lower()
+        sold = any(token in lower for token in ("this item has been sold", "sold out", "\nsold\n"))
+        inactive = any(token in lower for token in ("no longer available", "listing is inactive", "reactivate"))
+        active = (
+            not sold
+            and not inactive
+            and item_id.lower() in final_url.lower()
+            and (
+                "deactivate" in lower
+                or "promote" in lower
+                or "buy now" in lower
+                or "make offer" in lower
+                or "add to cart" in lower
+            )
+        )
+        status = "sold" if sold else "inactive" if inactive else "active" if active else "unknown"
+        return {
+            "status": status,
+            "itemId": item_id,
+            "itemUrl": final_url,
+            "editHref": edit_href or None,
+            "titlePresent": (not expected_title) or expected_title.lower() in lower,
+            "markers": {
+                "deactivate": "deactivate" in lower,
+                "reactivate": "reactivate" in lower,
+                "sold": sold,
+                "buyNow": "buy now" in lower,
+                "makeOffer": "make offer" in lower,
+            },
+            "pageText": body[:2000],
+        }
+    finally:
+        _close_job_tab()
+
+
+def _deactivate_existing_item(item: dict) -> dict:
+    item_id = str(item.get("itemId") or "").strip()
+    if not re.fullmatch(r"m\d+", item_id):
+        raise RuntimeError("Mercari deactivation requires an exact item ID.")
+    edit_url = f"https://www.mercari.com/sell/edit/{item_id}/"
+    _open_job_window(edit_url)
+    try:
+        _wait_js("document.body && document.body.innerText.includes('Deactivate') ? 'ready' : ''", timeout=30)
+        current_url = _chrome_js("location.href")
+        if item_id.lower() not in current_url.lower():
+            raise RuntimeError("Mercari edit page does not match the requested item ID.")
+        edit_title = _chrome_js("document.querySelector('[name=sellName]')?.value||''")
+        clicked = _chrome_js(
+            "(()=>{const b=Array.from(document.querySelectorAll('button')).find(x=>(x.innerText||'').trim()==='Deactivate');"
+            "if(!b)return 'missing';if(b.disabled)return 'disabled';b.click();return 'clicked'})()"
+        )
+        if clicked != "clicked":
+            raise RuntimeError(f"Mercari Deactivate control could not be used ({clicked}).")
+        time.sleep(0.75)
+        confirmed = _chrome_js(
+            "(()=>{const d=document.querySelector('[role=dialog]');if(!d)return 'none';"
+            "const b=Array.from(d.querySelectorAll('button')).find(x=>(x.innerText||'').trim()==='Deactivate');"
+            "if(!b)return 'dialog-no-deactivate';b.click();return 'confirmed'})()"
+        )
+        if confirmed == "confirmed":
+            time.sleep(0.75)
+        state = _wait_js(
+            "(()=>{const labels=Array.from(document.querySelectorAll('button')).map(x=>(x.innerText||'').trim());"
+            "if(labels.includes('Reactivate')||labels.includes('Activate'))return 'inactive';"
+            "if(labels.includes('Deactivate'))return '';"
+            "return location.href.includes('/us/item/')?'item-page':''})()",
+            timeout=20,
+        )
+        if state == "item-page":
+            _navigate(f"https://www.mercari.com/sell/edit/{item_id}/")
+            _wait_js("document.body && document.body.innerText.length>100 ? 'ready' : ''", timeout=20)
+            labels_raw = _chrome_js("JSON.stringify(Array.from(document.querySelectorAll('button')).map(x=>(x.innerText||'').trim()).filter(Boolean))")
+            labels = json.loads(labels_raw or "[]")
+            if "Reactivate" not in labels and "Activate" not in labels:
+                raise RuntimeError("Mercari did not prove the listing inactive after deactivation.")
+        else:
+            labels_raw = _chrome_js("JSON.stringify(Array.from(document.querySelectorAll('button')).map(x=>(x.innerText||'').trim()).filter(Boolean))")
+            labels = json.loads(labels_raw or "[]")
+        return {
+            "status": "inactive",
+            "itemId": item_id,
+            "itemUrl": f"https://www.mercari.com/us/item/{item_id}/",
+            "editTitle": edit_title or None,
+            "confirmationState": confirmed,
+            "controls": labels,
+        }
+    finally:
+        _close_job_tab()
+
+
 def main() -> None:
     payload = json.load(sys.stdin)
     mode = str(payload.get("mode") or "status").strip().lower()
     if mode == "status":
         _open_job_window("https://www.mercari.com/mypage/")
-        _wait_js("(()=>{const u=location.href.toLowerCase();const b=document.body?.innerText||'';return (u.includes('/login')||u.includes('/signup')||b.includes('My profile'))?'session-ready':''})()", timeout=25)
+        _wait_js("(()=>{const u=location.href.toLowerCase();const b=document.body?.innerText||'';return (u.includes('/login')||u.includes('/signup')||b.includes('My profile')||b.includes('Sell on Mercari')||document.querySelector('[data-testid=UserAvatar], [data-testid=ProfileMenu]'))?'session-ready':''})()", timeout=40)
         account = _profile_name()
         if not account:
             raise RuntimeError("Mercari is not logged in in the dedicated Chrome automation tab.")
         _close_job_tab()
         print(json.dumps({"ok": True, "mode": mode, "connected": True, "account": account}))
         return
+    if mode == "verify":
+        item = payload.get("item") if isinstance(payload.get("item"), dict) else {}
+        result = _verify_existing_item(item)
+        print(json.dumps({"ok": True, "mode": mode, **result}))
+        return
+    if mode == "deactivate":
+        if str(payload.get("confirmation") or "").strip() != "DEACTIVATE_LIVE":
+            raise RuntimeError("Explicit DEACTIVATE_LIVE confirmation is required for Mercari deactivation.")
+        item = payload.get("item") if isinstance(payload.get("item"), dict) else {}
+        current = _verify_existing_item(item)
+        if current.get("status") in {"inactive", "sold"}:
+            print(json.dumps({"ok": True, "mode": mode, "alreadyContained": True, **current}))
+            return
+        if current.get("status") != "active":
+            raise RuntimeError(f"Mercari listing is not proven active ({current.get('status')}).")
+        result = _deactivate_existing_item(item)
+        print(json.dumps({"ok": True, "mode": mode, **result}))
+        return
     if mode not in {"draft", "publish"}:
         raise RuntimeError("Unsupported Mercari bridge mode.")
 
     item = payload.get("item") if isinstance(payload.get("item"), dict) else {}
-    title = str(item.get("title") or "").strip()
-    if len(title) > 80:
-        raise RuntimeError("Mercari title exceeds the 80-character limit. Shorten the exact KINGMAKER title before publishing; TCOS will not rewrite it.")
+    title = _mercari_title(item.get("title"))
     account, category = _fill_item(item)
     draft = _save_ready_draft(title)
     if mode == "draft":

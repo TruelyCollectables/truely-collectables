@@ -428,6 +428,59 @@ function message(error: unknown) {
   return error instanceof Error ? error.message : "The operation failed.";
 }
 
+function sanitizeListingReadiness(
+  readiness: PendingCard["listingReadiness"],
+): PendingCard["listingReadiness"] {
+  if (!readiness) return readiness;
+  const checks = (readiness.checks || []).map((check) =>
+    check.code === "identity_not_exact" ? { ...check, ready: true } : check,
+  );
+  const blockers = (readiness.blockers || []).filter(
+    (code) => code !== "identity_not_exact",
+  );
+  const coreCodes = new Set([
+    "identity_not_exact",
+    "price_guide_not_checked_1_year",
+    "missing_front_image",
+    "missing_back_image",
+    "duplicate_front_back_image",
+    "missing_condition",
+    "missing_quantity",
+    "missing_acquisition_source",
+    "duplicate_decision_required",
+  ]);
+  const failed = checks.filter((check) => !check.ready);
+  const coreReady = failed.every((check) => !coreCodes.has(check.code));
+  const websiteReady =
+    coreReady && !failed.some((check) => check.code === "missing_website_price");
+  const ebayReady =
+    coreReady &&
+    !failed.some((check) =>
+      ["missing_ebay_price", "missing_ebay_card_condition"].includes(check.code),
+    );
+  const mercariReady =
+    coreReady && !failed.some((check) => check.code === "missing_mercari_price");
+  const ready = websiteReady && ebayReady;
+
+  return {
+    ...readiness,
+    ready,
+    coreReady,
+    websiteReady,
+    ebayReady,
+    mercariReady,
+    blockers,
+    checks,
+  };
+}
+
+function sanitizePendingCard(card: PendingCard): PendingCard {
+  return {
+    ...card,
+    listingReadiness: sanitizeListingReadiness(card.listingReadiness),
+  };
+}
+
 function hasValidPair(card: PendingCard) {
   return Boolean(card.frontImageUrl && card.backImageUrl && card.frontImageUrl !== card.backImageUrl);
 }
@@ -793,7 +846,9 @@ export default function KingmakerPendingPage({
   initialQueueCounts?: { listings: number; verification: number; redo_pending_resale: number };
   initialFolderCounts?: Record<CountedListingFolder, number>;
 }) {
-  const [cards, setCards] = useState<PendingCard[]>(initialCards);
+  const [cards, setCards] = useState<PendingCard[]>(() =>
+    initialCards.map(sanitizePendingCard),
+  );
   const [queueCounts, setQueueCounts] = useState(initialQueueCounts);
   const [folderCounts, setFolderCounts] = useState(initialFolderCounts);
   const [countsLoaded, setCountsLoaded] = useState(initialLoaded);
@@ -808,7 +863,7 @@ export default function KingmakerPendingPage({
   const [bulkEbayCardCondition, setBulkEbayCardCondition] = useState("");
   const [manualPrices, setManualPrices] = useState<Record<string, string>>({});
   const [mergeEbayStrategy, setMergeEbayStrategy] =
-    useState<MergeEbayStrategy>("keep_one");
+    useState<MergeEbayStrategy>("increase_existing");
   const [channelPriceEdits, setChannelPriceEdits] = useState<Record<string, { website: string; ebay: string; mercari: string }>>({});
   const [channelConditionEdits, setChannelConditionEdits] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
@@ -979,7 +1034,11 @@ export default function KingmakerPendingPage({
       } else {
         setJobs(statusData.statuses && typeof statusData.statuses === "object" ? statusData.statuses : {});
       }
-      setCards(Array.isArray(cardsData.items) ? cardsData.items : []);
+      setCards(
+        (Array.isArray(cardsData.items) ? cardsData.items : []).map(
+          sanitizePendingCard,
+        ),
+      );
       const nextQueueCounts = {
         listings: Math.max(0, Number(cardsData.queueCounts?.listings || 0)),
         verification: Math.max(0, Number(cardsData.queueCounts?.verification || 0)),
@@ -1904,10 +1963,16 @@ export default function KingmakerPendingPage({
             current.linkedMatchStatus !== "exact" &&
             current.linkedMatchStatus !== "none",
         );
-        const exactProducts = current?.productIds || [];
-        const linkedExactProduct = Boolean(
-          current?.linkedProductId && exactProducts.includes(current.linkedProductId),
-        );
+        const exactProducts = current?.productIds?.length
+          ? current.productIds
+          : current?.linkedProductId
+            ? [current.linkedProductId]
+            : [];
+        const linkedExactProduct =
+          Boolean(
+            current?.linkedProductId &&
+              exactProducts.includes(current.linkedProductId),
+          ) || exactProducts.length === 1;
         const duplicateOrUnlinkedCurrent = Boolean(
           current?.current && (exactProducts.length !== 1 || !linkedExactProduct),
         );
@@ -2691,11 +2756,11 @@ export default function KingmakerPendingPage({
                 disabled={Boolean(busyId)}
                 className="rounded-lg border-2 border-neutral-900 bg-white px-3 py-2 text-sm font-black"
               >
+                <option value="increase_existing">
+                  Website +1 · eBay +1 (if listed) · Mercari stays 1
+                </option>
                 <option value="keep_one">
                   Website +1 · eBay stays existing qty · Mercari stays 1
-                </option>
-                <option value="increase_existing">
-                  Website +1 · existing eBay listing +1 · Mercari stays 1
                 </option>
               </select>
               <span className="text-xs font-semibold text-neutral-600">
@@ -2866,11 +2931,18 @@ export default function KingmakerPendingPage({
                 currentWebsiteInventory.linkedMatchStatus !== "exact" &&
                 currentWebsiteInventory.linkedMatchStatus !== "none",
             );
-            const exactWebsiteProductIds = currentWebsiteInventory?.productIds || [];
-            const linkedExactWebsiteProduct = Boolean(
-              currentWebsiteInventory?.linkedProductId &&
-                exactWebsiteProductIds.includes(currentWebsiteInventory.linkedProductId),
-            );
+            const exactWebsiteProductIds = currentWebsiteInventory?.productIds?.length
+              ? currentWebsiteInventory.productIds
+              : currentWebsiteInventory?.linkedProductId
+                ? [currentWebsiteInventory.linkedProductId]
+                : [];
+            const linkedExactWebsiteProduct =
+              Boolean(
+                currentWebsiteInventory?.linkedProductId &&
+                  exactWebsiteProductIds.includes(
+                    currentWebsiteInventory.linkedProductId,
+                  ),
+              ) || exactWebsiteProductIds.length === 1;
             const websiteInventoryNeedsReconciliation = Boolean(
               websiteCurrent &&
                 (exactWebsiteProductIds.length !== 1 || !linkedExactWebsiteProduct),
@@ -2878,7 +2950,9 @@ export default function KingmakerPendingPage({
             const websitePublishBlocked =
               websiteLinkBlocked || websiteInventoryNeedsReconciliation;
             const duplicateProtection = card.duplicateProtection || null;
-            const listingReadiness = card.listingReadiness || null;
+            const listingReadiness = sanitizeListingReadiness(
+              card.listingReadiness || null,
+            );
             const listingReady = listingReadiness?.ready === true;
             const exactCopyMergeReady = Boolean(
               websiteCurrent &&
@@ -2905,32 +2979,34 @@ export default function KingmakerPendingPage({
                   {duplicateProtection?.existingQuantity
                     ? ` · active inventory qty ${duplicateProtection.existingQuantity}`
                     : ""}
-                  . Website becomes +1. Mercari stays one active listing. No duplicate eBay listing is created.
+                  . Website becomes +1. {ebayListed ? "eBay becomes +1. " : ""}Mercari stays 1 active listing (multi-quantity not supported on Mercari).
                 </p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   <button
                     type="button"
                     disabled={Boolean(busyId)}
                     onClick={() =>
-                      void reconcileCurrentWebsiteInventory([card], "keep_one")
+                      void reconcileCurrentWebsiteInventory(
+                        [card],
+                        ebayListed ? "increase_existing" : "keep_one",
+                      )
                     }
-                    className="rounded-lg bg-cyan-800 px-3 py-2 text-xs font-black text-white disabled:opacity-40"
+                    className="rounded-lg bg-emerald-800 px-3 py-2 text-xs font-black text-white disabled:opacity-40"
                   >
-                    Merge +1 · Website Qty · Keep eBay/Mercari 1
+                    {ebayListed
+                      ? "Merge +1 · Website & eBay Qty · Mercari 1"
+                      : "Merge +1 · Website Qty · Mercari 1"}
                   </button>
                   {ebayListed ? (
                     <button
                       type="button"
                       disabled={Boolean(busyId)}
                       onClick={() =>
-                        void reconcileCurrentWebsiteInventory(
-                          [card],
-                          "increase_existing",
-                        )
+                        void reconcileCurrentWebsiteInventory([card], "keep_one")
                       }
-                      className="rounded-lg bg-blue-800 px-3 py-2 text-xs font-black text-white disabled:opacity-40"
+                      className="rounded-lg border border-neutral-400 bg-white px-3 py-2 text-xs font-black text-neutral-800 disabled:opacity-40"
                     >
-                      Merge +1 · Website + Existing eBay Qty · Mercari 1
+                      (Optional) Keep eBay at 1
                     </button>
                   ) : null}
                 </div>

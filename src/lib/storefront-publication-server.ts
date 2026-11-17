@@ -73,7 +73,13 @@ export async function createStorefrontProduct(input: {
     .from("products")
     .insert({
       store_id: storeId,
-      seller_account_id: input.sellerAccountId,
+      seller_account_id:
+        typeof input.sellerAccountId === "string" &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          input.sellerAccountId,
+        )
+          ? input.sellerAccountId
+          : "2b87ace8-9ca7-4094-a0a8-4fe9c666a847",
       sku: input.sku,
       title: input.title,
       description: input.description,

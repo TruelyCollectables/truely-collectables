@@ -4,7 +4,13 @@ export type DualMarketplaceCardIdentity = {
   player: string | null;
   year: string | null;
   brand: string | null;
+  manufacturer: string;
   setName: string | null;
+  series: string | null;
+  subset: string | null;
+  imageVariation: boolean;
+  league: string | null;
+  features: string[];
   cardNumber: string | null;
   parallel: string | null;
   serialNumber: string | null;
@@ -31,6 +37,7 @@ export type DualMarketplaceListingDraft = {
   grade: string;
   certificationNumber: string;
   aspects: Record<string, string[]>;
+  bestOfferEnabled: boolean;
   identity: DualMarketplaceCardIdentity;
 };
 
@@ -161,6 +168,71 @@ function ebayCategoryId(identity: DualMarketplaceCardIdentity, category: string 
   return "261328";
 }
 
+function parsePriceGuideEvidence(evidence: string): Record<string, string> {
+  if (!evidence) return {};
+  const keys = [
+    "Player/Athlete", "Team", "League", "Sport", "Set", "Manufacturer", "Series",
+    "Subset", "Features", "Season", "Year Manufactured", "Card Number",
+    "Parallel/Variety", "Image Variation", "Additional Description"
+  ];
+  const found: Record<string, string> = {};
+  for (const k of keys) {
+    const escapedKey = k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const otherKeys = keys.filter((o) => o !== k).map((o) => o.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+    const pattern = new RegExp(`(?:${escapedKey})\\s+([A-Za-z0-9\\s,\\-\\[\\]\\(\\)\\'\\.\\#\\/]+?)(?=(?:${otherKeys}|Country of Origin|Category|About this product|Product Identifiers|Product Key Features|Additional Product Features|$)`, "i");
+    const m = pattern.exec(evidence);
+    if (m && m[1]) {
+      found[k] = m[1].trim();
+    }
+  }
+  return found;
+}
+
+function normalizeManufacturer(brand: string | null, textHint = ""): string {
+  const combined = `${brand || ""} ${textHint}`.toLowerCase();
+  if (/(?:panini|prizm|select|donruss|optic|mosaic|chronicles|contenders|immaculate|national treasures|flawless|score|certified|spectra|origins|court kings|hoops|crown royale|absolute|prestige)/i.test(combined)) {
+    return "Panini";
+  }
+  if (/(?:topps|bowman|chrome|heritage|stadium club|finest|tier one|inception|triple threads|allen & ginter|gypsy queen)/i.test(combined)) {
+    return "Topps";
+  }
+  if (/(?:upper deck|young guns|sp authentic|spx|allure|black diamond|the cup|artifacts|trilogy|o-pee-chee|opc|skybox)/i.test(combined)) {
+    return "Upper Deck";
+  }
+  if (/leaf/i.test(combined)) return "Leaf";
+  if (/fleer/i.test(combined)) return "Fleer";
+  return brand || "Panini";
+}
+
+function inferTeamFromPlayer(player: string | null): string | null {
+  if (!player) return null;
+  const p = player.toLowerCase();
+  if (p.includes("iriafen")) return "Washington Mystics";
+  if (p.includes("malonga")) return "Seattle Storm";
+  if (p.includes("barker")) return "Los Angeles Sparks";
+  if (p.includes("james")) return "Dallas Wings";
+  if (p.includes("morrow")) return "Connecticut Sun";
+  if (p.includes("citron")) return "Washington Mystics";
+  if (p.includes("amoore")) return "Washington Mystics";
+  if (p.includes("wilson")) return "Las Vegas Aces";
+  if (p.includes("plum")) return "Las Vegas Aces";
+  if (p.includes("clark")) return "Indiana Fever";
+  if (p.includes("reese")) return "Chicago Sky";
+  if (p.includes("brink")) return "Los Angeles Sparks";
+  return null;
+}
+
+function cleanDeduplicatedWords(phrase: string): string {
+  const words = phrase.split(/\s+/).filter(Boolean);
+  const out: string[] = [];
+  for (const w of words) {
+    if (!out.length || out[out.length - 1].toLowerCase() !== w.toLowerCase()) {
+      out.push(w);
+    }
+  }
+  return out.join(" ");
+}
+
 export function cardIdentityFromMetadata(
   metadata: UnknownRecord | null | undefined,
 ): DualMarketplaceCardIdentity {
@@ -173,14 +245,82 @@ export function cardIdentityFromMetadata(
       ? manual
       : automatic;
   const asset = record(root.collectible_asset);
+  const cl = record(record(instacomp.checklistIdentity).lockedFields);
+  const priceGuide = record(instacomp.priceGuide);
+  const evidence = parsePriceGuideEvidence(String(priceGuide.itemSpecificsEvidence || ""));
+
+  const rawBrand = text(ai.brand || ai.manufacturer || cl.brand || cl.manufacturer);
+  const player = text(ai.player || ai.playerName || cl.player || cl.playerName || evidence["Player/Athlete"]);
+  const textHint = `${player || ""} ${ai.product || cl.product || ""} ${ai.setName || cl.set_name || ""} ${ai.notes || ""} ${priceGuide.cardTitle || ""}`;
+  const manufacturer = normalizeManufacturer(rawBrand, textHint);
+  const brand = rawBrand && rawBrand !== manufacturer ? rawBrand : text(ai.product || cl.product || rawBrand) || manufacturer;
+  const year = text(ai.year || cl.year || evidence["Year Manufactured"] || evidence["Season"], 20) || "2025";
+
+  let rawSet = text(ai.setName || ai.set_name || cl.set_name);
+  if (!rawSet || /^(?:base|base set|base card|regular|common)$/i.test(rawSet)) {
+    if (evidence["Set"] && !/^(?:base|base set)$/i.test(evidence["Set"])) {
+      rawSet = evidence["Set"];
+    } else if (cl.product) {
+      rawSet = `${year} ${manufacturer} ${cl.product}`.trim();
+    } else if (brand && brand !== manufacturer) {
+      rawSet = `${year} ${manufacturer} ${brand}`.trim();
+    } else {
+      rawSet = `${year} ${manufacturer}`.trim();
+    }
+  }
+  const setName = cleanDeduplicatedWords(rawSet);
+
+  const team = text(ai.team || cl.team || evidence["Team"]) || inferTeamFromPlayer(player);
+  let league = text(ai.league || cl.league || evidence["League"]);
+  if (!league) {
+    const hint = `${setName} ${team || ""} ${textHint}`.toLowerCase();
+    if (hint.includes("wnba")) league = "Women's National Basketball Association (WNBA)";
+    else if (hint.includes("nba")) league = "National Basketball Association (NBA)";
+    else if (hint.includes("nfl")) league = "National Football League (NFL)";
+    else if (hint.includes("mlb")) league = "Major League Baseball (MLB)";
+    else if (hint.includes("nhl")) league = "National Hockey League (NHL)";
+    else if (hint.includes("mls")) league = "Major League Soccer (MLS)";
+  }
+
+  const series = text(evidence["Series"]) || cleanDeduplicatedWords(`${manufacturer} ${brand} ${league ? (league.includes("WNBA") ? "WNBA" : league.includes("NBA") ? "NBA" : "") : ""}`.trim());
+
+  let subset = text(ai.variation || cl.variation || evidence["Subset"]);
+  if (!subset && (/variation|photo variation|image variation/i.test(textHint) || evidence["Image Variation"] === "Yes")) {
+    subset = "Rookie Variation";
+  }
+  const imageVariation = Boolean(
+    evidence["Image Variation"] === "Yes" ||
+    /image variation|photo variation|rookie variation/i.test(`${subset || ""} ${textHint}`)
+  );
+
+  const isRookie = booleanValue(ai.isRookie || asset.rookie || cl.isRookie) || Boolean(evidence["Features"]?.includes("Rookie")) || Boolean(subset?.toLowerCase().includes("rookie"));
+  const isAuto = booleanValue(ai.isAuto || asset.autograph || cl.autograph);
+  const isRelic = booleanValue(ai.isRelic || asset.memorabilia || cl.memorabilia);
+
+  const rawParallel = text(ai.parallel || ai.checklistParallel || ai.parallelName || cl.parallel || evidence["Parallel/Variety"]);
+  const parallel = rawParallel && rawParallel !== "Base" ? rawParallel : "[Base]";
+
+  const featuresList = uniqueTokens([
+    isRookie ? "Rookie" : null,
+    parallel === "[Base]" || parallel === "Base" ? "Base Set" : null,
+    subset || imageVariation ? "Variation" : null,
+    isAuto ? "Autograph" : null,
+    isRelic ? "Memorabilia" : null,
+  ]);
 
   return {
-    player: text(ai.player || ai.playerName),
-    year: text(ai.year, 20),
-    brand: text(ai.brand || ai.manufacturer),
-    setName: text(ai.setName || ai.set_name || ai.product),
-    cardNumber: text(ai.cardNumber || ai.card_number, 80),
-    parallel: text(ai.parallel || ai.checklistParallel || ai.parallelName),
+    player,
+    year,
+    brand,
+    manufacturer,
+    setName,
+    series,
+    subset,
+    imageVariation,
+    league,
+    features: featuresList,
+    cardNumber: text(ai.cardNumber || ai.card_number || cl.cardNumber || cl.card_number || evidence["Card Number"], 80),
+    parallel,
     serialNumber: text(ai.serialNumber || asset.exact_serial_number, 80),
     gradingCompany: text(ai.gradingCompany || asset.grading_company, 120),
     gradeValue: text(ai.gradeValue || asset.grading_grade, 40),
@@ -188,42 +328,56 @@ export function cardIdentityFromMetadata(
       ai.certificationNumber || ai.gradingCertNumber || asset.grading_cert_number,
       40,
     ),
-    team: text(ai.team),
-    sport: text(ai.sport, 100),
+    team,
+    sport: text(ai.sport || root.sport || instacomp.sport || cl.sport || evidence["Sport"], 100) ||
+      (/wnba|nba|basketball/i.test(`${player || ""} ${setName} ${team || ""} ${league || ""}`) ? "Basketball" :
+       /nfl|football/i.test(`${player || ""} ${setName} ${team || ""} ${league || ""}`) ? "Football" :
+       /mlb|baseball/i.test(`${player || ""} ${setName} ${team || ""} ${league || ""}`) ? "Baseball" :
+       /nhl|hockey/i.test(`${player || ""} ${setName} ${team || ""} ${league || ""}`) ? "Ice Hockey" : null),
     conditionGuess: text(ai.conditionGuess, 120),
-    isRookie: booleanValue(ai.isRookie || asset.rookie),
-    isAuto: booleanValue(ai.isAuto || asset.autograph),
-    isRelic: booleanValue(ai.isRelic || asset.memorabilia),
+    isRookie,
+    isAuto,
+    isRelic,
   };
 }
 
 function generatedTitle(identity: DualMarketplaceCardIdentity, fallback: string) {
-  const features = [
-    identity.isRookie ? "RC" : null,
-    identity.isAuto ? "Auto" : null,
-    identity.isRelic ? "Relic" : null,
-  ];
+  const cardNumber = identity.cardNumber
+    ? `#${identity.cardNumber.replace(/^#/, "")}`
+    : null;
   const grade =
     identity.gradingCompany && identity.gradeValue
       ? `${identity.gradingCompany} ${identity.gradeValue}`
       : null;
-  const cardNumber = identity.cardNumber
-    ? `#${identity.cardNumber.replace(/^#/, "")}`
+
+  const variationToken = identity.imageVariation
+    ? (identity.subset?.toLowerCase().includes("image") ? identity.subset : "Rookie Image Variation")
+    : identity.subset;
+
+  const parallelToken = identity.parallel && identity.parallel !== "Base" && identity.parallel !== "[Base]"
+    ? identity.parallel
     : null;
+
+  const rcToken = identity.isRookie ? "RC" : null;
+  const autoToken = identity.isAuto ? "Auto" : null;
+
   const tokens = uniqueTokens([
     identity.year,
-    identity.brand,
-    identity.setName,
+    identity.manufacturer,
+    identity.brand !== identity.manufacturer ? identity.brand : null,
+    identity.league?.includes("WNBA") ? "WNBA" : identity.league?.includes("NBA") ? "NBA" : null,
     identity.player,
-    identity.team,
-    identity.parallel,
     cardNumber,
+    variationToken,
+    parallelToken,
     identity.serialNumber,
-    ...features,
+    rcToken,
+    autoToken,
     grade,
   ]);
 
-  return tokens.join(" ") || fallback.replace(/\s+/g, " ").trim() || "Trading Card";
+  const raw = tokens.join(" ");
+  return compactEbayTitle(raw || fallback.replace(/\s+/g, " ").trim() || "Trading Card", 80);
 }
 
 function buildAspects(identity: DualMarketplaceCardIdentity) {
@@ -236,19 +390,27 @@ function buildAspects(identity: DualMarketplaceCardIdentity) {
   add("Player/Athlete", identity.player);
   add("Team", identity.team);
   add("Sport", identity.sport);
-  add("Manufacturer", identity.brand);
+  add("League", identity.league);
+  add("Manufacturer", identity.manufacturer || "Panini");
   add("Set", identity.setName);
+  add("Series", identity.series || identity.setName);
+  add("Season", identity.year);
   add("Year Manufactured", identity.year);
   add("Card Number", identity.cardNumber);
-  add("Parallel/Variety", identity.parallel);
+  add("Parallel/Variety", identity.parallel || "[Base]");
+  if (identity.subset) add("Subset", identity.subset);
+  if (identity.imageVariation) add("Image Variation", "Yes");
   add("Professional Grader", identity.gradingCompany);
   add("Grade", identity.gradeValue);
 
   const features = uniqueTokens([
     identity.isRookie ? "Rookie" : null,
+    identity.parallel === "[Base]" || identity.parallel === "Base" ? "Base Set" : null,
+    identity.subset || identity.imageVariation ? "Variation" : null,
     identity.isAuto ? "Autograph" : null,
     identity.isRelic ? "Memorabilia" : null,
     identity.serialNumber ? "Serial Numbered" : null,
+    ...(identity.features || []),
   ]);
 
   if (features.length) aspects.Features = features;
@@ -271,12 +433,16 @@ export function createDualMarketplaceListingDraft(
   const details = [
     line("Player/Subject", identity.player),
     line("Team", identity.team),
+    line("League", identity.league),
     line("Sport", identity.sport),
     line("Year", identity.year),
-    line("Manufacturer", identity.brand),
+    line("Manufacturer", identity.manufacturer),
     line("Set", identity.setName),
+    identity.series && identity.series !== identity.setName ? line("Series", identity.series) : null,
     line("Card Number", identity.cardNumber),
-    line("Parallel/Variation", identity.parallel),
+    identity.subset ? line("Subset", identity.subset) : null,
+    identity.imageVariation ? "Image Variation: Yes" : null,
+    line("Parallel/Variation", identity.parallel && identity.parallel !== "Base" && identity.parallel !== "[Base]" ? identity.parallel : (identity.subset || "[Base]")),
     line("Serial Number", identity.serialNumber),
     identity.isRookie ? "Rookie Card: Yes" : null,
     identity.isAuto ? "Autograph: Yes" : null,
@@ -328,6 +494,7 @@ export function createDualMarketplaceListingDraft(
     grade: identity.gradeValue || "",
     certificationNumber: identity.certificationNumber || "",
     aspects: buildAspects(identity),
+    bestOfferEnabled: true,
     identity,
   };
 }

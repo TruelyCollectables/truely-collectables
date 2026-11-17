@@ -1,8 +1,7 @@
 /**
- * REDO cards have an explicitly reviewed Mac-authoritative listing title.
- * Don't display obsolete parser/AI/Registry titles over that saved value.
- * Seller-locked manual titles remain highest priority. Other queues keep
- * the previous Registry/AI precedence. Display changes never confer publishability.
+ * REDO cards and verified inventory have an explicitly reviewed Mac-authoritative listing title.
+ * The stored clean title takes precedence over obsolete parser/AI/Registry checklist titles.
+ * Seller-locked manual titles remain highest priority. Display changes never confer publishability.
  */
 export function kingmakerPendingDisplayTitle(input: {
   queue: string;
@@ -18,15 +17,21 @@ export function kingmakerPendingDisplayTitle(input: {
     input.queue === "redo_pending_resale" &&
     input.rawTitle &&
     !input.rawIsGeneric &&
-    !/^REDO PENDING RESALE\b/i.test(input.rawTitle)
+    !/^REDO PENDING RESALE/i.test(input.rawTitle)
       ? input.rawTitle
       : null;
+
+  const validRawTitle =
+    input.rawTitle && !input.rawIsGeneric
+      ? input.rawTitle
+      : null;
+
   return (
     input.manualListingTitle ||
     reviewedRedoTitle ||
+    validRawTitle ||
     input.registryExactTitle ||
     input.generatedTitle ||
-    (input.rawTitle && !input.rawIsGeneric ? input.rawTitle : null) ||
     input.identityReadout ||
     input.identitySummary ||
     input.rawTitle ||

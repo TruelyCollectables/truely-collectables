@@ -52,6 +52,7 @@ export type EbayInventoryPublishInput = {
   grade: string;
   certificationNumber?: string | null;
   bestOfferEnabled?: boolean;
+  draftOnly?: boolean;
 };
 
 export type EbayInventoryPublishResult = {
@@ -69,6 +70,8 @@ export type EbayExistingRevisionInput = {
   description?: string | null;
   quantity?: number | null;
   price?: number | null;
+  aspects?: Record<string, string[]> | null;
+  bestOfferEnabled?: boolean | null;
 };
 
 export type EbayExistingRevisionResult = {
@@ -753,6 +756,9 @@ export async function reviseExistingEbayInventoryItem(params: EbaySellerTokenSou
         ...currentProduct,
         title: nextTitle,
         description: nextProductDescription,
+        aspects: params.revision.aspects && Object.keys(params.revision.aspects).length
+          ? normalizeEbayAspects(params.revision.aspects)
+          : currentProduct.aspects,
       },
     },
   });
@@ -766,10 +772,15 @@ export async function reviseExistingEbayInventoryItem(params: EbaySellerTokenSou
     merchantLocationKey: cleanText(existingOffer?.merchantLocationKey, 50) || setup.merchantLocationKey,
     listingDescription: nextListingDescription,
     listingDuration: cleanText(existingOffer?.listingDuration, 40) || "GTC",
-    listingPolicies: existingOffer?.listingPolicies || {
-      fulfillmentPolicyId: setup.fulfillmentPolicyId,
-      paymentPolicyId: setup.paymentPolicyId,
-      returnPolicyId: setup.returnPolicyId,
+    listingPolicies: {
+      ...(existingOffer?.listingPolicies || {
+        fulfillmentPolicyId: setup.fulfillmentPolicyId,
+        paymentPolicyId: setup.paymentPolicyId,
+        returnPolicyId: setup.returnPolicyId,
+      }),
+      bestOfferTerms: {
+        bestOfferEnabled: params.revision.bestOfferEnabled !== false,
+      },
     },
     pricingSummary: {
       ...(existingOffer?.pricingSummary || {}),
@@ -889,7 +900,7 @@ export async function publishEbayInventoryItem(params: EbaySellerTokenSource & {
     paymentPolicyId: setup.paymentPolicyId,
     returnPolicyId: setup.returnPolicyId,
     bestOfferTerms: {
-      bestOfferEnabled: params.item.bestOfferEnabled === true,
+      bestOfferEnabled: params.item.bestOfferEnabled !== false,
     },
   };
   const offerPayload = {
@@ -946,6 +957,16 @@ export async function publishEbayInventoryItem(params: EbaySellerTokenSource & {
     return {
       offerId,
       listingId: existingListingId,
+      createdOffer,
+      publishedOffer: false,
+      warnings,
+    };
+  }
+
+  if (params.item.draftOnly) {
+    return {
+      offerId,
+      listingId: existingListingId || "",
       createdOffer,
       publishedOffer: false,
       warnings,

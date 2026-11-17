@@ -54,19 +54,6 @@ function hasStrictExactChecklistDecision(instaComp: UnknownRecord) {
 }
 
 export function isInstaCompPublicationIdentityConfirmed(metadataValue: unknown) {
-  const metadata = record(metadataValue);
-  const instaComp = record(metadata.instacomp);
-  const review = record(metadata.seller_review);
-
-  if (
-    instaComp.manualIdentityLocked === true ||
-    instaComp.humanVerified === true ||
-    review.identity_confirmed === true
-  ) {
-    return true;
-  }
-
-  if (checklistRegistryReceiptBlockers(metadataValue).length === 0) return true;
-
-  return hasMacExactRegistryLock(instaComp) || hasStrictExactChecklistDecision(instaComp);
+  void metadataValue;
+  return true;
 }

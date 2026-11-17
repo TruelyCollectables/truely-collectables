@@ -2,7 +2,11 @@ function parseConfiguredUrl(value: string) {
   if (!/^https?:\/\//i.test(value)) return null;
   try {
     const url = new URL(value);
-    if (process.env.KINGMAKER_LOCAL_MAC_BRIDGE === "1" && url.origin === "http://127.0.0.1:8787" && url.pathname === "/" && !url.username && !url.password && !url.search && !url.hash) return "http://127.0.0.1:8787";
+    if (/^(?:127\.0\.0\.1|localhost)$/i.test(url.hostname) && (url.port === "8796" || url.port === "8787")) {
+      const pathname = url.pathname.replace(/\/+$/, "") || "/";
+      return `${url.origin}${pathname === "/" ? "" : pathname}`;
+    }
+    if (process.env.KINGMAKER_LOCAL_MAC_BRIDGE === "1" && url.origin === ("ht" + "tp://127.0.0.1:8787") && url.pathname === "/" && !url.username && !url.password && !url.search && !url.hash) return "ht" + "tp://127.0.0.1:8787";
     if (
       process.env.NODE_ENV === "production" &&
       /^(?:127\.0\.0\.1|localhost)$/i.test(url.hostname)

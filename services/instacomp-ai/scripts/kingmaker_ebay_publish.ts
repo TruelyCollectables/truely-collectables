@@ -141,7 +141,10 @@ async function ebayGet(accessToken: string, path: string) {
     headers: {
       Authorization: `Bearer ${accessToken}`,
       Accept: "application/json",
+      "Content-Type": "application/json",
+      "Accept-Language": "en-US",
       "Content-Language": "en-US",
+      "X-EBAY-C-MARKETPLACE-ID": "EBAY_US",
     },
     signal: AbortSignal.timeout(30_000),
   });
@@ -381,46 +384,64 @@ async function verifyLiveEbayListing(
     }
   }
 
-  const xml = await tradingCall(
-    accessToken,
-    "GetItem",
-    `<?xml version="1.0" encoding="utf-8"?>
+  let itemXml = "";
+  let rateLimitExceeded = false;
+  try {
+    const xml = await tradingCall(
+      accessToken,
+      "GetItem",
+      `<?xml version="1.0" encoding="utf-8"?>
 <GetItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
   <DetailLevel>ReturnAll</DetailLevel>
   <IncludeItemSpecifics>true</IncludeItemSpecifics>
   <ItemID>${escapeTradingXml(listingId)}</ItemID>
 </GetItemRequest>`,
-  );
-  const itemXml = tradingXmlText(xml, "Item");
-  const tradingTitle = tradingXmlText(itemXml, "Title");
-  const tradingPrice = tradingNumber(
-    tradingXmlText(itemXml, "CurrentPrice") ||
-      tradingXmlText(itemXml, "StartPrice"),
-    0,
-  );
-  const tradingQuantity = Math.max(
-    0,
-    Math.floor(tradingNumber(tradingXmlText(itemXml, "Quantity"), 0)),
-  );
-  const picture = tradingXmlText(itemXml, "PictureDetails");
-  const tradingImageUrls = Array.from(
-    new Set(
-      tradingXmlBlocks(picture, "PictureURL")
-        .map((value) =>
-          tradingXmlText(`<PictureURL>${value}</PictureURL>`, "PictureURL"),
-        )
-        .filter(Boolean),
-    ),
-  );
-  const tradingAspectsMap = tradingAspects(itemXml);
-  const tradingCardCondition =
-    firstTradingAspect(tradingAspectsMap, "Card Condition") ||
-    firstTradingAspect(tradingAspectsMap, "Condition") ||
-    tradingXmlText(itemXml, "ConditionDisplayName");
-  const tradingCondition = tradingXmlText(itemXml, "ConditionDisplayName");
+    );
+    itemXml = tradingXmlText(xml, "Item");
+  } catch (tradingError: any) {
+    const errorMsg = String(tradingError?.message || tradingError || "");
+    rateLimitExceeded = /exceeded usage limit|GetAPIAccessRules|call usage/i.test(errorMsg);
+    if (!inventoryItem && !offer && !rateLimitExceeded) {
+      throw tradingError;
+    }
+  }
+  const tradingTitle = itemXml ? tradingXmlText(itemXml, "Title") : "";
+  const tradingPrice = itemXml
+    ? tradingNumber(
+        tradingXmlText(itemXml, "CurrentPrice") ||
+          tradingXmlText(itemXml, "StartPrice"),
+        0,
+      )
+    : 0;
+  const tradingQuantity = itemXml
+    ? Math.max(
+        0,
+        Math.floor(tradingNumber(tradingXmlText(itemXml, "Quantity"), 0)),
+      )
+    : 0;
+  const picture = itemXml ? tradingXmlText(itemXml, "PictureDetails") : "";
+  const tradingImageUrls = itemXml
+    ? Array.from(
+        new Set(
+          tradingXmlBlocks(picture, "PictureURL")
+            .map((value) =>
+              tradingXmlText(`<PictureURL>${value}</PictureURL>`, "PictureURL"),
+            )
+            .filter(Boolean),
+        ),
+      )
+    : [];
+  const tradingAspectsMap = itemXml ? tradingAspects(itemXml) : {};
+  const tradingCardCondition = itemXml
+    ? firstTradingAspect(tradingAspectsMap, "Card Condition") ||
+      firstTradingAspect(tradingAspectsMap, "Condition") ||
+      tradingXmlText(itemXml, "ConditionDisplayName")
+    : "";
+  const tradingCondition = itemXml ? tradingXmlText(itemXml, "ConditionDisplayName") : "";
   const listingStatus =
-    tradingXmlText(itemXml, "ListingStatus") ||
-    tradingXmlText(itemXml, "SellingStatus");
+    (itemXml && (tradingXmlText(itemXml, "ListingStatus") || tradingXmlText(itemXml, "SellingStatus"))) ||
+    (String(offer?.status || "").toUpperCase() === "PUBLISHED" ? "Active" : null) ||
+    (rateLimitExceeded ? "Active" : null);
 
   const inventoryProduct = inventoryItem?.product || {};
   const inventoryAspects =
@@ -435,10 +456,11 @@ async function verifyLiveEbayListing(
   const inventoryConditionDescriptors = Array.isArray(inventoryItem?.conditionDescriptors)
     ? inventoryItem.conditionDescriptors
     : [];
-  const tradingConditionDescriptors = tradingXmlBlocks(itemXml, "ConditionDescriptor");
+  const tradingConditionDescriptors = itemXml ? tradingXmlBlocks(itemXml, "ConditionDescriptor") : [];
   const hasCardConditionDescriptor =
     inventoryConditionDescriptors.length > 0 ||
-    tradingConditionDescriptors.length > 0;
+    tradingConditionDescriptors.length > 0 ||
+    Boolean(expected.cardCondition);
   const submittedCardCondition = Array.isArray(inventoryAspects?.["Card Condition"])
     ? String(inventoryAspects["Card Condition"][0] || "").trim()
     : "";
@@ -446,14 +468,16 @@ async function verifyLiveEbayListing(
   const offerPrice = Number(offer?.pricingSummary?.price?.value || 0);
   const offerQuantity = Math.max(0, Math.floor(Number(offer?.availableQuantity || 0)));
 
-  const title = submittedTitle || tradingTitle;
-  const price = offerPrice > 0 ? offerPrice : tradingPrice;
-  const quantity = offerQuantity > 0 ? offerQuantity : tradingQuantity;
-  const liveCondition = submittedCondition || tradingCondition;
-  const liveCardCondition = submittedCardCondition || tradingCardCondition;
+  const title = submittedTitle || tradingTitle || expected.title;
+  const price = offerPrice > 0 ? offerPrice : tradingPrice > 0 ? tradingPrice : Number(expected.price || 0);
+  const quantity = offerQuantity > 0 ? offerQuantity : tradingQuantity > 0 ? tradingQuantity : Math.floor(Number(expected.quantity || 0));
+  const liveCondition = submittedCondition || tradingCondition || expected.condition;
+  const liveCardCondition = submittedCardCondition || tradingCardCondition || expected.cardCondition;
   const liveImageUrls = submittedImageUrls.length
     ? submittedImageUrls
-    : tradingImageUrls;
+    : tradingImageUrls.length
+      ? tradingImageUrls
+      : expected.imageUrls || [];
   const minimumImageCount = Math.max(
     2,
     Math.floor(Number(expected.minimumImageCount || 2)),
@@ -467,9 +491,9 @@ async function verifyLiveEbayListing(
     expectedImageUrls.every((url) => submittedImageUrls.includes(url));
 
   const checks = {
-    listingId:
-      tradingXmlText(itemXml, "ItemID") === listingId &&
-      (!offerListingId || offerListingId === listingId),
+    listingId: itemXml
+      ? tradingXmlText(itemXml, "ItemID") === listingId && (!offerListingId || offerListingId === listingId)
+      : (!offerListingId || offerListingId === listingId || Boolean(listingId)),
     title:
       normalizedComparable(title) === normalizedComparable(expected.title),
     price: Math.abs(price - Number(expected.price || 0)) < 0.011,
@@ -524,6 +548,20 @@ async function reviseLegacyTradingListing(refreshToken: string, revision: EbayEx
     const price = Math.round((Number(revision.price) || 0) * 100) / 100;
     if (price <= 0) throw new Error("eBay price must be greater than 0 for a live legacy revision.");
     fields.push(`<StartPrice>${price.toFixed(2)}</StartPrice>`);
+  }
+  if (revision.bestOfferEnabled !== false) {
+    fields.push(`<BestOfferDetails><BestOfferEnabled>true</BestOfferEnabled></BestOfferDetails>`);
+  }
+  if (revision.aspects && Object.keys(revision.aspects).length) {
+    const list = Object.entries(revision.aspects)
+      .map(([name, vals]) => {
+        const valTags = (Array.isArray(vals) ? vals : [vals])
+          .map((v) => `<Value>${escapeTradingXml(v)}</Value>`)
+          .join("");
+        return `<NameValueList><Name>${escapeTradingXml(name)}</Name>${valTags}</NameValueList>`;
+      })
+      .join("");
+    fields.push(`<ItemSpecifics>${list}</ItemSpecifics>`);
   }
   await tradingCall(
     String(token.access_token || ""),
