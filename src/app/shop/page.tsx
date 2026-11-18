@@ -96,11 +96,11 @@ function soldPriceLabel(product: UniversalInventoryItem) {
       ? product.soldPriceStatus
       : "unresolved";
 
-  if (product.soldPrice !== null && product.soldPrice !== undefined && status !== "unresolved") {
+  if (product.soldPrice !== null && product.soldPrice !== undefined && status === "verified") {
     return `Sold for $${Number(product.soldPrice).toFixed(2)}`;
   }
 
-  return "Sold price pending verification";
+  return null;
 }
 
 function SoldProductCard({ product }: { product: UniversalInventoryItem }) {
@@ -223,7 +223,12 @@ export default async function Shop({
   }
 
   if (soldResult.status === "fulfilled") {
-    soldProducts = soldResult.value;
+    soldProducts = soldResult.value.filter(
+      (item) =>
+        item.soldPriceStatus === "verified" &&
+        item.soldPrice !== null &&
+        item.soldPrice !== undefined,
+    );
   } else {
     console.warn("Shop recent-sale history unavailable:", soldResult.reason);
   }

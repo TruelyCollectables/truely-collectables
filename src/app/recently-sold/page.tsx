@@ -24,11 +24,11 @@ function soldPriceLabel(product: {
   if (
     product.soldPrice !== null &&
     product.soldPrice !== undefined &&
-    product.soldPriceStatus !== "unresolved"
+    product.soldPriceStatus === "verified"
   ) {
     return `Sold for $${Number(product.soldPrice).toFixed(2)}`;
   }
-  return "Sold price pending verification";
+  return null;
 }
 
 function soldDateLabel(value: string | null | undefined) {
@@ -44,11 +44,18 @@ function soldDateLabel(value: string | null | undefined) {
 
 export default async function RecentlySoldPage() {
   const supabase = createSupabaseServerClient({ admin: true });
-  const products = await listRecentSoldStorefrontItems({
-    supabase,
-    storeId: getActiveStoreId(),
-    sort: "newest",
-  });
+  const products = (
+    await listRecentSoldStorefrontItems({
+      supabase,
+      storeId: getActiveStoreId(),
+      sort: "newest",
+    })
+  ).filter(
+    (product) =>
+      product.soldPriceStatus === "verified" &&
+      product.soldPrice !== null &&
+      product.soldPrice !== undefined,
+  );
 
   return (
     <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">

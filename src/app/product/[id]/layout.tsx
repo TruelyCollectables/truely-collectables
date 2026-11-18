@@ -9,7 +9,7 @@ import { createSupabaseServerClient } from "../../../lib/supabase-server";
 import PublicProductCleanup from "./PublicProductCleanup";
 
 function money(value: number | null) {
-  return value === null ? "Sold price pending verification" : `$${value.toFixed(2)}`;
+  return value === null ? "" : `$${value.toFixed(2)}`;
 }
 
 function dateLabel(value: string | null) {
@@ -95,7 +95,7 @@ export default async function ProductDetailLayout({
   }
 
   const priceIsVerified =
-    sale.soldPrice !== null && sale.soldPriceStatus !== "unresolved";
+    sale.soldPrice !== null && sale.soldPriceStatus === "verified";
 
   return (
     <>
