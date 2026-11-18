@@ -777,9 +777,10 @@ export async function GET(request: Request) {
         textValue(recordValue(metadata.listingWorkflow).queue) ||
         textValue(recordValue(metadata.listing_workflow).queue) ||
         textValue(recordValue(metadata.pending_verification).status);
-      // Review-only REDO records remain visible even after identity/pricing reset.
+      // Review-only REDO records remain visible even after identity/pricing reset
+      // or when Mac master_listing_projection holds them in redo_pending_resale.
       // Publication is still gated downstream; this is display membership only.
-      if (queueHint === "redo_pending_resale" && row.status === "draft") return true;
+      if ((queue === "redo_pending_resale" || queueHint === "redo_pending_resale") && row.status === "draft") return true;
       const hasScanPairReceipt = Boolean(textValue(instaComp.imagePairSha256));
       const hasStoredImageHint =
         textValue(
@@ -974,8 +975,9 @@ export async function GET(request: Request) {
       : scopedInstaCompRows.filter((row: any) => {
           const rowQueue = instaCompPendingQueueFromMetadata(row.metadata);
           if (queue === "redo_pending_resale") {
-            // Each physical card remains separate. Review gate != publish readiness.
-            return row.status === "draft" && rowQueue === "redo_pending_resale";
+            // Mac master_list already filtered pending_queue='redo_pending_resale'.
+            // Do not drop rows whose metadata.listingWorkflow.queue was updated.
+            return row.status === "draft";
           }
           if (queue === "missing_picture") {
             return row.status === "draft" && rowQueue === "missing_picture";
