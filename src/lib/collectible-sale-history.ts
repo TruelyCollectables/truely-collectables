@@ -17,7 +17,7 @@ export const SOLD_STOREFRONT_RETENTION_DAYS = 7;
 const RECENT_SOLD_CACHE_TTL_MS = 15_000;
 const RECENT_SOLD_CACHE_TTL_SECONDS = Math.floor(RECENT_SOLD_CACHE_TTL_MS / 1000);
 const RECENT_SOLD_CACHE_MAX_STORES = 16;
-const RECENT_SOLD_EDGE_CACHE_VERSION = "v1";
+const RECENT_SOLD_EDGE_CACHE_VERSION = "v2";
 
 type RecentSoldCacheEntry = {
   expiresAt: number;
@@ -268,6 +268,8 @@ async function loadRecentSoldCatalog(params: {
       .eq("store_id", params.storeId)
       .lte("quantity", 0)
       .not("sold_at", "is", null)
+      .eq("sold_price_status", "verified")
+      .not("sold_price", "is", null)
       .gte("sold_at", cutoff)
       .is("archived_at", null)
       .order("sold_at", { ascending: false })
@@ -363,6 +365,7 @@ async function loadRecentSoldCatalog(params: {
       } satisfies UniversalInventoryItem;
     })
     .filter((item) => item.imageUrl && item.soldAt)
+    .filter((item) => item.soldPriceStatus === "verified" && item.soldPrice !== null)
     .filter((item) => isLaunchCollectible(item))
     .filter((item) => !collxOnlyProductIds.has(item.legacyProductId))
     .filter((item) => !isMergedEbayAliasItemId(item.ebayItemId))
@@ -447,6 +450,10 @@ export async function getProductSalePresentation(params: {
   if (error) throw error;
   if (!data?.sold_at || data.archived_at) return null;
 
+  const soldPrice = nullableMoney(data.sold_price);
+  const soldPriceStatus = normalizeEvidenceStatus(data.sold_price_status);
+  if (soldPriceStatus !== "verified" || soldPrice === null) return null;
+
   const archiveAt = data.archive_after
     ? new Date(data.archive_after).getTime()
     : new Date(data.sold_at).getTime() +
@@ -455,10 +462,10 @@ export async function getProductSalePresentation(params: {
 
   return {
     soldAt: String(data.sold_at),
-    soldPrice: nullableMoney(data.sold_price),
+    soldPrice,
     soldSource: data.sold_source ? String(data.sold_source) : null,
     soldReference: data.sold_reference ? String(data.sold_reference) : null,
-    soldPriceStatus: normalizeEvidenceStatus(data.sold_price_status),
+    soldPriceStatus,
     archiveAfter: data.archive_after ? String(data.archive_after) : null,
   };
 }
