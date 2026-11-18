@@ -649,6 +649,10 @@ export async function POST(request: Request) {
     const ebayTitle = text(body.ebayTitle, 80) || text(storedEbay.title, 80) || generated.ebayTitle;
     const ebayDescription =
       text(body.ebayDescription, 100_000) ||
+      // A seller-customized eBay description overrides the shared Kingmaker
+      // master text during future eBay revisions; other cards keep the
+      // seller-approved master-description-first behavior.
+      (storedEbay.manualDescriptionLocked === true ? text(storedEbay.description, 100_000) : "") ||
       savedMasterDescription ||
       text(storedEbay.description, 100_000) ||
       generated.ebayDescription;
