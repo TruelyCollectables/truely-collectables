@@ -638,13 +638,18 @@ export async function POST(request: Request) {
 
     const verifiedCsvLocked = record(metadata.verifiedCsv).authority === "seller_verified_csv_v1";
     const websiteTitle = verifiedCsvLocked ? String(keeper.title) : text(body.websiteTitle, 200) || text(storedWebsite.title, 200) || generated.websiteTitle;
+    // Seller-approved description saved in Kingmaker must take precedence over
+    // stale per-channel/generated drafts when the publish action runs later.
+    const savedMasterDescription = text(keeper.description, 100_000);
     const websiteDescription =
       text(body.websiteDescription, 100_000) ||
+      savedMasterDescription ||
       text(storedWebsite.description, 100_000) ||
       generated.websiteDescription;
     const ebayTitle = text(body.ebayTitle, 80) || text(storedEbay.title, 80) || generated.ebayTitle;
     const ebayDescription =
       text(body.ebayDescription, 100_000) ||
+      savedMasterDescription ||
       text(storedEbay.description, 100_000) ||
       generated.ebayDescription;
     const cardCondition =
