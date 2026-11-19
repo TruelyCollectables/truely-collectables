@@ -44,6 +44,7 @@ export const dynamic = "force-dynamic";
 
 type InstaCompListingFolder =
   | "pending"
+  | "need_pricing"
   | "website"
   | "ebay"
   | "mercari"
@@ -365,6 +366,11 @@ function listingFolderFromMetadata(
   if (websiteActive) return "website";
   if (ebayActive) return "ebay";
   if (mercariActive) return "mercari";
+  if (
+    textValue(recordValue(metadata.listingWorkflow).queue) === "need_pricing" ||
+    textValue(recordValue(metadata.listing_workflow).queue) === "need_pricing"
+  )
+    return "need_pricing";
   return "pending";
 }
 
@@ -691,6 +697,7 @@ export async function GET(request: Request) {
     const queue: InstaCompPendingQueue =
       requestedQueue === "redo_pending_resale" ? "redo_pending_resale" : requestedQueue === "missing_picture" ? "missing_picture" : requestedQueue === "verification" ? "verification" : "listings";
     const folder: InstaCompListingFolder =
+      requestedFolder === "need_pricing" ||
       requestedFolder === "website" ||
       requestedFolder === "ebay" ||
       requestedFolder === "mercari" ||
@@ -974,6 +981,7 @@ export async function GET(request: Request) {
     // hidden physical rows underneath them.
     const computedFolderCounts = {
       pending: commercialFolderCount("pending"),
+      need_pricing: commercialFolderCount("need_pricing"),
       website: commercialFolderCount("website"),
       ebay: commercialFolderCount("ebay"),
       mercari: commercialFolderCount("mercari"),
@@ -987,6 +995,7 @@ export async function GET(request: Request) {
       compactKingmaker && macProjection?.folderCounts
         ? {
             pending: Number(macProjection.folderCounts.pending || 0),
+            need_pricing: Number(macProjection.folderCounts.need_pricing || 0),
             website: Number(macProjection.folderCounts.website || 0),
             ebay: Number(macProjection.folderCounts.ebay || 0),
             mercari: Number(macProjection.folderCounts.mercari || 0),

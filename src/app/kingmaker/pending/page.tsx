@@ -48,6 +48,7 @@ export default async function KingmakerPendingPage({
   const rawFolder = typeof resolvedSearchParams.folder === "string" ? resolvedSearchParams.folder : "pending";
   const folder =
     rawFolder === "receipt" ||
+    rawFolder === "need_pricing" ||
     rawFolder === "website" ||
     rawFolder === "ebay" ||
     rawFolder === "mercari" ||
@@ -96,6 +97,7 @@ export default async function KingmakerPendingPage({
       }}
       initialFolderCounts={{
         pending: Math.max(0, Number(data.folderCounts?.pending || 0)),
+        need_pricing: Math.max(0, Number(data.folderCounts?.need_pricing || 0)),
         website: Math.max(0, Number(data.folderCounts?.website || 0)),
         ebay: Math.max(0, Number(data.folderCounts?.ebay || 0)),
         mercari: Math.max(0, Number(data.folderCounts?.mercari || 0)),

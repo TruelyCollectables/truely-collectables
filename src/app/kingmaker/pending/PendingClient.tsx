@@ -345,6 +345,7 @@ type PendingQueue = "listings" | "verification" | "redo_pending_resale";
 type ListingFolder =
   | "receipt"
   | "pending"
+  | "need_pricing"
   | "website"
   | "ebay"
   | "mercari"
@@ -411,6 +412,7 @@ function folderFromLocation(): ListingFolder {
   const folder = new URLSearchParams(window.location.search).get("folder");
   return (
     folder === "receipt" ||
+    folder === "need_pricing" ||
     folder === "website" ||
     folder === "ebay" ||
     folder === "mercari" ||
@@ -829,6 +831,7 @@ export default function KingmakerPendingPage({
   initialQueueCounts = { listings: 0, verification: 0, redo_pending_resale: 0 },
   initialFolderCounts = {
     pending: 0,
+    need_pricing: 0,
     website: 0,
     ebay: 0,
     mercari: 0,
@@ -1046,6 +1049,7 @@ export default function KingmakerPendingPage({
       };
       const nextFolderCounts: Record<CountedListingFolder, number> = {
         pending: Math.max(0, Number(cardsData.folderCounts?.pending || 0)),
+        need_pricing: Math.max(0, Number(cardsData.folderCounts?.need_pricing || 0)),
         website: Math.max(0, Number(cardsData.folderCounts?.website || 0)),
         ebay: Math.max(0, Number(cardsData.folderCounts?.ebay || 0)),
         mercari: Math.max(0, Number(cardsData.folderCounts?.mercari || 0)),
@@ -1773,6 +1777,12 @@ export default function KingmakerPendingPage({
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "Could not save listing price.");
+      setChannelPriceEdits((current) => {
+        if (!current[card.inventoryItemId]) return current;
+        const next = { ...current };
+        delete next[card.inventoryItemId];
+        return next;
+      });
       setNotice(
         `${money(price)} saved${Number(data.updatedCount || 1) > 1 ? ` across ${data.updatedCount} exact-card matches` : ""}.`,
       );
@@ -2183,16 +2193,24 @@ export default function KingmakerPendingPage({
 
   async function applyBulkPricing(adjustmentPercent: number) {
     const selected = cards.filter((card) => selectedIds.has(card.inventoryItemId));
+    const basePriceForCard = (card: PendingCard) =>
+      Number(
+        card.instaComp.suggestedPrice ||
+          card.price ||
+          card.instaComp.listingPrice ||
+          card.instaComp.channelPricing?.ebayPrice ||
+          0,
+      );
     const seenGroups = new Set<string>();
     const priceable = selected.filter((card) => {
-      if (Number(card.instaComp.suggestedPrice || 0) <= 0) return false;
+      if (basePriceForCard(card) <= 0) return false;
       const key = card.instaComp.pricingGroupKey || card.inventoryItemId;
       if (seenGroups.has(key)) return false;
       seenGroups.add(key);
       return true;
     });
     if (!priceable.length) {
-      setPageError("None of the selected cards has an accepted InstaComp comp price yet.");
+      setPageError("None of the selected cards has a comp or draft price yet.");
       return;
     }
     setBusyId("bulk");
@@ -2202,8 +2220,8 @@ export default function KingmakerPendingPage({
       const session = await getFreshAccountSession(5 * 60, false);
       if (!session?.access_token) throw new Error("Seller login is required.");
       await runWithConcurrency(priceable, BULK_PRICE_CONCURRENCY, async (card) => {
-        const price = compAdjustedPrice(card.instaComp.suggestedPrice, adjustmentPercent);
-        if (!price) throw new Error(`${card.title}: InstaComp price is unavailable.`);
+        const price = compAdjustedPrice(basePriceForCard(card), adjustmentPercent);
+        if (!price) throw new Error(`${card.title}: base price is unavailable.`);
         const response = await fetch("/api/account/seller/instacomp-scan/price", {
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
@@ -2216,6 +2234,13 @@ export default function KingmakerPendingPage({
         });
         const data = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(`${card.title}: ${data.error || "bulk price failed"}`);
+      });
+      setChannelPriceEdits((current) => {
+        const next = { ...current };
+        for (const card of priceable) {
+          delete next[card.inventoryItemId];
+        }
+        return next;
       });
       setNotice(`Comp-based prices saved for ${priceable.length} selected exact-card group${priceable.length === 1 ? "" : "s"}.`);
       await load(queue || queueFromLocation());
@@ -2530,6 +2555,8 @@ export default function KingmakerPendingPage({
                   ? "Pending receipt — matched purchases"
                   : folder === "pending"
                     ? "Resale inventory — pending listing"
+                  : folder === "need_pricing"
+                    ? "Need pricing — held from resale pending"
                   : folder === "website"
                     ? "Listed on website only"
                     : folder === "ebay"
@@ -2555,6 +2582,8 @@ export default function KingmakerPendingPage({
                   ? "Only scanned physical cards with a real Mac-local pending purchase reservation appear here. Receive each one into Resale Inventory or Investment Stash."
                   : folder === "investment"
                     ? "Received physical cards held for investment. Every card keeps its scan, purchase date, source, and cost basis until you move it back to resale."
+                    : folder === "need_pricing"
+                      ? "Scanned cards held here until priced; kept separate from Resale Pending."
                     : folder === "pending"
                     ? "Scanned and received resale inventory stays here until it is listed. InstaComp is a market recommendation; you control the actual website, eBay, and Mercari prices."
                     : "Listed inventory is separated by live channel so cards no longer clutter the pending workspace."}
@@ -2574,6 +2603,7 @@ export default function KingmakerPendingPage({
           {([
             ["receipt", "Pending Receipt", pendingReceiptCount],
             ["pending", "Resale Pending", folderCounts.pending],
+            ["need_pricing", "Need Pricing", folderCounts.need_pricing],
             ["website", "Website Only", folderCounts.website],
             ["ebay", "eBay Only", folderCounts.ebay],
             ["mercari", "Mercari Only", folderCounts.mercari],
@@ -2663,6 +2693,8 @@ export default function KingmakerPendingPage({
                   ? "No REDO resale cards awaiting review"
                 : folder === "pending"
                   ? "No resale cards waiting to be listed"
+                  : folder === "need_pricing"
+                    ? "No cards in Need Pricing"
                   : folder === "website"
                     ? "No website-only listings"
                     : folder === "ebay"
@@ -3016,10 +3048,19 @@ export default function KingmakerPendingPage({
               1,
               Number(card.commercialGroup?.totalQuantity || card.quantity || 1),
             );
-            const priceChoices = suggested > 0
+            const presetBasePrice =
+              suggested > 0
+                ? suggested
+                : Number(
+                    card.price ||
+                      card.instaComp.listingPrice ||
+                      card.instaComp.channelPricing?.ebayPrice ||
+                      0,
+                  );
+            const priceChoices = presetBasePrice > 0
               ? COMP_ADJUSTMENTS.map((adjustment) => ({
-                  label: adjustment === 0 ? "InstaComp" : `${adjustment > 0 ? "+" : ""}${adjustment}%`,
-                  value: compAdjustedPrice(suggested, adjustment) as number,
+                  label: adjustment === 0 ? (suggested > 0 ? "InstaComp" : "Base") : `${adjustment > 0 ? "+" : ""}${adjustment}%`,
+                  value: compAdjustedPrice(presetBasePrice, adjustment) as number,
                   source: `instacomp_${adjustment >= 0 ? "plus" : "minus"}_${Math.abs(adjustment)}`,
                 }))
               : [];
