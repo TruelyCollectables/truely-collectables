@@ -68,20 +68,20 @@ function heading(params: { section: string; feature: string }) {
 function FeatureBadges({ product }: { product: UniversalInventoryItem }) {
   const badges = [
     product.features.autograph ? "Autograph" : null,
-    product.features.memorabilia ? "Memorabilia Card" : null,
-    product.features.graded ? "Graded Card" : null,
-    product.features.rookie ? "Rookie Card" : null,
+    product.features.memorabilia ? "Memorabilia" : null,
+    product.features.graded ? "Graded" : null,
+    product.features.rookie ? "Rookie" : null,
     product.features.numbered ? "Numbered" : null,
   ].filter(Boolean) as string[];
 
   if (!badges.length) return null;
 
   return (
-    <div className="mt-3 flex flex-wrap gap-1.5">
+    <div className="mt-2.5 flex flex-wrap gap-1.5">
       {badges.map((badge) => (
         <span
           key={badge}
-          className="rounded-full border border-neutral-300 bg-neutral-50 px-2 py-1 text-[10px] font-black uppercase tracking-wide"
+          className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-slate-700"
         >
           {badge}
         </span>
@@ -116,51 +116,51 @@ function SoldProductCard({ product }: { product: UniversalInventoryItem }) {
     : null;
 
   return (
-    <article className="overflow-hidden rounded border-2 border-red-700 bg-white">
-      <Link
-        href={`/product/${product.legacyProductId}`}
-        className="block"
-        aria-label={`View sold item ${product.title}`}
-      >
-        <div className="relative aspect-[4/5] bg-neutral-100">
-          <Image
-            src={storefrontImage}
-            alt={product.title}
-            fill
-            sizes="(min-width: 1280px) 300px, (min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw"
-            quality={90}
-            className="object-contain p-2"
-          />
-          <SoldOverlay compact />
-        </div>
-      </Link>
+    <article className="flex flex-col justify-between overflow-hidden rounded-xl border border-red-200 bg-white p-3 shadow-sm">
+      <div>
+        <Link
+          href={`/product/${product.legacyProductId}`}
+          className="block"
+          aria-label={`View sold item ${product.title}`}
+        >
+          <div className="relative aspect-[4/5] overflow-hidden rounded-lg border border-red-100 bg-slate-50">
+            <Image
+              src={storefrontImage}
+              alt={product.title}
+              fill
+              sizes="(min-width: 1280px) 300px, (min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw"
+              quality={90}
+              className="object-contain p-2"
+            />
+            <SoldOverlay compact />
+          </div>
+        </Link>
 
-      <div className="p-4">
-        <p className="text-xs font-black uppercase tracking-[0.12em] text-red-700">
-          {product.storefrontSection} · Recently sold
+        <div className="pt-3">
+          <p className="text-[10px] font-bold uppercase tracking-[0.14em] text-[#dc2626]">
+            {product.storefrontSection} · Recently sold
+          </p>
+          <h2 className="mt-1.5 line-clamp-2 min-h-11 text-sm font-bold leading-snug text-[#0f172a]">
+            {product.title}
+          </h2>
+          {subtitle ? (
+            <p className="mt-1 text-xs font-medium text-slate-500">{subtitle}</p>
+          ) : null}
+          <FeatureBadges product={product} />
+        </div>
+      </div>
+
+      <div className="mt-3 border-t border-slate-100 pt-3">
+        <p className="font-display text-xl font-extrabold text-[#dc2626]">
+          {soldPriceLabel(product)}
         </p>
-        <h2 className="mt-2 line-clamp-2 min-h-14 text-lg font-black leading-7">
-          {product.title}
-        </h2>
-        {subtitle ? (
-          <p className="mt-2 text-sm text-neutral-500">{subtitle}</p>
-        ) : null}
-        <FeatureBadges product={product} />
-
-        <div className="mt-4 border-t border-neutral-200 pt-3">
-          <p className="text-lg font-black text-red-800">
-            {soldPriceLabel(product)}
-          </p>
-          <p className="mt-1 text-xs font-bold text-neutral-600">
-            {[soldDate, product.soldSource]
-              .filter(Boolean)
-              .join(" · ") || "Sale recorded"}
-          </p>
-        </div>
+        <p className="mt-0.5 text-xs font-medium text-slate-500">
+          {[soldDate, product.soldSource].filter(Boolean).join(" · ") || "Sale recorded"}
+        </p>
 
         <Link
           href={`/product/${product.legacyProductId}`}
-          className="mt-4 flex min-h-11 w-full items-center justify-center rounded border border-red-800 px-4 py-2 text-center font-bold text-red-800 hover:bg-red-800 hover:text-white"
+          className="mt-3 flex min-h-10 w-full items-center justify-center rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-center text-xs font-bold uppercase tracking-wider text-[#dc2626] transition hover:bg-[#dc2626] hover:text-white"
         >
           View Sold Item
         </Link>
@@ -259,334 +259,404 @@ export default async function Shop({
   ]);
 
   return (
-    <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
+    <main className="flex-1 bg-[#f8fafc] text-[#0f172a]">
       <ClearCartOnSuccess />
 
-      {catalogUnavailable ? (
-        <div className="mb-6 border-2 border-amber-700 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-950">
-          Inventory refresh is temporarily delayed. The storefront remains online while the catalog reconnects; checkout always re-validates live availability before payment.
-        </div>
-      ) : null}
+      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
+        {catalogUnavailable ? (
+          <div className="mb-6 rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-950">
+            Inventory refresh is temporarily delayed. The storefront remains online while the catalog reconnects; checkout always re-validates live availability before payment.
+          </div>
+        ) : null}
 
-      <section className="mb-6 flex flex-wrap items-end justify-between gap-4 border-b border-neutral-200 pb-6">
-        <div>
-          <p className="text-sm font-bold uppercase text-neutral-500">
-            Live inventory and recent sales
-          </p>
-          <h1 className="mt-2 text-3xl font-black sm:text-4xl md:text-5xl">
-            {heading({ section, feature })}
-          </h1>
-          <p className="mt-3 max-w-2xl text-neutral-600">
-            Browse cards by sport, with NBA and WNBA kept separate. Sold items
-            remain visible for seven days as market history but cannot be bought,
-            offered on, or added to cart.
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2 text-sm font-bold">
-          <p className="rounded bg-white px-4 py-2 text-neutral-700">
-            {totalProducts.toLocaleString()} active
-          </p>
-          {soldProducts.length ? (
-            <p className="rounded bg-red-100 px-4 py-2 text-red-800">
-              {soldProducts.length.toLocaleString()} recently sold
+        <section className="mb-6 flex flex-wrap items-end justify-between gap-4 border-b border-slate-200 pb-6">
+          <div>
+            <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#2563eb]">
+              Live inventory and recent sales
             </p>
-          ) : null}
-        </div>
-      </section>
-
-      <section className="mb-8 space-y-5">
-        <div>
-          <p className="mb-2 text-xs font-black uppercase tracking-[0.14em] text-neutral-500">
-            Shop by sport
-          </p>
-          <nav className="flex flex-wrap gap-2" aria-label="Shop by sport">
-            <Link
-              href="/shop"
-              className="rounded-full border-2 border-neutral-950 bg-white px-4 py-2 text-sm font-black hover:bg-yellow-300"
-            >
-              All Inventory
-            </Link>
-            {SPORT_SECTIONS.map((name) => (
-              <Link
-                key={name}
-                href={shopHref({ section: name })}
-                className={`rounded-full border-2 border-neutral-950 px-4 py-2 text-sm font-black ${section === name && !feature ? "bg-yellow-300" : "bg-white hover:bg-yellow-300"}`}
-              >
-                {name}
-              </Link>
-            ))}
-          </nav>
-        </div>
-
-        <div>
-          <p className="mb-2 text-xs font-black uppercase tracking-[0.14em] text-neutral-500">
-            Collectible types
-          </p>
-          <nav className="flex flex-wrap gap-2" aria-label="Collectible types">
-            {COLLECTIBLE_SECTIONS.map((name) => (
-              <Link
-                key={name}
-                href={shopHref({ section: name })}
-                className={`rounded-full border-2 border-neutral-950 px-4 py-2 text-sm font-black ${section === name && !feature ? "bg-yellow-300" : "bg-white hover:bg-yellow-300"}`}
-              >
-                {name}
-              </Link>
-            ))}
-          </nav>
-        </div>
-
-        <div>
-          <p className="mb-2 text-xs font-black uppercase tracking-[0.14em] text-neutral-500">
-            Card features
-          </p>
-          <nav className="flex flex-wrap gap-2" aria-label="Card features">
-            {FEATURE_LINKS.map((item) => (
-              <Link
-                key={item.key}
-                href={shopHref({ feature: item.key })}
-                className={`rounded-full border-2 border-neutral-950 px-4 py-2 text-sm font-black ${feature === item.key ? "bg-yellow-300" : "bg-white hover:bg-yellow-300"}`}
-              >
-                {item.label}
-              </Link>
-            ))}
-          </nav>
-        </div>
-      </section>
-
-      <form className="mb-8 grid grid-cols-1 gap-3 rounded border bg-white p-3 sm:p-4 md:grid-cols-6">
-        <label htmlFor="shop-search" className="sr-only">
-          Search inventory
-        </label>
-        <input
-          id="shop-search"
-          type="search"
-          name="q"
-          placeholder="Player, team, set, item, card number..."
-          defaultValue={q}
-          className="min-h-12 rounded border px-4 py-3 text-base md:col-span-2"
-        />
-
-        <label htmlFor="shop-section" className="sr-only">
-          Filter by section
-        </label>
-        <select
-          id="shop-section"
-          name="section"
-          defaultValue={section}
-          className="min-h-12 rounded border px-3 py-3 text-base"
-        >
-          <option value="">All Sections</option>
-          {sectionOptions.map((name) => (
-            <option key={name} value={name}>
-              {name}
-            </option>
-          ))}
-        </select>
-
-        <label htmlFor="shop-feature" className="sr-only">
-          Filter by card feature
-        </label>
-        <select
-          id="shop-feature"
-          name="feature"
-          defaultValue={feature}
-          className="min-h-12 rounded border px-3 py-3 text-base"
-        >
-          <option value="">All Features</option>
-          <option value="autograph">Autographs</option>
-          <option value="memorabilia">Memorabilia Cards</option>
-          <option value="graded">Graded Cards</option>
-          <option value="rookie">Rookie Cards</option>
-          <option value="numbered">Numbered Cards</option>
-        </select>
-
-        <label htmlFor="shop-sort" className="sr-only">
-          Sort inventory
-        </label>
-        <select
-          id="shop-sort"
-          name="sort"
-          defaultValue={sort}
-          className="min-h-12 rounded border px-3 py-3 text-base"
-        >
-          <option value="section">Section, Player, Title</option>
-          <option value="newest">Newest First</option>
-          <option value="price_low">Price: Low to High</option>
-          <option value="price_high">Price: High to Low</option>
-          <option value="title">Title A–Z</option>
-        </select>
-
-        <button
-          type="submit"
-          className="min-h-12 rounded bg-neutral-950 px-4 py-3 font-bold text-white hover:bg-neutral-800"
-        >
-          Apply
-        </button>
-      </form>
-
-      {activeFilters ? (
-        <div className="mb-6 flex flex-wrap items-center gap-3 text-sm font-bold">
-          <span>Filtered inventory</span>
-          <Link
-            href="/shop"
-            className="underline decoration-yellow-300 decoration-4 underline-offset-4"
-          >
-            Clear all filters
-          </Link>
-        </div>
-      ) : null}
-
-      {totalProducts === 0 ? (
-        <p className="text-gray-600">
-          {catalogUnavailable
-            ? "Inventory is temporarily refreshing. Please retry shortly."
-            : "No active cards or collectibles found."}
-        </p>
-      ) : (
-        <div className="mb-5 flex flex-wrap items-center justify-between gap-3 text-sm font-bold text-neutral-600">
-          <p>
-            Showing {pageStart + 1}–{pageEnd} of {totalProducts.toLocaleString()}
-          </p>
-          <p>
-            Page {currentPage.toLocaleString()} of {totalPages.toLocaleString()}
-          </p>
-        </div>
-      )}
-
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-        {visibleProducts.map((product) => {
-          const storefrontImage =
-            preferHighResolutionListingImage(product.imageUrl) ||
-            "/placeholder.png";
-          const subtitle = product.player || product.league;
-
-          return (
-            <article
-              key={product.legacyProductId}
-              className="overflow-hidden rounded border bg-white"
-            >
-              <Link
-                href={`/product/${product.legacyProductId}`}
-                className="block"
-                aria-label={`View ${product.title}`}
-              >
-                <div className="relative aspect-[4/5] bg-neutral-100">
-                  <Image
-                    src={storefrontImage}
-                    alt={product.title}
-                    fill
-                    sizes="(min-width: 1280px) 300px, (min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw"
-                    quality={90}
-                    className="object-contain p-2"
-                  />
-                </div>
-              </Link>
-
-              <div className="p-4">
-                {product.promotion?.onSale ? (
-                  <span className="inline-flex rounded bg-red-700 px-2 py-1 text-xs font-black text-white">
-                    ON SALE · {product.promotion.discountPercent}% OFF
-                  </span>
-                ) : null}
-                <p className="text-xs font-black uppercase tracking-[0.12em] text-blue-700">
-                  {product.storefrontSection}
-                </p>
-                <h2 className="mt-2 line-clamp-2 min-h-14 text-lg font-black leading-7">
-                  {product.title}
-                </h2>
-                {subtitle ? (
-                  <p className="mt-2 text-sm text-neutral-500">{subtitle}</p>
-                ) : null}
-                <FeatureBadges product={product} />
-
-                <div className="mt-4 flex items-center justify-between gap-3">
-                  <div>
-                    {product.promotion?.onSale && product.promotion.originalPrice ? (
-                      <p className="text-sm font-bold text-neutral-500 line-through">
-                        ${Number(product.promotion.originalPrice).toFixed(2)}
-                      </p>
-                    ) : null}
-                    <p className={`text-2xl font-black ${product.promotion?.onSale ? "text-red-700" : ""}`}>
-                      ${Number(product.price).toFixed(2)}
-                    </p>
-                  </div>
-                  <p className="rounded bg-neutral-100 px-2 py-1 text-xs font-bold text-neutral-600">
-                    Qty {product.quantity}
-                  </p>
-                </div>
-
-                <Link
-                  href={`/product/${product.legacyProductId}`}
-                  className="mt-4 flex min-h-11 w-full items-center justify-center rounded border border-neutral-950 px-4 py-2 text-center font-bold hover:bg-neutral-950 hover:text-white"
-                >
-                  View Item
-                </Link>
-              </div>
-            </article>
-          );
-        })}
-      </div>
-
-      {totalPages > 1 ? (
-        <nav
-          className="mt-8 flex flex-wrap items-center justify-center gap-3"
-          aria-label="Shop pagination"
-        >
-          {currentPage > 1 ? (
-            <Link
-              href={pageHref(currentPage - 1)}
-              className="min-h-11 rounded border-2 border-neutral-950 bg-white px-5 py-2.5 font-black hover:bg-yellow-300"
-            >
-              Previous
-            </Link>
-          ) : (
-            <span className="min-h-11 rounded border-2 border-neutral-300 bg-neutral-100 px-5 py-2.5 font-black text-neutral-400">
-              Previous
-            </span>
-          )}
-          <span className="px-2 text-sm font-black">
-            Page {currentPage.toLocaleString()} of {totalPages.toLocaleString()}
-          </span>
-          {currentPage < totalPages ? (
-            <Link
-              href={pageHref(currentPage + 1)}
-              className="min-h-11 rounded border-2 border-neutral-950 bg-white px-5 py-2.5 font-black hover:bg-yellow-300"
-            >
-              Next
-            </Link>
-          ) : (
-            <span className="min-h-11 rounded border-2 border-neutral-300 bg-neutral-100 px-5 py-2.5 font-black text-neutral-400">
-              Next
-            </span>
-          )}
-        </nav>
-      ) : null}
-
-      {soldProducts.length ? (
-        <section className="mt-12 border-t-4 border-red-700 pt-8">
-          <div className="mb-6">
-            <p className="text-xs font-black uppercase tracking-[0.2em] text-red-700">
-              Seven-day sale wall
-            </p>
-            <h2 className="mt-2 text-3xl font-black sm:text-4xl">
-              Recently sold collectibles
-            </h2>
-            <p className="mt-2 max-w-3xl font-semibold text-neutral-600">
-              These items are retained as visible sale history only. They are
-              locked from checkout, offers, and cart actions, and move to the
-              InstaComp archive after seven days.
+            <h1 className="font-display mt-1 text-4xl font-extrabold uppercase tracking-tight text-[#0f172a] sm:text-5xl">
+              {heading({ section, feature })}
+            </h1>
+            <p className="mt-2 max-w-2xl text-sm font-medium leading-6 text-slate-600">
+              Browse cards by sport, with NBA and WNBA kept separate. Sold items remain visible for seven days as market history.
             </p>
           </div>
-          <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-            {soldProducts.map((product) => (
-              <SoldProductCard
-                key={`sold-${product.legacyProductId}`}
-                product={product}
-              />
-            ))}
+          <div className="flex flex-wrap gap-2 text-xs font-bold uppercase tracking-wider">
+            <span className="rounded-full border border-slate-200 bg-white px-4 py-2 text-[#0f172a] shadow-xs">
+              {totalProducts.toLocaleString()} Active
+            </span>
+            {soldProducts.length ? (
+              <span className="rounded-full border border-red-200 bg-red-50 px-4 py-2 text-[#dc2626]">
+                {soldProducts.length.toLocaleString()} Recently Sold
+              </span>
+            ) : null}
           </div>
         </section>
-      ) : null}
+
+        <div className="grid gap-6 lg:grid-cols-[260px_minmax(0,1fr)] lg:items-start">
+          <aside className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs lg:sticky lg:top-24">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h2 className="font-display text-lg font-extrabold uppercase tracking-wide text-[#0f172a]">
+                Filters
+              </h2>
+              {activeFilters ? (
+                <Link
+                  href="/shop"
+                  className="text-xs font-bold text-[#2563eb] hover:underline"
+                >
+                  Reset All
+                </Link>
+              ) : null}
+            </div>
+
+            <div className="mt-4 space-y-4">
+              <details open className="group">
+                <summary className="flex cursor-pointer list-none items-center justify-between text-xs font-bold uppercase tracking-wider text-slate-500">
+                  <span>Shop by Sport</span>
+                  <span className="text-slate-400 group-open:rotate-180">▾</span>
+                </summary>
+                <nav className="mt-2.5 flex flex-col gap-1" aria-label="Shop by sport">
+                  <Link
+                    href="/shop"
+                    className={`rounded-lg px-3 py-1.5 text-sm font-semibold transition ${
+                      !section && !feature
+                        ? "bg-[#0f172a] text-[#facc15]"
+                        : "text-slate-700 hover:bg-slate-100"
+                    }`}
+                  >
+                    All Inventory
+                  </Link>
+                  {SPORT_SECTIONS.map((name) => {
+                    const isActive = section === name && !feature;
+                    return (
+                      <Link
+                        key={name}
+                        href={shopHref({ q, section: name, sort })}
+                        className={`rounded-lg px-3 py-1.5 text-sm font-semibold transition ${
+                          isActive
+                            ? "bg-[#0f172a] text-[#facc15]"
+                            : "text-slate-700 hover:bg-slate-100"
+                        }`}
+                      >
+                        {name}
+                      </Link>
+                    );
+                  })}
+                </nav>
+              </details>
+
+              <details open className="group border-t border-slate-100 pt-4">
+                <summary className="flex cursor-pointer list-none items-center justify-between text-xs font-bold uppercase tracking-wider text-slate-500">
+                  <span>Card Features</span>
+                  <span className="text-slate-400 group-open:rotate-180">▾</span>
+                </summary>
+                <nav className="mt-2.5 flex flex-col gap-1" aria-label="Card features">
+                  {FEATURE_LINKS.map((item) => {
+                    const isActive = feature === item.key;
+                    return (
+                      <Link
+                        key={item.key}
+                        href={shopHref({ q, section, feature: item.key, sort })}
+                        className={`rounded-lg px-3 py-1.5 text-sm font-semibold transition ${
+                          isActive
+                            ? "bg-[#0f172a] text-[#facc15]"
+                            : "text-slate-700 hover:bg-slate-100"
+                        }`}
+                      >
+                        {item.label}
+                      </Link>
+                    );
+                  })}
+                </nav>
+              </details>
+
+              <details className="group border-t border-slate-100 pt-4">
+                <summary className="flex cursor-pointer list-none items-center justify-between text-xs font-bold uppercase tracking-wider text-slate-500">
+                  <span>Collectible Types</span>
+                  <span className="text-slate-400 group-open:rotate-180">▾</span>
+                </summary>
+                <nav className="mt-2.5 flex flex-col gap-1" aria-label="Collectible types">
+                  {COLLECTIBLE_SECTIONS.map((name) => {
+                    const isActive = section === name && !feature;
+                    return (
+                      <Link
+                        key={name}
+                        href={shopHref({ q, section: name, sort })}
+                        className={`rounded-lg px-3 py-1.5 text-sm font-semibold transition ${
+                          isActive
+                            ? "bg-[#0f172a] text-[#facc15]"
+                            : "text-slate-700 hover:bg-slate-100"
+                        }`}
+                      >
+                        {name}
+                      </Link>
+                    );
+                  })}
+                </nav>
+              </details>
+            </div>
+          </aside>
+
+          <div className="min-w-0">
+            <form className="mb-5 grid grid-cols-1 gap-2.5 rounded-xl border border-slate-200 bg-white p-3 shadow-xs sm:grid-cols-12">
+              <label htmlFor="shop-search" className="sr-only">
+                Search inventory
+              </label>
+              <input
+                id="shop-search"
+                type="search"
+                name="q"
+                placeholder="Player, team, set, item, card number..."
+                defaultValue={q}
+                className="min-h-11 rounded-lg border border-slate-300 bg-slate-50 px-3.5 py-2 text-sm font-medium text-[#0f172a] outline-none focus:border-[#0f172a] focus:bg-white sm:col-span-5"
+              />
+
+              <label htmlFor="shop-section" className="sr-only">
+                Filter by section
+              </label>
+              <select
+                id="shop-section"
+                name="section"
+                defaultValue={section}
+                className="min-h-11 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-[#0f172a] sm:col-span-3"
+              >
+                <option value="">All Sections</option>
+                {sectionOptions.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+
+              <label htmlFor="shop-feature" className="sr-only">
+                Filter by card feature
+              </label>
+              <input type="hidden" name="feature" value={feature} />
+
+              <label htmlFor="shop-sort" className="sr-only">
+                Sort inventory
+              </label>
+              <select
+                id="shop-sort"
+                name="sort"
+                defaultValue={sort}
+                className="min-h-11 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-[#0f172a] sm:col-span-2"
+              >
+                <option value="section">Section, Player</option>
+                <option value="newest">Newest First</option>
+                <option value="price_low">Price: Low–High</option>
+                <option value="price_high">Price: High–Low</option>
+                <option value="title">Title A–Z</option>
+              </select>
+
+              <button
+                type="submit"
+                className="min-h-11 rounded-lg bg-[#facc15] px-4 py-2 text-sm font-extrabold uppercase tracking-wider text-[#0f172a] transition hover:bg-[#eab308] sm:col-span-2"
+              >
+                Apply
+              </button>
+            </form>
+
+            {activeFilters ? (
+              <div className="mb-5 flex flex-wrap items-center gap-2 text-xs font-bold">
+                <span className="uppercase tracking-wider text-slate-500">Active:</span>
+                {q ? (
+                  <span className="rounded-full bg-slate-200 px-3 py-1 text-[#0f172a]">
+                    Search: {q}
+                  </span>
+                ) : null}
+                {section ? (
+                  <span className="rounded-full bg-[#0f172a] px-3 py-1 text-[#facc15]">
+                    {section}
+                  </span>
+                ) : null}
+                {feature ? (
+                  <span className="rounded-full bg-blue-100 px-3 py-1 text-[#2563eb]">
+                    {feature}
+                  </span>
+                ) : null}
+                <Link
+                  href="/shop"
+                  className="ml-1 text-[#2563eb] underline underline-offset-4"
+                >
+                  Clear all
+                </Link>
+              </div>
+            ) : null}
+
+            {totalProducts === 0 ? (
+              <div className="rounded-xl border border-dashed border-slate-300 bg-white p-10 text-center">
+                <p className="font-display text-2xl font-extrabold uppercase text-[#0f172a]">
+                  {catalogUnavailable
+                    ? "Inventory is temporarily refreshing."
+                    : "No matching cards or collectibles found."}
+                </p>
+                <Link
+                  href="/shop"
+                  className="mt-3 inline-block text-sm font-bold text-[#2563eb] underline underline-offset-4"
+                >
+                  Reset filters
+                </Link>
+              </div>
+            ) : (
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3 text-xs font-bold uppercase tracking-wider text-slate-500">
+                <p>
+                  Showing {pageStart + 1}–{pageEnd} of {totalProducts.toLocaleString()}
+                </p>
+                <p>
+                  Page {currentPage.toLocaleString()} of {totalPages.toLocaleString()}
+                </p>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+              {visibleProducts.map((product) => {
+                const storefrontImage =
+                  preferHighResolutionListingImage(product.imageUrl) ||
+                  "/placeholder.png";
+                const subtitle = product.player || product.league;
+
+                return (
+                  <article
+                    key={product.legacyProductId}
+                    className="group flex flex-col justify-between overflow-hidden rounded-xl border border-slate-200 bg-white p-3 shadow-xs transition hover:-translate-y-1 hover:border-slate-300 hover:shadow-lg"
+                  >
+                    <div>
+                      <Link
+                        href={`/product/${product.legacyProductId}`}
+                        className="block"
+                        aria-label={`View ${product.title}`}
+                      >
+                        <div className="relative aspect-[4/5] overflow-hidden rounded-lg border border-slate-100 bg-[#f8fafc]">
+                          <Image
+                            src={storefrontImage}
+                            alt={product.title}
+                            fill
+                            sizes="(min-width: 1280px) 240px, (min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw"
+                            quality={90}
+                            className="object-contain p-2 transition duration-300 group-hover:scale-[1.03]"
+                          />
+                        </div>
+                      </Link>
+
+                      <div className="pt-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="rounded bg-blue-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#2563eb]">
+                            {product.storefrontSection}
+                          </span>
+                          {product.promotion?.onSale ? (
+                            <span className="rounded bg-[#dc2626] px-2 py-0.5 text-[10px] font-bold uppercase text-white">
+                              -{product.promotion.discountPercent}% OFF
+                            </span>
+                          ) : null}
+                        </div>
+
+                        <h2 className="mt-2 line-clamp-2 min-h-11 text-sm font-bold leading-snug text-[#0f172a]">
+                          {product.title}
+                        </h2>
+                        {subtitle ? (
+                          <p className="mt-1 truncate text-xs font-medium text-slate-500">
+                            {subtitle}
+                          </p>
+                        ) : null}
+                        <FeatureBadges product={product} />
+                      </div>
+                    </div>
+
+                    <div className="mt-3 border-t border-slate-100 pt-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div>
+                          {product.promotion?.onSale && product.promotion.originalPrice ? (
+                            <p className="text-xs font-bold text-slate-400 line-through">
+                              ${Number(product.promotion.originalPrice).toFixed(2)}
+                            </p>
+                          ) : null}
+                          <p
+                            className={`font-display text-2xl font-extrabold ${
+                              product.promotion?.onSale ? "text-[#dc2626]" : "text-[#0f172a]"
+                            }`}
+                          >
+                            ${Number(product.price).toFixed(2)}
+                          </p>
+                        </div>
+                        <span className="rounded bg-slate-100 px-2 py-0.5 font-mono text-[11px] font-semibold text-slate-600">
+                          QTY {product.quantity}
+                        </span>
+                      </div>
+
+                      <Link
+                        href={`/product/${product.legacyProductId}`}
+                        className="mt-3 flex min-h-10 w-full items-center justify-center rounded-lg bg-[#0f172a] px-4 py-2 text-center text-xs font-bold uppercase tracking-wider text-white transition group-hover:bg-[#facc15] group-hover:text-[#0f172a]"
+                      >
+                        View Item
+                      </Link>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+
+            {totalPages > 1 ? (
+              <nav
+                className="mt-8 flex flex-wrap items-center justify-center gap-3"
+                aria-label="Shop pagination"
+              >
+                {currentPage > 1 ? (
+                  <Link
+                    href={pageHref(currentPage - 1)}
+                    className="min-h-10 rounded-lg border border-slate-300 bg-white px-5 py-2 text-sm font-bold text-[#0f172a] transition hover:border-[#0f172a] hover:bg-[#facc15]"
+                  >
+                    Previous
+                  </Link>
+                ) : (
+                  <span className="min-h-10 rounded-lg border border-slate-200 bg-slate-100 px-5 py-2 text-sm font-bold text-slate-400">
+                    Previous
+                  </span>
+                )}
+                <span className="px-2 text-xs font-bold uppercase tracking-wider text-slate-600">
+                  Page {currentPage.toLocaleString()} of {totalPages.toLocaleString()}
+                </span>
+                {currentPage < totalPages ? (
+                  <Link
+                    href={pageHref(currentPage + 1)}
+                    className="min-h-10 rounded-lg border border-slate-300 bg-white px-5 py-2 text-sm font-bold text-[#0f172a] transition hover:border-[#0f172a] hover:bg-[#facc15]"
+                  >
+                    Next
+                  </Link>
+                ) : (
+                  <span className="min-h-10 rounded-lg border border-slate-200 bg-slate-100 px-5 py-2 text-sm font-bold text-slate-400">
+                    Next
+                  </span>
+                )}
+              </nav>
+            ) : null}
+
+            {soldProducts.length ? (
+              <section className="mt-12 border-t-2 border-red-200 pt-8">
+                <div className="mb-6">
+                  <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#dc2626]">
+                    Seven-day sale wall
+                  </p>
+                  <h2 className="font-display mt-1 text-3xl font-extrabold uppercase tracking-tight text-[#0f172a]">
+                    Recently Sold Collectibles
+                  </h2>
+                  <p className="mt-1.5 max-w-3xl text-sm font-medium text-slate-600">
+                    Retained as visible sale history for seven days. Locked from checkout, offers, and cart actions.
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+                  {soldProducts.map((product) => (
+                    <SoldProductCard
+                      key={`sold-${product.legacyProductId}`}
+                      product={product}
+                    />
+                  ))}
+                </div>
+              </section>
+            ) : null}
+          </div>
+        </div>
+      </div>
     </main>
   );
 }

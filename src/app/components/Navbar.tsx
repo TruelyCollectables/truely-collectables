@@ -30,7 +30,7 @@ function NavigationLink({ href, label }: { href: string; label: string }) {
     <Link
       href={href}
       prefetch={false}
-      className="inline-flex min-h-11 items-center justify-center whitespace-nowrap text-sm font-black text-neutral-800 hover:underline hover:decoration-yellow-300 hover:decoration-4 hover:underline-offset-4"
+      className="inline-flex min-h-10 items-center justify-center whitespace-nowrap text-sm font-bold text-slate-200 transition hover:text-[#facc15]"
     >
       {label}
     </Link>
@@ -40,10 +40,10 @@ function NavigationLink({ href, label }: { href: string; label: string }) {
 export default function Navbar() {
   return (
     <>
-      <div className="border-b-2 border-neutral-950 bg-neutral-950 px-4 py-2 text-center text-[11px] font-black uppercase tracking-[0.16em] text-yellow-300 sm:text-xs">
-        Real sports cards · live inventory · secure checkout · clear shipping options
+      <div className="border-b border-slate-800 bg-[#0b1120] px-4 py-2 text-center text-[11px] font-bold uppercase tracking-[0.18em] text-[#facc15] sm:text-xs">
+        Real sports cards · live inventory · secure checkout · tracking included
       </div>
-      <nav className="sticky top-0 z-50 w-full border-b-2 border-neutral-950 bg-white px-4 py-3 sm:px-6">
+      <nav className="sticky top-0 z-50 w-full border-b border-slate-800 bg-[#0f172a]/95 px-4 py-3 text-white backdrop-blur sm:px-6">
         <div className="mx-auto max-w-7xl">
           <div className="flex items-center justify-between gap-3 sm:gap-4">
             <Link
@@ -51,20 +51,20 @@ export default function Navbar() {
               prefetch={false}
               className="flex min-w-0 items-center gap-3"
             >
-              <div className="flex h-11 w-11 shrink-0 items-center justify-center border-2 border-neutral-950 bg-yellow-300 text-sm font-black uppercase shadow-[3px_3px_0_#111318]">
+              <div className="font-display flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-[#facc15] text-lg font-extrabold uppercase tracking-tight text-[#0f172a] shadow-sm">
                 {storeMark(STORE_BRAND_NAME)}
               </div>
               <div className="min-w-0">
-                <span className="block truncate text-base font-black leading-none tracking-tight sm:text-xl">
+                <span className="font-display block truncate text-xl font-extrabold uppercase leading-none tracking-wide text-white sm:text-2xl">
                   {STORE_BRAND_NAME}
                 </span>
-                <span className="mt-1 block text-[10px] font-black uppercase tracking-[0.18em] text-neutral-500">
+                <span className="mt-1 block text-[10px] font-bold uppercase tracking-[0.2em] text-slate-400">
                   The Card Wall
                 </span>
               </div>
             </Link>
 
-            <div className="flex shrink-0 items-center gap-2 sm:gap-3">
+            <div className="flex shrink-0 items-center gap-2 sm:gap-4">
               <div className="hidden items-center gap-5 lg:flex">
                 {navigationLinks.map((item) => (
                   <NavigationLink key={item.href} {...item} />
@@ -74,7 +74,7 @@ export default function Navbar() {
               <Link
                 href="/cart"
                 prefetch={false}
-                className="inline-flex min-h-11 items-center justify-center border-2 border-neutral-950 bg-yellow-300 px-4 py-2 text-sm font-black text-neutral-950 shadow-[3px_3px_0_#111318] transition hover:-translate-y-0.5"
+                className="inline-flex min-h-10 items-center justify-center rounded-lg bg-[#facc15] px-4 py-2 text-sm font-extrabold text-[#0f172a] transition hover:-translate-y-0.5 hover:bg-[#eab308]"
               >
                 Cart
               </Link>
