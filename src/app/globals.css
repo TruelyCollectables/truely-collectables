@@ -4,6 +4,19 @@
 :root {
   --background: #f6f4ef;
   --foreground: #151515;
+  /* Shared Dark Stadium + Crisp Varsity Design Tokens */
+  --tc-bg-dark: #0b1120;
+  --tc-bg-navy: #0f172a;
+  --tc-surface-dark: #1e293b;
+  --tc-bg-light: #f8fafc;
+  --tc-surface-light: #ffffff;
+  --tc-accent-gold: #facc15;
+  --tc-accent-gold-hover: #eab308;
+  --tc-status-live: #22c55e;
+  --tc-status-alert: #dc2626;
+  --tc-status-info: #2563eb;
+  --tc-border-light: #cbd5e1;
+  --tc-border-dark: #334155;
 }
 
 @theme inline {
@@ -11,6 +24,11 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+  --font-display: var(--font-display);
+}
+
+.font-display {
+  font-family: "Barlow Condensed", "DIN Condensed", "Arial Narrow", var(--font-geist-sans), Arial, Helvetica, sans-serif;
 }
 
 body {

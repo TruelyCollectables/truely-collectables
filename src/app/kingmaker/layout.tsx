@@ -22,7 +22,7 @@ export default async function KingmakerLayout({
   const cookieStore = await cookies();
   for (const name of ADMIN_SESSION_COOKIE_NAMES) {
     if (await isValidAdminSessionValue(cookieStore.get(name)?.value)) {
-      return <KingmakerShell>{children}</KingmakerShell>;
+      return <KingmakerShell adminAuthenticated>{children}</KingmakerShell>;
     }
   }
 

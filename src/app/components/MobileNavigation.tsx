@@ -27,7 +27,7 @@ export default function MobileNavigation({
   return (
     <div
       ref={scrollRef}
-      className="-mx-4 mt-3 overflow-x-auto overscroll-x-contain border-t border-neutral-200 px-4 pt-2 lg:hidden sm:-mx-6 sm:px-6"
+      className="-mx-4 mt-3 overflow-x-auto overscroll-x-contain border-t border-slate-800 px-4 pt-2 lg:hidden sm:-mx-6 sm:px-6"
       aria-label="Mobile store navigation"
     >
       <div className="flex min-w-max items-center gap-5 pr-4 sm:pr-6">
@@ -36,7 +36,7 @@ export default function MobileNavigation({
             key={item.href}
             href={item.href}
             prefetch={false}
-            className="inline-flex min-h-11 items-center justify-center whitespace-nowrap text-sm font-black text-neutral-800 hover:underline hover:decoration-yellow-300 hover:decoration-4 hover:underline-offset-4"
+            className="inline-flex min-h-10 items-center justify-center whitespace-nowrap text-sm font-bold text-slate-200 transition hover:text-[#facc15]"
           >
             {item.label}
           </Link>
