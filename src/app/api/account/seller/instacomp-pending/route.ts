@@ -1107,8 +1107,7 @@ export async function GET(request: Request) {
       liveWebsiteProductsByAnchor.set(key, current);
     }
 
-    const includeDetailedMarketEvidence =
-      !compactKingmaker || queue !== "listings" || folder === "pending";
+    const includeDetailedMarketEvidence = true;
 
     const items = rows.map((row: any) => {
       const metadata = recordValue(row.metadata);
