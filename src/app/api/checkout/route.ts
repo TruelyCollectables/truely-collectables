@@ -54,12 +54,14 @@ import {
   listingPromotionFromMetadata,
   normalizeListingCouponCode,
   resolveCartListingCoupon,
+  roundedMoney,
+} from "../../../lib/listing-promotions";
+import {
   categoryMatchesPromotion,
   hashPromotionIdentity,
   normalizePromotionAddress,
   normalizePromotionEmail,
-  roundedMoney,
-} from "../../../lib/listing-promotions";
+} from "../../../lib/store-promotions";
 import { loadLiveStoreSales, resolveStoreSale } from "../../../lib/store-sales";
 
 export const dynamic = "force-dynamic";
