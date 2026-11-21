@@ -106,6 +106,7 @@ export async function POST(request: Request) {
         percent_off: input.percentOff,
         first_order_only: firstOrderOnly,
         active: true,
+        starts_at: input.startsAt?.toISOString() || null,
         expires_at: input.expiresAt?.toISOString() || null,
         max_redemptions: input.maxRedemptions,
         stripe_coupon_id: coupon.id,
