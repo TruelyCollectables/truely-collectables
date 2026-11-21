@@ -3792,7 +3792,7 @@ export default function KingmakerPendingPage({
                         <button
                           type="button"
                           onClick={() => void runInstaComp(card)}
-                          disabled={!pairReady || Boolean(busyId)}
+                          disabled={Boolean(busyId)}
                           className="rounded-xl bg-violet-700 px-3.5 py-2.5 text-sm font-black text-white disabled:bg-neutral-400"
                         >
                           {busyId === card.inventoryItemId ? "Comping…" : "2. Comping"}
