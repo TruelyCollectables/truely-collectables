@@ -1795,6 +1795,12 @@ export default function SellerInventoryPage() {
     );
   }
 
+  function selectAllLoadedInventoryItems() {
+    setSelectedInventoryItemIds((current) =>
+      Array.from(new Set([...current, ...filteredItems.map((item) => item.inventoryItemId)])),
+    );
+  }
+
   function selectReadyVisibleInventoryItems() {
     setSelectedInventoryItemIds((current) =>
       Array.from(new Set([...current, ...readyVisibleInventoryItemIds])),
@@ -2355,6 +2361,17 @@ export default function SellerInventoryPage() {
                   imports for the store account. Draft readiness is calculated from
                   the inventory record plus linked product image coverage.
                 </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Link
+                    href="/admin/ebay/duplicates"
+                    className="inline-flex items-center rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-black text-amber-950 hover:bg-amber-100"
+                  >
+                    Open Duplicate Audit
+                  </Link>
+                  <span className="inline-flex items-center rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 text-xs font-bold text-neutral-600">
+                    Exact-title / exact-price groups · merge quantity into the keeper
+                  </span>
+                </div>
               </div>
 
               <p className="rounded border border-neutral-200 bg-neutral-100 px-3 py-1 text-xs font-black uppercase text-neutral-700">
@@ -2460,6 +2477,15 @@ export default function SellerInventoryPage() {
                     className="rounded-md border border-neutral-300 px-3 py-2 text-xs font-bold hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     Select Ready Visible
+                  </button>
+                  <button
+                    type="button"
+                    onClick={selectAllLoadedInventoryItems}
+                    disabled={filteredItems.length === 0}
+                    className="rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-xs font-black text-emerald-900 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    title="Select every row currently loaded and matching the active filters"
+                  >
+                    Select All Loaded ({filteredItems.length})
                   </button>
                   <button
                     type="button"
