@@ -28,7 +28,15 @@ import {
   TERMS_OF_SERVICE_VERSION,
 } from "../../lib/legal";
 
-type ShippingAddress = {\n  line1: string;\n  city: string;\n  state: string;\n  postalCode: string;\n  country: string;\n};\n\ntype CartItem = {
+type ShippingAddress = {
+  line1: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  country: string;
+};
+
+type CartItem = {
   id: number;
   title: string;
   price: number;
@@ -72,7 +80,9 @@ export default function CartClient(props: { storeDisplayName: string }) {
   const [buyerProtection, setBuyerProtection] =
     useState<BuyerProtectionCheckoutChoice>(EMPTY_PROTECTION_CHOICE);
   const [termsAccepted, setTermsAccepted] = useState(false);
-  const [couponCode, setCouponCode] = useState("");\n  const [customerEmail, setCustomerEmail] = useState("");\n  const [shippingAddress, setShippingAddress] = useState<ShippingAddress>({ line1: "", city: "", state: "", postalCode: "", country: "US" });
+  const [couponCode, setCouponCode] = useState("");
+  const [customerEmail, setCustomerEmail] = useState("");
+  const [shippingAddress, setShippingAddress] = useState<ShippingAddress>({ line1: "", city: "", state: "", postalCode: "", country: "US" });
   const pricingRefreshStarted = useRef(false);
 
   function saveCart(updatedCart: CartItem[]) {
