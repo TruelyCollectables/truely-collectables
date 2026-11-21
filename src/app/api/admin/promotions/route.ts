@@ -62,7 +62,7 @@ export async function POST(request: Request) {
   try {
     const body = await request.json();
     const input = validatePromotionInput(body);
-    const firstOrderOnly = body.firstOrderOnly === true;
+    const firstOrderOnly = body.firstOrderOnly === true;\n    const freeShipping = input.freeShipping;\n    const categoryScope = input.category;
     const supabase = createSupabaseServerClient({ admin: true });
     const storeId = getActiveStoreId();
     const runtime = await getStripePaymentRuntime({ storeId, supabase });
