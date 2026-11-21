@@ -13,6 +13,17 @@ import { createServerInventoryEngine } from "../lib/server-inventory-engine";
 export const dynamic = "force-dynamic";
 export const revalidate = 300;
 
+// Next.js 16.2's sitemap serializer interpolates URL fields directly into XML.
+// Escape URLs here so query strings (especially image URLs containing &) remain valid XML.
+function xmlSafeUrl(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
 function absoluteUrl(origin: string, value: string | null | undefined) {
   if (!value) return null;
 
@@ -28,13 +39,13 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const now = new Date();
   const staticRoutes: MetadataRoute.Sitemap = [
     {
-      url: origin,
+      url: xmlSafeUrl(origin),
       lastModified: now,
       changeFrequency: "daily",
       priority: 1,
     },
     {
-      url: `${origin}/shop`,
+      url: xmlSafeUrl(`${origin}/shop`),
       lastModified: now,
       changeFrequency: "hourly",
       priority: 0.9,
@@ -47,7 +58,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       RETURNS_POLICY_PATH,
       CONTACT_PATH,
     ].map((path) => ({
-      url: `${origin}${path}`,
+      url: xmlSafeUrl(`${origin}${path}`),
       lastModified: now,
       changeFrequency: "monthly" as const,
       priority: 0.4,
@@ -69,11 +80,11 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       const image = absoluteUrl(origin, product.imageUrl);
 
       return {
-        url: `${origin}/product/${product.legacyProductId}`,
+        url: xmlSafeUrl(`${origin}/product/${product.legacyProductId}`),
         lastModified: now,
         changeFrequency: "daily" as const,
         priority: 0.8,
-        images: image ? [image] : undefined,
+        images: image ? [xmlSafeUrl(image)] : undefined,
       };
     });
 
