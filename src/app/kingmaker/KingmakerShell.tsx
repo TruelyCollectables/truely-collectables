@@ -87,13 +87,18 @@ export default function KingmakerShell({
             ) : (
               <Link href={loginHref} prefetch={false} className="rounded-lg bg-emerald-400 px-4 py-2 font-bold text-slate-950">Kingmaker Login</Link>
             )}
-            <span className="rounded-full border border-emerald-800 bg-emerald-950/40 px-3 py-2 font-bold text-emerald-200">
+            <span title="The Checklist Registry is the authority for exact card identity." className="rounded-full border border-emerald-800 bg-emerald-950/40 px-3 py-2 font-bold text-emerald-200">
               Registry controls identity
             </span>
-            <span className="rounded-full border border-blue-800 bg-blue-950/40 px-3 py-2 font-bold text-blue-200">
+            <span title="Seller approval is required before a marketplace-changing action can execute." className="rounded-full border border-blue-800 bg-blue-950/40 px-3 py-2 font-bold text-blue-200">
               Seller approval controls execution
             </span>
           </div>
+        </div>
+        <div className="mx-auto mt-3 max-w-[1500px] text-[11px] leading-5 text-slate-500">
+          <span className="font-bold text-emerald-300">Registry controls identity:</span> the exact card, set, parallel, serial, and image pair must be verified before it is treated as the same item.
+          <span className="mx-2 text-slate-700">·</span>
+          <span className="font-bold text-blue-300">Seller approval controls execution:</span> Kingmaker can recommend and prepare changes, but publishing, ending, or changing marketplace listings requires your approval.
         </div>
       </header>
       <KingmakerStatusStrip />
