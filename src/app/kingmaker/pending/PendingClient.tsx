@@ -35,6 +35,9 @@ type CardIdentity = {
 type CompEvidence = {
   title?: string | null;
   price?: number | null;
+  itemPrice?: number | null;
+  shippingPrice?: number | null;
+  priceIncludesShipping?: boolean;
   url?: string | null;
   sourceLabel?: string | null;
   soldAt?: string | null;
@@ -4033,27 +4036,33 @@ function MarketEvidencePanel({
       </div>
       {rows.length ? (
         <div className="mt-3 space-y-2">
-          {rows.slice(0, 5).map((row, index) => (
-            <div key={`${row.url || row.title || title}-${index}`} className="rounded-lg bg-neutral-100 p-3 text-sm">
-              {row.url ? (
-                <a
-                  href={row.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="font-bold underline decoration-neutral-400 underline-offset-2"
-                >
-                  {row.title || "Market listing"}
-                </a>
-              ) : (
-                <p className="font-bold">{row.title || "Market listing"}</p>
-              )}
-              <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs font-semibold text-neutral-600">
-                <span>{money(row.price)}</span>
-                {row.sourceLabel ? <span>{row.sourceLabel}</span> : null}
-                {row[dateKey] ? <span>{row[dateKey]}</span> : null}
+          {rows.slice(0, 10).map((row, index) => {
+            const ship = row.shippingPrice;
+            const hasBreakdown = typeof row.itemPrice === "number" && row.itemPrice > 0;
+            const shipText = ship === 0 ? "Free ship" : typeof ship === "number" && ship > 0 ? `+ ${money(ship)} ship` : "ship unknown";
+            return (
+              <div key={`${row.url || row.title || title}-${index}`} className="rounded-lg bg-neutral-100 p-3 text-sm">
+                {row.url ? (
+                  <a
+                    href={row.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="font-bold underline decoration-neutral-400 underline-offset-2"
+                  >
+                    {row.title || "Market listing"}
+                  </a>
+                ) : (
+                  <p className="font-bold">{row.title || "Market listing"}</p>
+                )}
+                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs font-semibold text-neutral-600">
+                  <span className="font-black text-neutral-950">{money(row.price)} total</span>
+                  {hasBreakdown ? <span>({money(row.itemPrice)} {shipText})</span> : null}
+                  {row.sourceLabel ? <span>{row.sourceLabel}</span> : null}
+                  {row[dateKey] ? <span>{row[dateKey]}</span> : null}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       ) : (
         <p className="mt-3 text-sm font-semibold text-neutral-500">None accepted yet.</p>

@@ -292,10 +292,10 @@ async function macSoldOnly(params: {
       operator_certified_identity:
         params.instaComp.manualIdentityLocked === true || params.instaComp.humanVerified === true,
       include_130point: false,
-      include_active: false,
+      include_active: true,
       include_fanatics: false,
       max_sold: 50,
-      max_active: 1,
+      max_active: 30,
     }),
     cache: "no-store",
     signal: AbortSignal.timeout(45_000),
@@ -345,22 +345,25 @@ export async function POST(request: NextRequest) {
     }
 
     const exactTitle = String(item.title || "").trim();
-    const soldPayload = await macSoldOnly({ title: exactTitle, ai, instaComp });
+    const primaryQuery = buildInstaCompQueries(ai).primary || exactTitle;
+    const [soldPayload, activeProvider] = await Promise.all([
+      macSoldOnly({ title: exactTitle, ai, instaComp }),
+      getOfficialEbayActiveExactProvider({ query: primaryQuery, ai, limit: 20 }),
+    ]);
     const sold = evidenceList(soldPayload.sold);
     const pricingSold = sold.filter((row) => pricingEligible(row, "sold"));
-    const primaryQuery = buildInstaCompQueries(ai).primary || exactTitle;
 
-    const activeProvider = pricingSold.length >= MIN_EXACT_SOLD
-      ? {
-          source: "ebay_active",
-          label: "eBay Active · Official Browse API",
-          status: "skipped",
-          message: `Skipped because ${pricingSold.length} exact sold comps met the ${MIN_EXACT_SOLD}-sale fast-lane threshold.`,
-          results: [],
-          searchUrl: `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(primaryQuery)}`,
-        }
-      : await getOfficialEbayActiveExactProvider({ query: primaryQuery, ai, limit: 12 });
-    const active = evidenceList(activeProvider.results);
+    const macActive = evidenceList(soldPayload.active);
+    const browseActive = evidenceList(activeProvider.results);
+    const seenActiveUrls = new Set<string>();
+    const active: Evidence[] = [];
+    for (const row of [...browseActive, ...macActive]) {
+      const key = row.url.split("?")[0].toLowerCase();
+      if (seenActiveUrls.has(key)) continue;
+      seenActiveUrls.add(key);
+      active.push(row);
+    }
+    active.sort((a, b) => a.price - b.price);
     const pricingActive = active.filter((row) => pricingEligible(row, "active"));
     const pricingAnalysis = calculateInstaCompSweetSpot({ sold: pricingSold, active: pricingActive });
     const suggestedPrice = pricingSold.length > 0 ? pricingAnalysis.suggestedPrice : 0;
@@ -397,8 +400,8 @@ export async function POST(request: NextRequest) {
           schema: "truely.instacomp.fast-ebay-market.v1",
           soldSource: "eBay sold · Mac Chrome",
           activeSource: "eBay official Browse API",
-          minimumExactSoldBeforeActiveSkip: MIN_EXACT_SOLD,
-          activeSearchSkipped: pricingSold.length >= MIN_EXACT_SOLD,
+          minimumExactSoldBeforeActiveSkip: 0,
+          activeSearchSkipped: false,
           point130Enabled: false,
           fanaticsEnabled: false,
         },
@@ -493,8 +496,8 @@ export async function POST(request: NextRequest) {
       exactCompCount: pricingSold.length,
       soldCompEvidence: sold,
       activeCompetition: active,
-      activeSearchSkipped: pricingSold.length >= MIN_EXACT_SOLD,
-      minimumExactSoldBeforeActiveSkip: MIN_EXACT_SOLD,
+      activeSearchSkipped: false,
+      minimumExactSoldBeforeActiveSkip: 0,
       priceSaveRecommended: false,
       draftPriceSaved: priceUpdatedCount > 0,
       priceUpdatedCount,

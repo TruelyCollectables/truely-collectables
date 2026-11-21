@@ -218,9 +218,26 @@ function canonicalSeason(value: string | null | undefined) {
 function titleHasYear(title: string, value: string | null | undefined) {
   const target = canonicalSeason(value);
   if (!target) return false;
+  const normalizedTitle = normalizeText(title);
+  const seasonMatch = target.match(/^((?:19|20)\d{2})-((?:19|20)\d{2})$/);
+  if (seasonMatch) {
+    const startYear = seasonMatch[1];
+    const endFull = seasonMatch[2];
+    const endShort = endFull.slice(-2);
+    if (
+      new RegExp(
+        `(?:^|[^0-9])${startYear}\\s*[-/]\\s*(?:${endShort}|${endFull})(?:$|[^0-9])`,
+      ).test(normalizedTitle)
+    ) {
+      return true;
+    }
+    return new RegExp(`(?:^|[^0-9])${startYear}(?:$|[^0-9])`).test(
+      normalizedTitle,
+    );
+  }
   if (/^(?:19|20)\d{2}$/.test(target)) {
     return new RegExp(`(?:^|[^0-9])${target}(?:$|[^0-9])`).test(
-      normalizeText(title),
+      normalizedTitle,
     );
   }
   return canonicalSeason(title) === target;
@@ -583,6 +600,30 @@ export function buildInstaCompQueries(ai: InstaCompAiResult) {
   const primary = primaryParts.join(" ").replace(/\s+/g, " ").trim();
 
   const backupQueries = [
+    [
+      gradePart,
+      cleanPart(ai.year),
+      cleanPart(ai.setName),
+      cleanPart(ai.player),
+      ai.cardNumber ? `#${cleanPart(ai.cardNumber).replace(/^#/, "")}` : "",
+      parallelPart,
+      serialRun,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .trim(),
+
+    [
+      gradePart,
+      cleanPart(ai.player),
+      cleanPart(ai.setName),
+      ai.cardNumber ? `#${cleanPart(ai.cardNumber).replace(/^#/, "")}` : "",
+      parallelPart,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .trim(),
+
     [
       gradePart,
       cleanPart(ai.player),
@@ -1028,7 +1069,7 @@ export function filterAndRankExactMatches(
   const requiresBrandOrSetEvidence = Boolean(
     normalizeText(ai.brand) || normalizeText(ai.setName),
   );
-  const setCanReplaceBrandEvidence = meaningfulTokens(ai.setName).length >= 2;
+  const setCanReplaceBrandEvidence = meaningfulTokens(ai.setName).length >= 1;
   const requiresAutographEvidence = ai.isAuto;
   const requiresRelicEvidence = ai.isRelic;
   const requiresGraderEvidence = Boolean(normalizeGradingCompany(ai.gradingCompany));

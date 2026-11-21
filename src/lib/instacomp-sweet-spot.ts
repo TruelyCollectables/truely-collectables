@@ -85,12 +85,30 @@ export function calculateInstaCompSweetSpot(params: {
 
   if (sold.median !== null && active.low !== null) {
     const soldListTarget = roundMoney(sold.median * 1.1);
-    const activeGuard = active.count >= 3 && active.median !== null
+    const activeFloor = active.count >= 3 && active.median !== null
       ? Math.max(active.low, active.median * 0.85)
       : active.low;
-    const competitiveTarget = roundMoney(activeGuard * 0.99);
-    const raw = Math.max(sold.median, Math.min(soldListTarget, competitiveTarget));
-    const suggestedPrice = psychologicalPrice(raw);
+    const competitiveTarget = roundMoney(activeFloor * 0.99);
+
+    // If active competition is materially above sold median (e.g. $3 sold avg
+    // vs $10 lowest active listing), price just under the active floor rather
+    // than leaving money on the table.
+    let raw: number;
+    let explanation: string;
+    if (activeFloor >= sold.median * 1.15) {
+      const undercut = activeFloor >= 5 ? activeFloor * 0.95 : activeFloor * 0.96;
+      raw = Math.max(sold.median, Math.min(activeFloor - 0.01, undercut));
+      explanation = `${sold.count} exact sold comps averaged ${sold.average?.toFixed(2) ?? sold.median.toFixed(2)} (median ${sold.median.toFixed(2)}), while ${active.count} exact active listings start at ${active.low.toFixed(2)} landed. InstaComp priced just under active competition to capture market upside.`;
+    } else {
+      raw = Math.max(sold.median, Math.min(soldListTarget, competitiveTarget));
+      explanation = `${sold.count} exact sold comps established a ${sold.median.toFixed(2)} market anchor. ${active.count} exact active listings established the current competitive band. InstaComp targeted about 10% above the sold median, then capped the recommendation against credible active competition.`;
+    }
+
+    let suggestedPrice = psychologicalPrice(raw);
+    if (activeFloor >= 1.5 && suggestedPrice >= activeFloor) {
+      suggestedPrice = roundMoney(Math.max(sold.median, Math.max(0.99, activeFloor - 0.50)));
+    }
+
     return {
       suggestedPrice,
       soldCount: sold.count,
@@ -106,7 +124,7 @@ export function calculateInstaCompSweetSpot(params: {
       soldListTarget,
       competitiveTarget,
       strategy: "sold_and_active",
-      explanation: `${sold.count} exact sold comps established a ${sold.median.toFixed(2)} market anchor. ${active.count} exact active listings established the current competitive band. InstaComp targeted about 10% above the sold median, then capped the recommendation against credible active competition.`,
+      explanation,
     };
   }
 

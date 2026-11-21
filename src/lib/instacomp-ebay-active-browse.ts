@@ -1,6 +1,7 @@
 import "server-only";
 
 import {
+  buildInstaCompQueries,
   filterAndRankExactMatches,
   type InstaCompAiResult,
   type InstaCompComp,
@@ -143,9 +144,12 @@ export async function getOfficialEbayActiveExactProvider(params: {
   ai: InstaCompAiResult;
   limit?: number;
 }): Promise<InstaCompProviderResult> {
-  const query = String(params.query || "").trim();
-  const fallbackUrl = `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(query)}`;
-  if (!query) {
+  const { primary, backupQueries } = buildInstaCompQueries(params.ai);
+  const queryCandidates = Array.from(
+    new Set([String(params.query || "").trim(), primary, ...backupQueries].filter(Boolean)),
+  ).slice(0, 4);
+  const fallbackUrl = `https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(queryCandidates[0] || "")}`;
+  if (!queryCandidates.length) {
     return {
       source: "ebay_active",
       label: "eBay Active · Official Browse API",
@@ -158,24 +162,35 @@ export async function getOfficialEbayActiveExactProvider(params: {
 
   try {
     const token = await getLocalEbayClientAccessToken(EBAY_SCOPE);
-    const url = searchUrl(query);
-    const response = await fetch(url, {
-      headers: headers(token),
-      cache: "no-store",
-      signal: AbortSignal.timeout(15_000),
-    });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(`eBay Browse ${response.status}: ${String(payload?.errors?.[0]?.message || payload?.error || response.statusText).slice(0, 240)}`);
-    }
+    const mergedRaw: RawActiveComp[] = [];
+    const seenUrls = new Set<string>();
+    const itemIds = new Map<string, string | null>();
+    let exact: InstaCompComp[] = [];
 
-    const raw: RawActiveComp[] = (Array.isArray(payload?.itemSummaries) ? payload.itemSummaries : [])
-      .map((item: JsonRecord) => rawComp(item))
-      .filter((item: RawActiveComp | null): item is RawActiveComp => Boolean(item));
-    const itemIds = new Map<string, string | null>(
-      raw.map((item: RawActiveComp) => [item.url, item.itemId || null]),
-    );
-    let exact = filterAndRankExactMatches(raw, params.ai, Math.max(6, params.limit || 12), 55);
+    for (const candidateQuery of queryCandidates) {
+      const url = searchUrl(candidateQuery);
+      const response = await fetch(url, {
+        headers: headers(token),
+        cache: "no-store",
+        signal: AbortSignal.timeout(15_000),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(`eBay Browse ${response.status}: ${String(payload?.errors?.[0]?.message || payload?.error || response.statusText).slice(0, 240)}`);
+      }
+
+      const raw: RawActiveComp[] = (Array.isArray(payload?.itemSummaries) ? payload.itemSummaries : [])
+        .map((item: JsonRecord) => rawComp(item))
+        .filter((item: RawActiveComp | null): item is RawActiveComp => Boolean(item));
+      for (const item of raw) {
+        if (seenUrls.has(item.url)) continue;
+        seenUrls.add(item.url);
+        mergedRaw.push(item);
+        itemIds.set(item.url, item.itemId || null);
+      }
+      exact = filterAndRankExactMatches(mergedRaw, params.ai, Math.max(12, params.limit || 12), 55);
+      if (exact.length >= 3) break;
+    }
 
     const missingShipping = exact
       .filter((item) => !item.priceIncludesShipping)
@@ -189,30 +204,32 @@ export async function getOfficialEbayActiveExactProvider(params: {
     );
     const shippingByUrl = new Map(hydrated);
 
-    exact = exact.map((item) => {
-      const shipping = item.shippingPrice ?? shippingByUrl.get(item.url) ?? null;
-      const priceIncludesShipping = shipping !== null;
-      return {
-        ...item,
-        shippingPrice: shipping,
-        priceIncludesShipping,
-        price: Math.round((Number(item.itemPrice || item.price) + (shipping || 0)) * 100) / 100,
-        flags: Array.from(
-          new Set([
-            ...item.flags,
-            "official eBay Browse API",
-            ...(priceIncludesShipping ? ["pricing eligible"] : ["shipping unknown", "not used for pricing"]),
-          ]),
-        ),
-      };
-    });
+    exact = exact
+      .map((item) => {
+        const shipping = item.shippingPrice ?? shippingByUrl.get(item.url) ?? null;
+        const priceIncludesShipping = shipping !== null;
+        return {
+          ...item,
+          shippingPrice: shipping,
+          priceIncludesShipping,
+          price: Math.round((Number(item.itemPrice || item.price) + (shipping || 0)) * 100) / 100,
+          flags: Array.from(
+            new Set([
+              ...item.flags,
+              "official eBay Browse API",
+              ...(priceIncludesShipping ? ["pricing eligible"] : ["shipping unknown", "not used for pricing"]),
+            ]),
+          ),
+        };
+      })
+      .sort((a, b) => a.price - b.price);
 
     return {
       source: "ebay_active",
       label: "eBay Active · Official Browse API",
       status: exact.length ? "live" : "no_matches",
       message: exact.length
-        ? `${exact.length} strict exact active listing${exact.length === 1 ? "" : "s"} passed the eBay Browse filter.`
+        ? `${exact.length} strict exact active listing${exact.length === 1 ? "" : "s"} passed the eBay Browse filter (sorted by total landed price).`
         : "No strict exact active eBay listings passed the InstaComp identity filter.",
       results: exact.slice(0, params.limit || 12),
       searchUrl: fallbackUrl,
