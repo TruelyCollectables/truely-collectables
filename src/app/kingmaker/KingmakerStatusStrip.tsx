@@ -52,7 +52,7 @@ export default function KingmakerStatusStrip() {
         try {
           const separator = check.path.includes("?") ? "&" : "?";
           const response = await fetch(`${check.path}${separator}t=${Date.now()}`, {
-            method: "HEAD",
+            method: "GET",
             cache: "no-store",
             credentials: "same-origin",
             signal: controller.signal,
