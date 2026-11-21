@@ -176,10 +176,9 @@ jobs:
           if not urls:
               raise SystemExit("Sitemap contains no URL records.")
           locations = [node.findtext(namespace + "loc", "").strip() for node in urls]
-          if any(location != "https://truelycollectables.com"\n       and not location.startswith("https://truelycollectables.com/") for location in locations):
+          if any(not (location == "https://truelycollectables.com" or location.startswith("https://truelycollectables.com/")) for location in locations):
               raise SystemExit("Sitemap contains an empty or non-canonical location.")
-          images = [node.findtext(image_namespace + "loc", "").strip()
-                    for node in root.iter(image_namespace + "image")]
+          images = [image.findtext(image_namespace + "loc", "").strip()\n                    for entry in urls\n                    for image in entry.iter(image_namespace + "image")]
           if any(not image.startswith("https://") for image in images):
               raise SystemExit("Sitemap contains an empty or non-HTTPS image location.")
           print(f"SITEMAP_XML=VALID URL_COUNT={len(urls)} IMAGE_COUNT={len(images)}")
