@@ -137,9 +137,24 @@ export default function KingmakerStatusStrip() {
               <div className="mb-3 rounded-xl border border-rose-800/70 bg-rose-950/40 px-3 py-3 text-xs text-rose-100">
                 <p className="font-black uppercase tracking-wider">What needs attention</p>
                 <p className="mt-1 text-rose-200/80">
-                  A problem means that check returned a non-2xx response or did not answer before the timeout. It does not automatically mean orders or inventory are broken; open the affected check below and retry after correcting the underlying issue.
+                  A problem means that check returned a non-2xx response or did not answer before the timeout. It does not automatically mean orders or inventory are broken; review the affected check below and retry after correcting the underlying issue.
                 </p>
               </div>
+            ) : null}
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+              {items.map((item) => (
+                <div
+                  key={item.label}
+                  className={`rounded-xl border px-3 py-2 ${item.state === "checking" ? "border-slate-700 bg-slate-900 text-slate-300" : item.state === "ok" ? "border-emerald-800/80 bg-emerald-950/50 text-emerald-200" : "border-rose-800/80 bg-rose-950/50 text-rose-200"}`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-bold">{item.label}</span>
+                    <span className="text-[10px] font-black tracking-wider">{stateText(item.state)}</span>
+                  </div>
+                  <p className="mt-1 text-[11px] opacity-80">{item.detail}</p>
+                </div>
+              ))}
+            </div>
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <button
                 type="button"
@@ -154,22 +169,6 @@ export default function KingmakerStatusStrip() {
                 </span>
               ) : null}
             </div>
-            ) : null}
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-            {items.map((item) => (
-              <div
-                key={item.label}
-                className={`rounded-xl border px-3 py-2 ${stateClass(item.state)}`}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-bold">{item.label}</span>
-                  <span className="text-[10px] font-black tracking-wider">
-                    {stateText(item.state)}
-                  </span>
-                </div>
-                <p className="mt-1 text-[11px] opacity-80">{item.detail}</p>
-              </div>
-            ))}
           </div>
         ) : null}
 
