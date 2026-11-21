@@ -140,7 +140,9 @@ export default function CheckoutButton({
           tosAccepted: termsAccepted,
           tosVersion: TERMS_OF_SERVICE_VERSION,
           checkoutAttemptId: checkoutAttempt.id,
-          couponCode: couponCode.trim().toUpperCase(),\n          customerEmail: customerEmail.trim(),\n          shippingAddress,
+          couponCode: couponCode.trim().toUpperCase(),
+          customerEmail: customerEmail.trim(),
+          shippingAddress,
         }),
       });
 
