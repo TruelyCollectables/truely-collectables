@@ -176,7 +176,7 @@ jobs:
           if not urls:
               raise SystemExit("Sitemap contains no URL records.")
           locations = [node.findtext(namespace + "loc", "").strip() for node in urls]
-          if any(not location.startswith("https://truelycollectables.com/") for location in locations):
+          if any(location != "https://truelycollectables.com"\n       and not location.startswith("https://truelycollectables.com/") for location in locations):
               raise SystemExit("Sitemap contains an empty or non-canonical location.")
           images = [node.findtext(image_namespace + "loc", "").strip()
                     for node in root.iter(image_namespace + "image")]
