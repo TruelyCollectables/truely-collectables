@@ -50,7 +50,8 @@ export default function KingmakerStatusStrip() {
         const controller = new AbortController();
         const timeout = window.setTimeout(() => controller.abort(), 8_000);
         try {
-          const response = await fetch(`${check.path}&t=${Date.now()}`, {
+          const separator = check.path.includes("?") ? "&" : "?";
+          const response = await fetch(`${check.path}${separator}t=${Date.now()}`, {
             method: "HEAD",
             cache: "no-store",
             credentials: "same-origin",
