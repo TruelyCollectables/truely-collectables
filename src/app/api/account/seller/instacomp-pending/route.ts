@@ -213,6 +213,28 @@ function recordValue(value: unknown): Record<string, unknown> {
     : {};
 }
 
+function instaCompRecord(...containers: Array<Record<string, unknown>>): Record<string, unknown> {
+  const merged: Record<string, unknown> = {};
+  for (const container of containers) {
+    if (!container || typeof container !== "object") continue;
+    for (const [k, v] of Object.entries(container)) {
+      if (k.toLowerCase() === "instacomp" && v && typeof v === "object" && !Array.isArray(v)) {
+        for (const [fk, fv] of Object.entries(v as Record<string, unknown>)) {
+          if (Array.isArray(merged[fk]) && (merged[fk] as unknown[]).length > 0 && Array.isArray(fv) && fv.length === 0) {
+            continue;
+          }
+          if (fv !== undefined && fv !== null) {
+            merged[fk] = fv;
+          } else if (!(fk in merged)) {
+            merged[fk] = fv;
+          }
+        }
+      }
+    }
+  }
+  return merged;
+}
+
 function textValue(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
@@ -600,7 +622,7 @@ function providerCoverageList(value: unknown) {
 }
 
 function effectiveGraderStatus(metadata: Record<string, unknown>) {
-  const instaComp = recordValue(metadata.instacomp);
+  const instaComp = instaCompRecord(metadata);
   const collectibleAsset = recordValue(metadata.collectible_asset);
   const verifiedReference = recordValue(metadata.verified_reference);
   const stored = textValue(collectibleAsset.grader_verification_status);
@@ -753,7 +775,7 @@ export async function GET(request: Request) {
         const macItem = macByInventoryId.get(String(row.id));
         if (!macItem) continue;
         const macMetadata = recordValue(macItem.metadata);
-        const macInstaComp = recordValue(macMetadata.instacomp);
+        const macInstaComp = instaCompRecord(macMetadata);
         const macChecklistIdentity = recordValue(macInstaComp.checklistIdentity);
         const exactMacTruth =
           macInstaComp.identityComplete === true &&
@@ -767,7 +789,7 @@ export async function GET(request: Request) {
         row.metadata = {
           ...existingMetadata,
           instacomp: {
-            ...recordValue(existingMetadata.instacomp),
+            ...instaCompRecord(existingMetadata),
             ...macInstaComp,
             source: "mac_local_pending_projection",
           },
@@ -788,7 +810,7 @@ export async function GET(request: Request) {
     const instaCompRows = inventoryRows.filter((row: any) => {
       if (row.status === "archived" || row.status === "sold") return false;
       const metadata = recordValue(row.metadata);
-      const instaComp = recordValue(metadata.instacomp);
+      const instaComp = instaCompRecord(recordValue(row), metadata);
       const cardIdentity = recordValue(metadata.card_identity);
       const legacyCardIdentity = recordValue(metadata.cardIdentity);
       const saleIdentity = recordValue(metadata.sale_identity);
@@ -875,7 +897,7 @@ export async function GET(request: Request) {
           const metadata = recordValue(row.metadata);
           const workflow = recordValue(metadata.listingWorkflow);
           const legacyWorkflow = recordValue(metadata.listing_workflow);
-          const instaComp = recordValue(metadata.instacomp);
+          const instaComp = instaCompRecord(metadata);
           return (
             textValue(workflow.reviewBatchId) === requestedBatch ||
             textValue(legacyWorkflow.reviewBatchId) === requestedBatch ||
@@ -957,7 +979,7 @@ export async function GET(request: Request) {
 
     const commercialFolderGroupKey = (row: any) => {
       const metadata = recordValue(row.metadata);
-      const instaComp = recordValue(metadata.instacomp);
+      const instaComp = instaCompRecord(metadata);
       const collectibleAsset = recordValue(metadata.collectible_asset);
       const ai = recordValue(instaComp.ai);
       const uniquePhysicalCopy = Boolean(
@@ -1111,7 +1133,7 @@ export async function GET(request: Request) {
 
     const items = rows.map((row: any) => {
       const metadata = recordValue(row.metadata);
-      const instaComp = recordValue(metadata.instacomp);
+      const instaComp = instaCompRecord(metadata);
       const imageOrientation = recordValue(instaComp.imageOrientation);
       const centering = recordValue(instaComp.centering);
       const ai = recordValue(instaComp.ai);
