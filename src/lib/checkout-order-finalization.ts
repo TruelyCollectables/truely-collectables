@@ -16,7 +16,8 @@ import {
 } from "./checkout-inventory-reservations";
 import { selectedCheckoutShipping } from "./stripe-selected-shipping";
 import { persistBuyerProtectionForOrder } from "./buyer-protection-order";
-import { enqueueAndAttemptOrderNotification } from "./order-notifications";\nimport { hashPromotionIdentity, normalizePromotionAddress, normalizePromotionEmail } from "./store-promotions";
+import { enqueueAndAttemptOrderNotification } from "./order-notifications";
+import { hashPromotionIdentity, normalizePromotionAddress, normalizePromotionEmail } from "./store-promotions";
 
 export async function finalizeCheckoutOrder(params: {
   supabase: SupabaseClient;
