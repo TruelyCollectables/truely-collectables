@@ -6,6 +6,23 @@ export function sanitizePublicListingTitle(value: unknown) {
     .trim();
 }
 
+export function extractCardYear(title: string, supplied?: string) {
+  const yearField = String(supplied || "").match(/\bYear:\s*((?:19|20)\d{2}(?:-\d{2})?)\b/i);
+  if (yearField?.[1]) return yearField[1];
+
+  const titleMatch = String(title || "")
+    .trim()
+    .match(/^((?:19|20)\d{2}(?:-\d{2})?|\d{2}-\d{2})\b/);
+  if (!titleMatch?.[1]) return "";
+
+  const raw = titleMatch[1];
+  if (/^\d{2}-\d{2}$/.test(raw)) {
+    const prefix = Number(raw.slice(0, 2)) >= 50 ? "19" : "20";
+    return `${prefix}${raw}`;
+  }
+  return raw;
+}
+
 export function sanitizePublicListingDescription(value: unknown) {
   const raw = String(value || "").trim();
   if (!raw) return null;
@@ -26,6 +43,15 @@ export function sanitizePublicListingDescription(value: unknown) {
     .replace(/&quot;|&#34;/gi, '"')
     .replace(/&#39;|&apos;/gi, "'")
     .replace(/\uFEFF/g, "")
+    .replace(/Migrated as DRAFT\s*\/\s*NOT FOR SALE pending owner review\.?/gi, "")
+    .replace(/Raw-card condition must be reviewed by the operator and is not a professional grade\.?/gi, "")
+    .replace(/These Van Exel(?:'|’)?s are PC Cards\.[\s\S]*?saving you a bit\.?/gi, "")
+    .replace(/Please check out our other listings for more great cards\.?/gi, "")
+    .replace(/In\s+(?:(?:19|20)\d{2}\s+)?[^.]*?\bplayed for the\s*\./gi, "")
+    .replace(/Professionally graded by\s*,\s*this card received a\s*,\s*confirming its excellent condition and authenticity\.?/gi, "")
+    .replace(/\b(?:Variation|Grader|Grade|Serial Number):\s*(?=(?:Variation|Grader|Grade|Serial Number|Professionally graded|Set|Card Number|Player|Subset):|$)/gi, "")
+    .replace(/Welcome to Truely Collectables\s*[—-]\s*where the heat is REAL[\s\S]*$/i, "")
+    .replace(/Shipping:\s*(?:•|Orders under \$20:)[\s\S]*$/i, "")
     .replace(/\s+/g, " ")
     .trim();
 
@@ -85,7 +111,7 @@ function structuredCardCopy(params: {
   if (!describedPlayer) return null;
 
   const team = fields.get("team") || "";
-  const year = fields.get("year") || "";
+  const year = fields.get("year") || extractCardYear(params.title, params.supplied);
   const brand = fields.get("brand") || "";
   const set = fields.get("set") || "";
   const cardNumber = fields.get("card number") || "";
@@ -109,6 +135,7 @@ function structuredCardCopy(params: {
   return [
     sentence(params.title),
     sentence(details.join(", ")),
+    year ? sentence(`Year: ${year}`) : "",
     featureWords.length ? sentence(`Features: ${featureWords.join(", ")}`) : "",
     condition
       ? sentence(
@@ -127,13 +154,10 @@ function structuredCardCopy(params: {
 }
 
 const STANDARD_STORE_LISTING_COPY = [
-  "Welcome to Truely Collectables — where the heat is REAL and the cards are 🔥",
+  "Welcome to Truely Collectables — where the heat is REAL and the cards are fire.",
   "We’re bringing you straight fire with a stacked lineup of sports cards featuring legendary icons, elite superstars, and the hottest rookies in the game. From jaw-dropping autographs to rare parallels and game-used memorabilia, every card we offer is built to stand out and turn heads.",
   "This isn’t just collecting—it’s the thrill of the chase. The pull. The moment you land that BIG hit. Whether you’re hunting grails, investing in the next breakout star, or just ripping packs for the love of the game, Truely Collectables has what you need to level up your collection.",
-  "💎 Premium cards",
-  "🔥 Rare finds",
-  "🚀 Rising stars",
-  "🏆 All-time legends",
+  "• Premium cards • Rare finds • Rising stars • All-time legends",
   "Don’t miss out—inventory moves fast and the best cards don’t sit around.",
   "Shop Truely Collectables and catch the hype.",
   "Shipping:",
@@ -146,6 +170,7 @@ export function buildPublicListingDescription(input: ListingDescriptionInput) {
   const supplied = sanitizePublicListingDescription(input.description) || "";
   const player = String(input.player || "").trim();
   const sport = String(input.sport || "").trim();
+  const year = extractCardYear(title, supplied);
 
   let cardSpecificCopy = "";
   if (/^Name\/Player:/i.test(supplied)) {
@@ -158,11 +183,13 @@ export function buildPublicListingDescription(input: ListingDescriptionInput) {
       supplied,
     );
     const suppliedDetails = !isStoreBoilerplate ? supplied : "";
+    const hasYearLabel = /\bYear:\s*(?:19|20)\d{2}/i.test(suppliedDetails);
     cardSpecificCopy = [
       sentence(title),
       suppliedDetails && !suppliedDetails.startsWith(title)
         ? suppliedDetails.slice(0, 1200)
         : "",
+      year && !hasYearLabel ? sentence(`Year: ${year}`) : "",
       player ? sentence(`Player or subject: ${player}`) : "",
       sport ? sentence(`Category: ${sport}`) : "",
       "This listing is for the exact collectible shown in the photos.",

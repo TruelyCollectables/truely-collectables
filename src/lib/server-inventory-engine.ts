@@ -41,9 +41,9 @@ const PUBLIC_CATALOG_MEMORY_TTL_MS = 30_000;
 const PUBLIC_CATALOG_EDGE_FRESH_TTL_MS = 5 * 60_000;
 const PUBLIC_CATALOG_EDGE_RETENTION_SECONDS = 7 * 24 * 60 * 60;
 const PUBLIC_CATALOG_CACHE_MAX_STORES = 16;
-// v6 invalidates cached catalog rows so every card gets the improved public
-// description immediately on both storefront pages and the Google Merchant feed.
-const PUBLIC_CATALOG_EDGE_CACHE_VERSION = "v6";
+// v7 invalidates cached catalog rows so every card gets the improved public
+// description (with explicit Year and sanitized copy) on storefront and Merchant feed.
+const PUBLIC_CATALOG_EDGE_CACHE_VERSION = "v7";
 const PUBLIC_PRODUCT_COLUMNS =
   "id,seller_account_id,card_uuid,sku,title,description,price,quantity,image_url,ebay_item_id,player,sport,archived_at";
 

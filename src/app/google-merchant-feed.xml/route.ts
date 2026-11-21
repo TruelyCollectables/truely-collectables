@@ -1,4 +1,5 @@
 import { selectFrontBackListingImages } from "../../lib/listing-image-utils";
+import { extractCardYear } from "../../lib/public-listing-copy";
 import { configuredSiteOrigin } from "../../lib/site-origin";
 import { createServerInventoryEngine } from "../../lib/server-inventory-engine";
 import { createSupabaseServerClient } from "../../lib/supabase-server";
@@ -174,6 +175,7 @@ export async function GET() {
 
         const productType =
           product.storefrontSection || product.sport || product.category || "Collectibles";
+        const cardYear = extractCardYear(product.title, product.description || undefined);
 
         return [
           "    <item>",
@@ -197,6 +199,33 @@ export async function GET() {
               ]
             : []),
           `      <g:product_type>${xmlText(productType)}</g:product_type>`,
+          ...(cardYear
+            ? [
+                "      <g:product_detail>",
+                "        <g:section_name>Card Details</g:section_name>",
+                "        <g:attribute_name>Year</g:attribute_name>",
+                `        <g:attribute_value>${xmlText(cardYear)}</g:attribute_value>`,
+                "      </g:product_detail>",
+              ]
+            : []),
+          ...(product.player
+            ? [
+                "      <g:product_detail>",
+                "        <g:section_name>Card Details</g:section_name>",
+                "        <g:attribute_name>Player</g:attribute_name>",
+                `        <g:attribute_value>${xmlText(product.player)}</g:attribute_value>`,
+                "      </g:product_detail>",
+              ]
+            : []),
+          ...(product.sport
+            ? [
+                "      <g:product_detail>",
+                "        <g:section_name>Card Details</g:section_name>",
+                "        <g:attribute_name>Sport</g:attribute_name>",
+                `        <g:attribute_value>${xmlText(product.sport)}</g:attribute_value>`,
+                "      </g:product_detail>",
+              ]
+            : []),
           "    </item>",
         ].join("\n");
       })
