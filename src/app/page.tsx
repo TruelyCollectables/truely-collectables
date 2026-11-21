@@ -85,7 +85,7 @@ export default async function Home() {
                 name="q"
                 type="search"
                 placeholder="Search player, team, set, rookie, autograph, card #..."
-                className="min-w-0 flex-1 rounded-lg border border-slate-700 bg-[#0f172a] px-5 py-3.5 text-base font-semibold text-white outline-none placeholder:text-slate-400 focus:border-[#22c55e] focus:ring-2 focus:ring-[#22c55e]/40 sm:rounded-r-none"
+                className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-white px-5 py-3.5 text-base font-semibold text-black outline-none placeholder:text-slate-500 focus:border-[#facc15] focus:ring-2 focus:ring-[#facc15]/40 sm:rounded-r-none"
               />
               <button
                 type="submit"
