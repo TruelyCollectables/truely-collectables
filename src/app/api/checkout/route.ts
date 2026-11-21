@@ -53,7 +53,11 @@ import { getStripePaymentRuntime } from "../../../lib/live-payment-launch";
 import {
   listingPromotionFromMetadata,
   normalizeListingCouponCode,
-  resolveCartListingCoupon,\n  categoryMatchesPromotion,\n  hashPromotionIdentity,\n  normalizePromotionAddress,\n  normalizePromotionEmail,
+  resolveCartListingCoupon,
+  categoryMatchesPromotion,
+  hashPromotionIdentity,
+  normalizePromotionAddress,
+  normalizePromotionEmail,
   roundedMoney,
 } from "../../../lib/listing-promotions";
 import { loadLiveStoreSales, resolveStoreSale } from "../../../lib/store-sales";
