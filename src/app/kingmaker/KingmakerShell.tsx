@@ -14,6 +14,8 @@ const navigation = [
   { href: "/kingmaker", label: "Command Center", exact: true },
   { href: "/kingmaker/listings", label: "Master Listings", exact: false },
   { href: "/kingmaker/scan", label: "Scan Cards", exact: false },
+  { href: "/kingmaker/intelligence", label: "Intelligence", exact: false },
+  { href: "/kingmaker/sourcing", label: "Sourcing", exact: false },
   { href: "/kingmaker/inventory", label: "Inventory", exact: false },
   { href: "/kingmaker/orders", label: "Orders", exact: false },
   { href: "/kingmaker/marketplaces", label: "Marketplaces", exact: false },
