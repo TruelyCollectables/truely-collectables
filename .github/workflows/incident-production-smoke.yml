@@ -160,6 +160,58 @@ jobs:
           [ "$robots_code" = "200" ] || fail "robots.txt expected HTTP 200, got $robots_code"
           cloudflare_headers "robots.txt" "$robots_headers"
 
+          echo
+          echo "===== Sitemap XML validity and coverage ====="
+          probe_get "sitemap" "$base/sitemap.xml?smoke=$(date +%s)" 120
+          python - "$LAST_BODY" <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+          path = sys.argv[1]
+          root = ET.parse(path).getroot()
+          namespace = "{http://www.sitemaps.org/schemas/sitemap/0.9}"
+          image_namespace = "{http://www.google.com/schemas/sitemap-image/1.1}"
+          if root.tag != namespace + "urlset":
+              raise SystemExit(f"Unexpected sitemap root: {root.tag}")
+          urls = root.findall(namespace + "url")
+          if not urls:
+              raise SystemExit("Sitemap contains no URL records.")
+          locations = [node.findtext(namespace + "loc", "").strip() for node in urls]
+          if any(not location.startswith("https://truelycollectables.com/") for location in locations):
+              raise SystemExit("Sitemap contains an empty or non-canonical location.")
+          images = [node.findtext(image_namespace + "loc", "").strip()
+                    for node in root.iter(image_namespace + "image")]
+          if any(not image.startswith("https://") for image in images):
+              raise SystemExit("Sitemap contains an empty or non-HTTPS image location.")
+          print(f"SITEMAP_XML=VALID URL_COUNT={len(urls)} IMAGE_COUNT={len(images)}")
+          PY
+
+          echo
+          echo "===== Merchant feed XML validity and required fields ====="
+          probe_get "merchant-feed" "$base/google-merchant-feed.xml?smoke=$(date +%s)" 120
+          python - "$LAST_BODY" <<'PY'
+          import sys
+          import xml.etree.ElementTree as ET
+          path = sys.argv[1]
+          root = ET.parse(path).getroot()
+          if root.tag != "rss":
+              raise SystemExit(f"Unexpected Merchant feed root: {root.tag}")
+          channel = root.find("channel")
+          if channel is None:
+              raise SystemExit("Merchant feed has no channel.")
+          namespace = "{http://base.google.com/ns/1.0}"
+          items = channel.findall("item")
+          if not items:
+              raise SystemExit("Merchant feed contains no product items.")
+          required = ("id", "title", "description", "link", "image_link",
+                      "condition", "availability", "price", "identifier_exists")
+          for index, item in enumerate(items, start=1):
+              missing = [field for field in required
+                         if not (item.findtext(namespace + field) or "").strip()]
+              if missing:
+                  raise SystemExit(f"Merchant item {index} is missing required fields: {missing}")
+          print(f"MERCHANT_FEED_XML=VALID ITEM_COUNT={len(items)}")
+          PY
+
           probe_get "shop" "$base/shop" 120
           shop_body="$LAST_BODY"
           shop_bytes="$(wc -c < "$shop_body" | tr -d ' ')"
