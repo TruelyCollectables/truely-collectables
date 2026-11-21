@@ -455,11 +455,6 @@ def _master_listing_folder(row: dict[str, Any]) -> str:
         return "pending"
     if _record(metadata.get("listingWorkflow")).get("queue") == "need_pricing":
         return "need_pricing"
-    lifecycle = _record(metadata.get("inventory_lifecycle"))
-    if _text(lifecycle.get("disposition")) == "investment_stash" or _text(
-        lifecycle.get("state")
-    ) == "investment_stash":
-        return "investment"
     dual = _record(metadata.get("dual_marketplace"))
     projection = _record(metadata.get("master_listing_projection"))
     website = _record(dual.get("website"))
@@ -496,6 +491,11 @@ def _master_listing_folder(row: dict[str, Any]) -> str:
         return "ebay"
     if mercari_active:
         return "mercari"
+    lifecycle = _record(metadata.get("inventory_lifecycle"))
+    if _text(lifecycle.get("disposition")) == "investment_stash" or _text(
+        lifecycle.get("state")
+    ) == "investment_stash":
+        return "investment"
     return "pending"
 
 
@@ -1018,6 +1018,65 @@ def _ebay_snapshot_lifecycle(listing_status: str, available: int) -> tuple[str, 
     if state in {"completed", "ended"}:
         return "archived", 0
     return "draft", 0
+
+
+def fetch_recent_ebay_completed_orders(lookback_days: int = 14) -> list[dict[str, Any]]:
+    access_token = _ebay_access_token()
+    namespace = {"e": "urn:ebay:apis:eBLBaseComponents"}
+    now = datetime.now(timezone.utc)
+    days = max(1, min(int(lookback_days or 14), 90))
+    start = now - timedelta(days=days)
+    orders: list[dict[str, Any]] = []
+    page_number = 1
+    total_pages = 1
+    while page_number <= min(total_pages, 10):
+        xml_body = (
+            '<?xml version="1.0" encoding="utf-8"?>'
+            '<GetOrdersRequest xmlns="urn:ebay:apis:eBLBaseComponents">'
+            '<DetailLevel>ReturnAll</DetailLevel>'
+            '<OrderRole>Seller</OrderRole>'
+            '<OrderStatus>Completed</OrderStatus>'
+            f'<CreateTimeFrom>{start.strftime("%Y-%m-%dT%H:%M:%S.000Z")}</CreateTimeFrom>'
+            f'<CreateTimeTo>{now.strftime("%Y-%m-%dT%H:%M:%S.000Z")}</CreateTimeTo>'
+            f'<Pagination><EntriesPerPage>100</EntriesPerPage><PageNumber>{page_number}</PageNumber></Pagination>'
+            '</GetOrdersRequest>'
+        ).encode("utf-8")
+        request = urllib.request.Request(
+            "https://api.ebay.com/ws/api.dll",
+            data=xml_body,
+            method="POST",
+            headers={
+                "X-EBAY-API-CALL-NAME": "GetOrders",
+                "X-EBAY-API-SITEID": "0",
+                "X-EBAY-API-COMPATIBILITY-LEVEL": "1409",
+                "X-EBAY-API-IAF-TOKEN": access_token,
+                "Content-Type": "text/xml",
+            },
+        )
+        with urllib.request.urlopen(request, timeout=30) as response:
+            root = ET.fromstring(response.read())
+        ack = str(root.findtext("e:Ack", default="", namespaces=namespace))
+        if ack not in {"Success", "Warning"}:
+            break
+        total_pages = max(1, int(root.findtext("e:PaginationResult/e:TotalNumberOfPages", default="1", namespaces=namespace) or 1))
+        for order in root.findall(".//e:Order", namespace):
+            order_id = str(order.findtext("e:OrderID", default="", namespaces=namespace)).strip()
+            paid_at = str(order.findtext("e:PaidTime", default="", namespaces=namespace) or order.findtext("e:CreatedTime", default="", namespaces=namespace)).strip()
+            for tx in order.findall(".//e:Transaction", namespace):
+                item_id = str(tx.findtext("e:Item/e:ItemID", default="", namespaces=namespace)).strip()
+                if not item_id:
+                    continue
+                title = str(tx.findtext("e:Item/e:Title", default="", namespaces=namespace)).strip()
+                qty = max(1, int(float(tx.findtext("e:QuantityPurchased", default="1", namespaces=namespace) or 1)))
+                orders.append({
+                    "orderId": order_id,
+                    "ebayItemId": item_id,
+                    "title": title,
+                    "quantity": qty,
+                    "soldAt": paid_at or _now(),
+                })
+        page_number += 1
+    return orders
 
 
 def fetch_ebay_seller_snapshot() -> dict[str, Any]:
@@ -2128,6 +2187,129 @@ class KingmakerCommercialInventory:
                 ),
             )
         return self.get_item(inventory_item_id) or current
+
+    def find_sold_ebay_matches(self, orders: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        import re
+        self.initialize()
+        def norm_tokens(s: str) -> tuple[set[str], set[str], set[str]]:
+            raw = str(s or "").lower()
+            serials = set(re.findall(r"\b\d+/\d+\b", raw))
+            card_nums = set(re.findall(r"#([a-z0-9-]+)", raw))
+            words = set(re.findall(r"[a-z0-9]+", raw)) - {
+                "rc", "auto", "autograph", "panini", "upper", "deck", "ud", "topps",
+                "base", "set", "hockey", "basketball", "football", "baseball", "prizm", "prizms",
+            }
+            return words, serials, card_nums
+
+        order_entries = []
+        for o in orders:
+            eid = str(o.get("ebayItemId") or "").strip()
+            title = str(o.get("title") or "").strip()
+            w, ser, cnum = norm_tokens(title)
+            order_entries.append((eid, title, w, ser, cnum, o))
+
+        matches: list[dict[str, Any]] = []
+        with self._read_connect() as db:
+            rows = db.execute("SELECT inventory_item_id, folder, row_json FROM master_listing_projection").fetchall()
+        for r in rows:
+            iid = str(r["inventory_item_id"] or "").strip()
+            try:
+                p = json.loads(str(r["row_json"] or "{}"))
+            except Exception:
+                continue
+            md = _record(p.get("metadata"))
+            dm = _record(md.get("dual_marketplace"))
+            mlp = _record(md.get("master_listing_projection"))
+            eb = _record(dm.get("ebay"))
+            mc = _record(dm.get("mercari"))
+            wb = _record(dm.get("website"))
+            proj_eid = str(eb.get("itemId") or p.get("ebayItemId") or p.get("ebay_item_id") or "").strip()
+            ptitle = str(p.get("title") or "").strip()
+            pw, pser, pcnum = norm_tokens(ptitle)
+
+            matched_order = None
+            for eid, otitle, ow, oser, ocnum, o in order_entries:
+                if eid and proj_eid and eid == proj_eid:
+                    matched_order = o
+                    break
+                if oser and pser and oser != pser:
+                    continue
+                if ocnum and pcnum and ocnum != pcnum:
+                    continue
+                if len(ow) >= 4 and len(ow & pw) >= max(4, len(ow) - 1):
+                    matched_order = o
+                    break
+            if not matched_order:
+                continue
+            mc_active = mlp.get("mercariActive") is True or str(mc.get("status") or "").lower() in {"active", "linked", "live"}
+            matches.append({
+                "inventoryItemId": iid,
+                "title": ptitle,
+                "folder": str(r["folder"] or ""),
+                "quantity": int(float(p.get("quantity") or 1)),
+                "soldOrder": matched_order,
+                "mercariActive": mc_active,
+                "mercariItemId": _text(mc.get("itemId")),
+                "mercariItemUrl": _text(mc.get("itemUrl")),
+                "websiteActive": mlp.get("websiteActive") is True or str(wb.get("status") or "").lower() == "active",
+                "ebayActive": mlp.get("ebayActive") is True or str(eb.get("status") or "").lower() in {"active", "linked"},
+                "legacyProductId": p.get("legacy_product_id") or p.get("legacyProductId") or _record(mlp.get("product")).get("id"),
+            })
+        return matches
+
+    def mark_item_sold_cross_channel(
+        self,
+        inventory_item_id: str,
+        *,
+        sold_channel: str = "ebay",
+        sold_quantity: int = 1,
+        mercari_deactivated: bool = False,
+    ) -> bool:
+        self.initialize()
+        iid = str(inventory_item_id or "").strip()
+        if not iid:
+            return False
+        stamp = _now()
+        with self._connect() as db:
+            comm = db.execute("SELECT quantity, status, raw_json FROM commercial_inventory WHERE inventory_item_id=?", (iid,)).fetchone()
+            if comm is not None:
+                cur_qty = int(comm["quantity"] or 0)
+                new_qty = max(0, cur_qty - max(1, int(sold_quantity or 1)))
+                md = _record(json.loads(comm["raw_json"] or "{}"))
+                dm = _record(md.get("dual_marketplace"))
+                mlp = _record(md.get("master_listing_projection"))
+                if new_qty <= 0:
+                    if mercari_deactivated or str(_record(dm.get("mercari")).get("status") or "").lower() in {"active", "linked", "live"}:
+                        dm["mercari"] = {**_record(dm.get("mercari")), "status": "inactive" if mercari_deactivated else "sold"}
+                        mlp["mercariActive"] = False
+                    dm["ebay"] = {**_record(dm.get("ebay")), "status": "sold" if sold_channel == "ebay" else _record(dm.get("ebay")).get("status")}
+                    dm["website"] = {**_record(dm.get("website")), "status": "sold"}
+                    mlp["ebayActive"] = False
+                    mlp["websiteActive"] = False
+                    md["dual_marketplace"] = dm
+                    md["master_listing_projection"] = mlp
+                if _record(md.get("verifiedCsv")).get("authority") == "seller_verified_csv_v1":
+                    db.execute(
+                        "UPDATE commercial_inventory SET quantity=?, status=?, updated_at=? WHERE inventory_item_id=?",
+                        (new_qty, "archived" if new_qty <= 0 else str(comm["status"]), stamp, iid),
+                    )
+                else:
+                    db.execute(
+                        "UPDATE commercial_inventory SET quantity=?, status=?, raw_json=?, updated_at=? WHERE inventory_item_id=?",
+                        (new_qty, "archived" if new_qty <= 0 else str(comm["status"]), json.dumps(md, separators=(",", ":"), ensure_ascii=False), stamp, iid),
+                    )
+            proj = db.execute("SELECT row_json FROM master_listing_projection WHERE inventory_item_id=?", (iid,)).fetchone()
+            if proj is not None:
+                p = json.loads(str(proj["row_json"] or "{}"))
+                cur_qty = int(float(p.get("quantity") or 1))
+                new_qty = max(0, cur_qty - max(1, int(sold_quantity or 1)))
+                if new_qty <= 0:
+                    db.execute("DELETE FROM master_listing_projection WHERE inventory_item_id=?", (iid,))
+                else:
+                    p["quantity"] = new_qty
+                    p["updated_at"] = stamp
+                    db.execute("UPDATE master_listing_projection SET row_json=?, projected_at=? WHERE inventory_item_id=?", (json.dumps(p, separators=(",", ":"), ensure_ascii=False), stamp, iid))
+        return True
 
     @staticmethod
     def _payload(row: sqlite3.Row) -> dict[str, Any]:

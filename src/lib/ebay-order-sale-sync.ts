@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { canonicalLegacyProductIdForEbayItemId } from "./ebay-merged-listing-groups";
+import { postInstaCompMacAccounting } from "./instacomp-mac-accounting-client";
 import { getStoreSettings } from "./store-settings";
 
 const TRADING_API_VERSION = "1409";
@@ -406,6 +407,18 @@ export async function syncRecentEbayOrderSales(params: {
           error: cleanError(error),
         });
       }
+    }
+  }
+
+  if (result.recorded > 0 || result.transactionsRead > 0) {
+    try {
+      await postInstaCompMacAccounting(
+        "/v1/kingmaker/accounting/cross-marketplace-sync",
+        { lookback_days: lookbackDays, deactivate_mercari: true },
+        120_000,
+      );
+    } catch {
+      // Best-effort Mac SQLite & Mercari delist propagation.
     }
   }
 

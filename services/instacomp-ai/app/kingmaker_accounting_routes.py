@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 
 from .kingmaker_accounting import KingmakerAccounting
 from .kingmaker_manual_purchases import KingmakerManualPurchases
-from .kingmaker_commercial_inventory import KingmakerCommercialInventory, fetch_ebay_seller_snapshot, _ebay_credential_paths, _read_env_file
+from .kingmaker_commercial_inventory import KingmakerCommercialInventory, fetch_ebay_seller_snapshot, fetch_recent_ebay_completed_orders, _ebay_credential_paths, _read_env_file
 
 
 class PurchaseMatchRequest(BaseModel):
@@ -55,9 +55,15 @@ class MercariBridgeRequest(BaseModel):
     confirmation: str | None = Field(default=None, max_length=64)
 
 
+class CrossMarketplaceSyncRequest(BaseModel):
+    lookback_days: int = Field(default=14, ge=1, le=90)
+    deactivate_mercari: bool = True
+    dry_run: bool = False
+
+
 def _run_local_mercari_bridge(payload: dict[str, Any]) -> dict[str, Any]:
     repo_root = Path(__file__).resolve().parents[3]
-    runner = repo_root / "services/instacomp-ai/scripts/kingmaker_mercari_publish.py"
+    runner = Path(__file__).resolve().parents[1] / "scripts/kingmaker_mercari_publish.py"
     python_binary = sys.executable if Path(sys.executable).exists() else (shutil.which("python3") or "/opt/homebrew/bin/python3")
     if not runner.exists():
         raise ValueError("The Mac-local KINGMAKER Mercari runner is missing")
@@ -446,6 +452,63 @@ def build_kingmaker_accounting_router(
             raise
         except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @router.post("/cross-marketplace-sync")
+    def cross_marketplace_sync(request: CrossMarketplaceSyncRequest):
+        try:
+            orders = fetch_recent_ebay_completed_orders(request.lookback_days)
+            matches = commercial_inventory.find_sold_ebay_matches(orders)
+            mercari_deactivated: list[dict[str, Any]] = []
+            mercari_failed: list[dict[str, Any]] = []
+            sqlite_updated: list[str] = []
+            for m in matches:
+                deactivated = False
+                if request.deactivate_mercari and not request.dry_run and m.get("mercariActive") and (m.get("mercariItemId") or m.get("mercariItemUrl")):
+                    try:
+                        _run_local_mercari_bridge({
+                            "mode": "deactivate",
+                            "confirmation": "DEACTIVATE_LIVE",
+                            "item": {
+                                "itemId": m.get("mercariItemId"),
+                                "itemUrl": m.get("mercariItemUrl"),
+                                "title": m.get("title"),
+                            },
+                        })
+                        deactivated = True
+                        mercari_deactivated.append({
+                            "inventoryItemId": m["inventoryItemId"],
+                            "title": m["title"],
+                            "mercariItemId": m.get("mercariItemId"),
+                            "mercariItemUrl": m.get("mercariItemUrl"),
+                        })
+                    except Exception as exc:
+                        mercari_failed.append({
+                            "inventoryItemId": m["inventoryItemId"],
+                            "title": m["title"],
+                            "mercariItemId": m.get("mercariItemId"),
+                            "error": str(exc),
+                        })
+                if not request.dry_run:
+                    sold_qty = int((m.get("soldOrder") or {}).get("quantity") or 1)
+                    if commercial_inventory.mark_item_sold_cross_channel(
+                        m["inventoryItemId"],
+                        sold_channel="ebay",
+                        sold_quantity=sold_qty,
+                        mercari_deactivated=deactivated,
+                    ):
+                        sqlite_updated.append(m["inventoryItemId"])
+            return {
+                "ok": True,
+                "ordersRead": len(orders),
+                "matchedCount": len(matches),
+                "matches": matches,
+                "mercariDeactivated": mercari_deactivated,
+                "mercariFailed": mercari_failed,
+                "sqliteUpdatedCount": len(sqlite_updated),
+                "sqliteUpdated": sqlite_updated,
+            }
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 
     @router.post("/commercial-inventory")

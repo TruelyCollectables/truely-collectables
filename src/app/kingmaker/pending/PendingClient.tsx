@@ -2614,6 +2614,45 @@ export default function KingmakerPendingPage({
     }
   }
 
+  async function runCrossMarketplaceSync() {
+    setBusyId("cross-sync");
+    setPageError("");
+    setNotice("Syncing recent eBay sales across Website, SQLite & Mercari (deactivating sold items)…");
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      if (!session?.access_token) throw new Error("Seller login is required.");
+      const response = await fetch("/api/account/seller/kingmaker-sync", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({ lookbackDays: 14, deactivateMercari: true }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.ok !== true) {
+        throw new Error(data.error || "Cross-marketplace sync failed.");
+      }
+      const ordersRead = Number(data.ordersRead || 0);
+      const matchedCount = Number(data.matchedCount || 0);
+      const mercariDeactivated = Array.isArray(data.mercariDeactivated) ? data.mercariDeactivated.length : 0;
+      const mercariFailed = Array.isArray(data.mercariFailed) ? data.mercariFailed : [];
+      setNotice(
+        `Sync complete: checked ${ordersRead} eBay order${ordersRead === 1 ? "" : "s"} · ${matchedCount} matched · ${mercariDeactivated} Mercari listing${mercariDeactivated === 1 ? "" : "s"} deactivated · ${Number(data.sqliteUpdatedCount || 0)} inventory rows updated.`,
+      );
+      if (mercariFailed.length) {
+        setPageError(
+          `Mercari delist failed on ${mercariFailed.length}: ${mercariFailed.slice(0, 3).map((f: any) => `${f.title} (${f.error})`).join(" · ")}`,
+        );
+      }
+      await load("listings", folderFromLocation());
+    } catch (error) {
+      setPageError(message(error));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   return (
     <main className="min-h-screen bg-neutral-100 px-4 py-6 text-neutral-950">
       <div className="mx-auto max-w-6xl">
@@ -2647,14 +2686,24 @@ export default function KingmakerPendingPage({
                   : "Live inventory sorted by marketplace. Use the Recomp & Sale Engine below to run targeted sales or refresh comps."}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => void load("listings", folderFromLocation())}
-            disabled={loading || Boolean(busyId)}
-            className="rounded-xl bg-neutral-950 px-4 py-3 font-black text-white disabled:opacity-50"
-          >
-            {loading ? "Loading…" : "Reload"}
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => void runCrossMarketplaceSync()}
+              disabled={loading || Boolean(busyId)}
+              className="rounded-xl bg-emerald-700 px-4 py-3 font-black text-white disabled:opacity-50"
+            >
+              {busyId === "cross-sync" ? "Syncing Sold…" : "Sync Sold & Delist"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void load("listings", folderFromLocation())}
+              disabled={loading || Boolean(busyId)}
+              className="rounded-xl bg-neutral-950 px-4 py-3 font-black text-white disabled:opacity-50"
+            >
+              {loading ? "Loading…" : "Reload"}
+            </button>
+          </div>
         </div>
 
         <nav className="mt-5 flex flex-wrap gap-2" aria-label="Inventory lifecycle folders">
