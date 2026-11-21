@@ -134,6 +134,9 @@ export async function POST(request: Request) {
       if (!storePromotion.active) {
         return NextResponse.json({ error: "That promotion is no longer active.", retryable: false }, { status: 400 });
       }
+      if (storePromotion.starts_at && new Date(storePromotion.starts_at) > new Date()) {
+        return NextResponse.json({ error: `That promotion starts on ${new Date(storePromotion.starts_at).toLocaleString()}.`, retryable: false }, { status: 400 });
+      }
       if (storePromotion.expires_at && new Date(storePromotion.expires_at) <= new Date()) {
         return NextResponse.json({ error: "That promotion has expired.", retryable: false }, { status: 400 });
       }
