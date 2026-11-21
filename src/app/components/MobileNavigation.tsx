@@ -27,7 +27,7 @@ export default function MobileNavigation({
   return (
     <div
       ref={scrollRef}
-      className="-mx-4 mt-3 overflow-x-auto overscroll-x-contain border-t border-slate-800 px-4 pt-2 lg:hidden sm:-mx-6 sm:px-6"
+      className="-mx-4 mt-3 overflow-x-auto overscroll-x-contain border-t border-slate-800 px-4 pt-2 xl:hidden sm:-mx-6 sm:px-6"
       aria-label="Mobile store navigation"
     >
       <div className="flex min-w-max items-center gap-5 pr-4 sm:pr-6">

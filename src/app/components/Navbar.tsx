@@ -49,7 +49,7 @@ export default function Navbar() {
             <Link
               href="/"
               prefetch={false}
-              className="flex min-w-0 items-center gap-3"
+              className="flex min-w-0 shrink-0 items-center gap-3"
             >
               <div className="font-display flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-[#facc15] text-lg font-extrabold uppercase tracking-tight text-[#0f172a] shadow-sm">
                 {storeMark(STORE_BRAND_NAME)}
@@ -64,8 +64,31 @@ export default function Navbar() {
               </div>
             </Link>
 
+            <form
+              action="/shop"
+              method="get"
+              className="hidden min-w-0 flex-1 max-w-md items-center md:flex"
+            >
+              <label htmlFor="navbar-card-search" className="sr-only">
+                Search cards and collectibles
+              </label>
+              <input
+                id="navbar-card-search"
+                name="q"
+                type="search"
+                placeholder="Search player, team, set, card #..."
+                className="min-h-10 min-w-0 flex-1 rounded-l-lg border border-slate-700 bg-[#0b1120] px-3.5 py-2 text-sm font-semibold text-white outline-none placeholder:text-slate-400 focus:border-[#facc15]"
+              />
+              <button
+                type="submit"
+                className="min-h-10 shrink-0 rounded-r-lg border border-l-0 border-[#facc15] bg-[#facc15] px-4 py-2 text-xs font-extrabold uppercase tracking-wider text-[#0f172a] transition hover:bg-[#eab308]"
+              >
+                Search
+              </button>
+            </form>
+
             <div className="flex shrink-0 items-center gap-2 sm:gap-4">
-              <div className="hidden items-center gap-5 lg:flex">
+              <div className="hidden items-center gap-4 xl:flex">
                 {navigationLinks.map((item) => (
                   <NavigationLink key={item.href} {...item} />
                 ))}
@@ -80,6 +103,29 @@ export default function Navbar() {
               </Link>
             </div>
           </div>
+
+          <form
+            action="/shop"
+            method="get"
+            className="mt-3 flex items-center md:hidden"
+          >
+            <label htmlFor="mobile-navbar-card-search" className="sr-only">
+              Search cards and collectibles
+            </label>
+            <input
+              id="mobile-navbar-card-search"
+              name="q"
+              type="search"
+              placeholder="Search player, team, set, card #..."
+              className="min-h-10 min-w-0 flex-1 rounded-l-lg border border-slate-700 bg-[#0b1120] px-3.5 py-2 text-sm font-semibold text-white outline-none placeholder:text-slate-400 focus:border-[#facc15]"
+            />
+            <button
+              type="submit"
+              className="min-h-10 shrink-0 rounded-r-lg border border-l-0 border-[#facc15] bg-[#facc15] px-4 py-2 text-xs font-extrabold uppercase tracking-wider text-[#0f172a] transition hover:bg-[#eab308]"
+            >
+              Search
+            </button>
+          </form>
 
           <MobileNavigation links={mobileNavigationLinks} />
         </div>
