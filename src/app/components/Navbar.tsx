@@ -77,7 +77,7 @@ export default function Navbar() {
                 name="q"
                 type="search"
                 placeholder="Search player, team, set, card #..."
-                className="min-h-10 min-w-0 flex-1 rounded-l-lg border border-slate-700 bg-[#0b1120] px-3.5 py-2 text-sm font-semibold text-white outline-none placeholder:text-slate-400 focus:border-[#facc15]"
+                className="min-h-10 min-w-0 flex-1 rounded-l-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-semibold text-black outline-none placeholder:text-slate-500 focus:border-[#facc15]"
               />
               <button
                 type="submit"
@@ -117,7 +117,7 @@ export default function Navbar() {
               name="q"
               type="search"
               placeholder="Search player, team, set, card #..."
-              className="min-h-10 min-w-0 flex-1 rounded-l-lg border border-slate-700 bg-[#0b1120] px-3.5 py-2 text-sm font-semibold text-white outline-none placeholder:text-slate-400 focus:border-[#facc15]"
+              className="min-h-10 min-w-0 flex-1 rounded-l-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-semibold text-black outline-none placeholder:text-slate-500 focus:border-[#facc15]"
             />
             <button
               type="submit"
