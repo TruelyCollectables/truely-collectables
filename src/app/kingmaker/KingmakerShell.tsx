@@ -8,6 +8,7 @@ import {
   getAccountSession,
   clearAccountSession,
 } from "../account/account-session";
+import KingmakerStatusStrip from "./KingmakerStatusStrip";
 
 const navigation = [
   { href: "/kingmaker", label: "Command Center", exact: true },
@@ -93,6 +94,7 @@ export default function KingmakerShell({
           </div>
         </div>
       </header>
+      <KingmakerStatusStrip />
 
       <div className="mx-auto grid max-w-[1500px] gap-0 lg:grid-cols-[250px_minmax(0,1fr)]">
         <aside className="border-b border-slate-800 bg-slate-950 px-4 py-5 lg:min-h-[calc(100vh-89px)] lg:border-b-0 lg:border-r">
