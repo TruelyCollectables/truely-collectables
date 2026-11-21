@@ -41,24 +41,6 @@ type CompEvidence = {
   listedAt?: string | null;
 };
 
-type CenteringEstimate = {
-  measurable?: boolean;
-  left_percent?: number | null;
-  right_percent?: number | null;
-  top_percent?: number | null;
-  bottom_percent?: number | null;
-  horizontal_ratio?: string | null;
-  vertical_ratio?: string | null;
-  confidence?: number | null;
-  method?: string | null;
-  warning?: string | null;
-  horizontal_measurable?: boolean;
-  vertical_measurable?: boolean;
-  horizontal_confidence?: number | null;
-  vertical_confidence?: number | null;
-  design_classification?: string | null;
-};
-
 type PriceGuidePoint = {
   timestamp: number;
   value: number;
@@ -105,6 +87,7 @@ type PendingCard = {
   title: string;
   description?: string | null;
   category?: string | null;
+  sport?: string | null;
   condition?: string | null;
   sku: string | null;
   price?: number | null;
@@ -236,10 +219,6 @@ type PendingCard = {
       calculatedFrom?: string | null;
     } | null;
     reliableSoldCompCount?: number;
-    centering?: {
-      front?: CenteringEstimate | null;
-      back?: CenteringEstimate | null;
-    } | null;
     imageOrientation?: {
       verified: boolean;
       status?: string | null;
@@ -402,17 +381,13 @@ type MergeEbayStrategy = "keep_one" | "increase_existing";
 
 function queueFromLocation(): PendingQueue | null {
   if (typeof window === "undefined") return "listings";
-  const queue = new URLSearchParams(window.location.search).get("queue");
-  if (queue === "verification" || queue === "listings" || queue === "redo_pending_resale") return queue;
-  return null;
+  return "listings";
 }
 
 function folderFromLocation(): ListingFolder {
   if (typeof window === "undefined") return "pending";
   const folder = new URLSearchParams(window.location.search).get("folder");
   return (
-    folder === "receipt" ||
-    folder === "need_pricing" ||
     folder === "website" ||
     folder === "ebay" ||
     folder === "mercari" ||
@@ -424,6 +399,54 @@ function folderFromLocation(): ListingFolder {
       ? folder
       : "pending"
   );
+}
+
+const SPORT_FILTERS = [
+  "All Sports",
+  "Football",
+  "Basketball",
+  "Hockey",
+  "Baseball",
+  "Wrestling",
+  "Golf",
+  "Soccer",
+  "Pokemon",
+] as const;
+
+type SportFilter = (typeof SPORT_FILTERS)[number];
+
+function cardMatchesSport(card: PendingCard, sportFilter: SportFilter): boolean {
+  if (sportFilter === "All Sports") return true;
+  const hay = [
+    card.sport,
+    card.instaComp.identity?.sport,
+    card.instaComp.identity?.league,
+    card.category,
+    card.title,
+  ]
+    .map((v) => String(v || "").toLowerCase())
+    .join(" ");
+  if (sportFilter === "Football") return /\b(football|nfl|ncaa football|college football)\b/.test(hay);
+  if (sportFilter === "Basketball") return /\b(basketball|nba|wnba)\b/.test(hay);
+  if (sportFilter === "Hockey") return /\b(hockey|nhl)\b/.test(hay);
+  if (sportFilter === "Baseball") return /\b(baseball|mlb)\b/.test(hay);
+  if (sportFilter === "Wrestling") return /\b(wrestling|wwe|aew|wwf|wcw|nxt|ufc)\b/.test(hay);
+  if (sportFilter === "Golf") return /\b(golf|pga|liv golf|lpga)\b/.test(hay);
+  if (sportFilter === "Soccer") return /\b(soccer|mls|premier league|fifa|uefa)\b/.test(hay);
+  if (sportFilter === "Pokemon") return /\b(pokemon|pokémon|tcg)\b/.test(hay);
+  return true;
+}
+
+const SALE_PERCENT_PRESETS = [-50, -40, -30, -25, -20, -15, -10, -5, 10, 15, 25] as const;
+
+function defaultChannelsForFolder(folder: ListingFolder): Set<"website" | "ebay" | "mercari"> {
+  if (folder === "website") return new Set(["website"]);
+  if (folder === "ebay") return new Set(["ebay"]);
+  if (folder === "mercari") return new Set(["mercari"]);
+  if (folder === "both") return new Set(["website", "ebay"]);
+  if (folder === "website_mercari") return new Set(["website", "mercari"]);
+  if (folder === "ebay_mercari") return new Set(["ebay", "mercari"]);
+  return new Set(["website", "ebay", "mercari"]);
 }
 
 function message(error: unknown) {
@@ -621,7 +644,6 @@ function CardImageInspector({
   title,
   side,
   url,
-  centering,
   orientationVerified,
   rotating,
   onRotate,
@@ -629,7 +651,6 @@ function CardImageInspector({
   title: string;
   side: "front" | "back";
   url: string | null;
-  centering?: CenteringEstimate | null;
   orientationVerified: boolean;
   rotating: boolean;
   onRotate: () => void;
@@ -680,19 +701,6 @@ function CardImageInspector({
     dragRef.current = null;
     setDragging(false);
   };
-  const horizontalMeasured =
-    centering?.horizontal_measurable === true ||
-    (typeof centering?.left_percent === "number" &&
-      typeof centering?.right_percent === "number");
-  const verticalMeasured =
-    centering?.vertical_measurable === true ||
-    (typeof centering?.top_percent === "number" &&
-      typeof centering?.bottom_percent === "number");
-  const measured = horizontalMeasured && verticalMeasured && centering?.measurable === true;
-  const ratio = (first: number | null | undefined, second: number | null | undefined) =>
-    typeof first === "number" && typeof second === "number"
-      ? `${Math.round(first)} / ${Math.round(second)}`
-      : "—";
 
   return (
     <figure className="rounded-xl border-2 border-neutral-800 bg-neutral-100 p-3">
@@ -733,64 +741,6 @@ function CardImageInspector({
         ) : (
           <div className="flex h-full items-center justify-center font-black text-red-800">{side.toUpperCase()} MISSING</div>
         )}
-      </div>
-      <div className="mt-3 rounded-lg border-2 border-neutral-800 bg-white p-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <p className="text-xs font-black uppercase tracking-wider">CENTERING ESTIMATE · {side.toUpperCase()}</p>
-          <div className="flex flex-wrap items-center gap-2">
-            <span className={`rounded-full px-2 py-1 text-[11px] font-black ${
-              measured
-                ? "bg-emerald-100 text-emerald-900"
-                : horizontalMeasured || verticalMeasured
-                  ? "bg-amber-100 text-amber-900"
-                  : "bg-neutral-200 text-neutral-700"
-            }`}>
-              {measured
-                ? "2-axis confident"
-                : horizontalMeasured || verticalMeasured
-                  ? "partial only"
-                  : "not confidently measurable"}
-            </span>
-            {typeof centering?.confidence === "number" ? (
-              <span className="text-xs font-bold text-neutral-600">Confidence {Math.round(centering.confidence * 100)}%</span>
-            ) : null}
-          </div>
-        </div>
-        <div className="mt-3 grid grid-cols-2 gap-3">
-          <div className={`rounded-lg p-3 text-center ${horizontalMeasured ? "bg-neutral-100" : "bg-amber-50"}`}>
-            <p className="text-[11px] font-black uppercase tracking-wider text-neutral-600">LEFT / RIGHT</p>
-            <p className="mt-1 text-2xl font-black">
-              {horizontalMeasured
-                ? ratio(centering?.left_percent, centering?.right_percent)
-                : "No reliable frame"}
-            </p>
-            {horizontalMeasured ? (
-              <p className="mt-1 text-xs font-bold text-neutral-600">
-                Left {centering?.left_percent?.toFixed(1)}% · Right {centering?.right_percent?.toFixed(1)}%
-              </p>
-            ) : (
-              <p className="mt-1 text-xs font-bold text-amber-900">Horizontal border evidence was not strong enough.</p>
-            )}
-          </div>
-          <div className={`rounded-lg p-3 text-center ${verticalMeasured ? "bg-neutral-100" : "bg-amber-50"}`}>
-            <p className="text-[11px] font-black uppercase tracking-wider text-neutral-600">TOP / BOTTOM</p>
-            <p className="mt-1 text-2xl font-black">
-              {verticalMeasured
-                ? ratio(centering?.top_percent, centering?.bottom_percent)
-                : "No reliable frame"}
-            </p>
-            {verticalMeasured ? (
-              <p className="mt-1 text-xs font-bold text-neutral-600">
-                Top {centering?.top_percent?.toFixed(1)}% · Bottom {centering?.bottom_percent?.toFixed(1)}%
-              </p>
-            ) : (
-              <p className="mt-1 text-xs font-bold text-amber-900">Vertical border evidence was not strong enough.</p>
-            )}
-          </div>
-        </div>
-        <p className="mt-2 text-xs font-semibold text-neutral-600">
-          {centering?.design_classification || "unknown design"} · estimated from the physical card edges and detected printed frame. InstaComp reports only axes it can measure confidently. InstaComp will not invent a centering number when the border/frame cannot be measured confidently; this is not a grading guarantee.
-        </p>
       </div>
       <p className="mt-2 text-xs font-semibold text-neutral-600">
         Use + / − to inspect borders and small print; while zoomed, grab and drag to pan.
@@ -884,8 +834,18 @@ export default function KingmakerPendingPage({
   const purchaseMatchSignatureRef = useRef("");
   const [renderLimit, setRenderLimit] = useState(24);
   const router = useRouter();
-  const [queue, setQueue] = useState<PendingQueue>(initialQueue);
+  const [queue, setQueue] = useState<PendingQueue>(initialQueue === "listings" ? "listings" : "listings");
   const [folder, setFolder] = useState<ListingFolder>(initialFolder);
+  const [sportFilter, setSportFilter] = useState<SportFilter>("All Sports");
+  const [saleChannels, setSaleChannels] = useState<Set<"website" | "ebay" | "mercari">>(() => defaultChannelsForFolder(initialFolder));
+  const [saleScope, setSaleScope] = useState<"filtered" | "selected">("filtered");
+  const [saleRound99, setSaleRound99] = useState(true);
+  const [salePushLive, setSalePushLive] = useState(true);
+  const [customSalePercent, setCustomSalePercent] = useState("");
+
+  useEffect(() => {
+    setSaleChannels(defaultChannelsForFolder(folder));
+  }, [folder]);
 
   const refreshPriceGuide = useCallback(async (
     card: PendingCard,
@@ -1764,6 +1724,17 @@ export default function KingmakerPendingPage({
   async function savePrice(card: PendingCard, price: number, source: string) {
     setBusyId(card.inventoryItemId);
     setPageError("");
+    const nextWebsite = String(Math.round(price * 100) / 100);
+    const nextEbay = String(Math.round(price * 100) / 100);
+    const nextMercari = String(Math.max(1.0, Math.round(price * 100) / 100));
+    setChannelPriceEdits((current) => ({
+      ...current,
+      [card.inventoryItemId]: {
+        website: nextWebsite,
+        ebay: nextEbay,
+        mercari: nextMercari,
+      },
+    }));
     try {
       const session = await getFreshAccountSession(5 * 60, false);
       if (!session?.access_token) throw new Error("Seller login is required.");
@@ -1777,16 +1748,10 @@ export default function KingmakerPendingPage({
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "Could not save listing price.");
-      setChannelPriceEdits((current) => {
-        if (!current[card.inventoryItemId]) return current;
-        const next = { ...current };
-        delete next[card.inventoryItemId];
-        return next;
-      });
       setNotice(
-        `${money(price)} saved${Number(data.updatedCount || 1) > 1 ? ` across ${data.updatedCount} exact-card matches` : ""}.`,
+        `${money(price)} applied to Website, eBay & Mercari${Number(data.updatedCount || 1) > 1 ? ` across ${data.updatedCount} exact-card matches` : ""}. You can adjust individual marketplaces below.`,
       );
-      await load(queue || queueFromLocation());
+      await load(queue || queueFromLocation() || "listings", folderFromLocation());
     } catch (error) {
       setPageError(message(error));
     } finally {
@@ -2530,15 +2495,124 @@ export default function KingmakerPendingPage({
     }
   }
 
-  const pendingReceiptCount = Object.values(purchaseMatches).filter((purchase) => purchase?.status === "pending_purchase").length;
-  const visibleCards = folder === "receipt"
-    ? cards.filter((card) =>
-        physicalMembersForCard(card).some(
-          (member) => purchaseMatches[member.inventoryItemId]?.status === "pending_purchase",
-        ),
-      )
-    : cards;
+  const visibleCards = cards.filter((card) => cardMatchesSport(card, sportFilter));
   const renderedCards = visibleCards.slice(0, renderLimit);
+
+  function toggleSaleChannel(channel: "website" | "ebay" | "mercari") {
+    setSaleChannels((current) => {
+      const next = new Set(current);
+      if (next.has(channel)) next.delete(channel);
+      else next.add(channel);
+      return next;
+    });
+  }
+
+  async function runBulkRecompAndRefresh() {
+    const targets = saleScope === "selected" && selectedIds.size > 0
+      ? visibleCards.filter((card) => selectedIds.has(card.inventoryItemId))
+      : visibleCards;
+    const pairTargets = targets.filter((card) => hasValidPair(card));
+    if (!pairTargets.length) {
+      setPageError("No cards with stored front + back images in the current scope to recomp.");
+      return;
+    }
+    setBusyId("recomp-engine");
+    setPageError("");
+    setNotice(`Recomping ${pairTargets.length} card${pairTargets.length === 1 ? "" : "s"} against live 365-day market data…`);
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      if (!session?.access_token) throw new Error("Seller login is required.");
+      let priced = 0;
+      let noMarket = 0;
+      const failures: string[] = [];
+      await runWithConcurrency(pairTargets, MARKET_PRICE_CONCURRENCY, async (card) => {
+        const response = await fetch("/api/account/seller/inventory/instacomp-fast-market", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ inventoryItemId: card.inventoryItemId }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || data.success !== true) {
+          failures.push(`${card.title}: ${data.error || "failed"}`);
+          return;
+        }
+        if (Number(data.suggestedPrice || 0) > 0) priced += 1;
+        else noMarket += 1;
+      });
+      setNotice(`Recomp complete: ${priced} priced from live comps, ${noMarket} held for manual pricing${failures.length ? `, ${failures.length} failed` : ""}.`);
+      if (failures.length) setPageError(failures.slice(0, 3).join(" · "));
+      await load("listings", folderFromLocation());
+    } catch (error) {
+      setPageError(message(error));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function applyTargetedSale(percent: number) {
+    const channels = Array.from(saleChannels);
+    if (!channels.length) {
+      setPageError("Select at least one marketplace (Website, eBay, or Mercari) for the sale.");
+      return;
+    }
+    const targets = saleScope === "selected" && selectedIds.size > 0
+      ? visibleCards.filter((card) => selectedIds.has(card.inventoryItemId))
+      : visibleCards;
+    if (!targets.length) {
+      setPageError("No cards match the current filter/selection.");
+      return;
+    }
+    const label = percent === 0 ? "Reset to current base prices" : `${percent > 0 ? "+" : ""}${percent}%`;
+    if (!window.confirm(`Apply ${label} across ${targets.length} card${targets.length === 1 ? "" : "s"} (${sportFilter}) on ${channels.join(" + ")}${saleRound99 ? " with .99 rounding" : ""}${salePushLive ? " and push live to Website/eBay" : " (staging DB only)"}?`)) {
+      return;
+    }
+    setBusyId("recomp-sale");
+    setPageError("");
+    setNotice(`Applying ${label} to ${targets.length} card${targets.length === 1 ? "" : "s"} on ${channels.join(" + ")}…`);
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      if (!session?.access_token) throw new Error("Seller login is required.");
+      const response = await fetch("/api/account/seller/kingmaker-recomp-sale", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          inventoryItemIds: targets.map((c) => c.inventoryItemId),
+          channels,
+          percent,
+          roundTo99: saleRound99,
+          pushLive: salePushLive,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.ok !== true) {
+        throw new Error(data.error || "Bulk sale/recomp failed.");
+      }
+      setChannelPriceEdits((current) => {
+        const next = { ...current };
+        for (const t of targets) delete next[t.inventoryItemId];
+        return next;
+      });
+      const liveParts: string[] = [];
+      if (Number(data.liveUpdated?.website || 0) > 0) liveParts.push(`Website ${data.liveUpdated.website} live`);
+      if (Number(data.liveUpdated?.ebay || 0) > 0) liveParts.push(`eBay ${data.liveUpdated.ebay} live`);
+      if (channels.includes("mercari")) liveParts.push(`Mercari ${data.updatedCount} staged`);
+      setNotice(`Sale applied (${label}): ${data.updatedCount}/${targets.length} cards updated${liveParts.length ? ` · ${liveParts.join(" · ")}` : ""}.`);
+      if (Array.isArray(data.errors) && data.errors.length) {
+        setPageError(data.errors.slice(0, 3).join(" · "));
+      }
+      await load("listings", folderFromLocation());
+    } catch (error) {
+      setPageError(message(error));
+    } finally {
+      setBusyId(null);
+    }
+  }
 
   return (
     <main className="min-h-screen bg-neutral-100 px-4 py-6 text-neutral-950">
@@ -2547,51 +2621,35 @@ export default function KingmakerPendingPage({
           <div>
             <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-800">KINGMAKER / Master Listings</p>
             <h1 className="mt-1 text-3xl font-black">
-              {queue === "verification"
-                ? "Pending verification"
-                : queue === "redo_pending_resale"
-                  ? "REDO Resale Pending — seller review"
-                : folder === "receipt"
-                  ? "Pending receipt — matched purchases"
-                  : folder === "pending"
-                    ? "Resale inventory — pending listing"
-                  : folder === "need_pricing"
-                    ? "Need pricing — held from resale pending"
-                  : folder === "website"
-                    ? "Listed on website only"
-                    : folder === "ebay"
-                      ? "Listed on eBay only"
-                      : folder === "mercari"
-                        ? "Listed on Mercari only"
-                        : folder === "both"
-                          ? "Listed on website + eBay"
-                          : folder === "website_mercari"
-                            ? "Listed on website + Mercari"
-                            : folder === "ebay_mercari"
-                              ? "Listed on eBay + Mercari"
-                              : folder === "all3"
-                                ? "Listed on website + eBay + Mercari"
-                                : "Investment stash"}
+              {folder === "pending"
+                ? "Resale Pending — Identify → Comp → List"
+                : folder === "website"
+                  ? "Listed on Website Only"
+                  : folder === "ebay"
+                    ? "Listed on eBay Only"
+                    : folder === "mercari"
+                      ? "Listed on Mercari Only"
+                      : folder === "both"
+                        ? "Listed on Website + eBay"
+                        : folder === "website_mercari"
+                          ? "Listed on Website + Mercari"
+                          : folder === "ebay_mercari"
+                            ? "Listed on eBay + Mercari"
+                            : folder === "all3"
+                              ? "Listed All 3 Marketplaces"
+                              : "Investment Stash"}
             </h1>
             <p className="mt-2 max-w-4xl font-semibold text-neutral-700">
-              {queue === "verification"
-                ? "Legacy and held cards stay here with every image and inventory link intact until you are ready to verify them."
-                : queue === "redo_pending_resale"
-                  ? "All recovered physical card drafts remain here with their original scans. Review identity, orientation, comps, and price before moving them to a publishable listing."
-                : folder === "receipt"
-                  ? "Only scanned physical cards with a real Mac-local pending purchase reservation appear here. Receive each one into Resale Inventory or Investment Stash."
-                  : folder === "investment"
-                    ? "Received physical cards held for investment. Every card keeps its scan, purchase date, source, and cost basis until you move it back to resale."
-                    : folder === "need_pricing"
-                      ? "Scanned cards held here until priced; kept separate from Resale Pending."
-                    : folder === "pending"
-                    ? "Scanned and received resale inventory stays here until it is listed. InstaComp is a market recommendation; you control the actual website, eBay, and Mercari prices."
-                    : "Listed inventory is separated by live channel so cards no longer clutter the pending workspace."}
+              {folder === "investment"
+                ? "Long-term holds kept separate from active sales. Move back to Resale Pending whenever ready to list."
+                : folder === "pending"
+                  ? "Workflow: Identify → Comping → Price & List. Set a manual price or comp preset to update Website, eBay, and Mercari together."
+                  : "Live inventory sorted by marketplace. Use the Recomp & Sale Engine below to run targeted sales or refresh comps."}
             </p>
           </div>
           <button
             type="button"
-            onClick={() => void load(queue || queueFromLocation() || "listings", folderFromLocation())}
+            onClick={() => void load("listings", folderFromLocation())}
             disabled={loading || Boolean(busyId)}
             className="rounded-xl bg-neutral-950 px-4 py-3 font-black text-white disabled:opacity-50"
           >
@@ -2601,9 +2659,7 @@ export default function KingmakerPendingPage({
 
         <nav className="mt-5 flex flex-wrap gap-2" aria-label="Inventory lifecycle folders">
           {([
-            ["receipt", "Pending Receipt", pendingReceiptCount],
             ["pending", "Resale Pending", folderCounts.pending],
-            ["need_pricing", "Need Pricing", folderCounts.need_pricing],
             ["website", "Website Only", folderCounts.website],
             ["ebay", "eBay Only", folderCounts.ebay],
             ["mercari", "Mercari Only", folderCounts.mercari],
@@ -2627,50 +2683,38 @@ export default function KingmakerPendingPage({
                 setQueue("listings");
                 setFolder(value);
               }}
-              aria-pressed={queue === "listings" && folder === value}
-              className={`rounded-xl border-2 px-4 py-3 font-black ${
-                queue === "listings" && folder === value
+              aria-pressed={folder === value}
+              className={`rounded-xl border-2 px-4 py-2.5 text-sm font-black ${
+                folder === value
                   ? "border-neutral-950 bg-neutral-950 text-white"
-                  : "border-neutral-400 bg-white text-neutral-950"
+                  : "border-neutral-400 bg-white text-neutral-950 hover:border-neutral-700"
               }`}
             >
-              {label} · {value === "receipt" || countsLoaded ? count : "—"}
+              {label} · {countsLoaded ? count : "—"}
             </button>
           ))}
-          <button
-            type="button"
-            onClick={() => {
-              setSelectedIds(new Set());
-              setEditingId(null);
-              const nextUrl = new URL(window.location.href);
-              nextUrl.searchParams.set("queue", "verification");
-              nextUrl.searchParams.set("folder", "pending");
-              nextUrl.searchParams.delete("focus");
-              router.replace(`${nextUrl.pathname}${nextUrl.search}`);
-              setQueue("verification");
-            }}
-            aria-pressed={queue === "verification"}
-            className={`rounded-xl border-2 px-4 py-3 font-black ${
-              queue === "verification"
-                ? "border-amber-700 bg-amber-600 text-white"
-                : "border-neutral-400 bg-white text-neutral-950"
-            }`}
-          >
-            Pending Verification · {countsLoaded ? queueCounts.verification : "—"}
-          </button>
-          <button type="button" onClick={() => {
-            setSelectedIds(new Set()); setEditingId(null); setFolder("pending");
-            const nextUrl = new URL(window.location.href);
-            nextUrl.searchParams.set("queue", "redo_pending_resale");
-            nextUrl.searchParams.set("folder", "pending");
-            nextUrl.searchParams.delete("focus");
-            router.replace(`${nextUrl.pathname}${nextUrl.search}`);
-            setQueue("redo_pending_resale");
-          }} aria-pressed={queue === "redo_pending_resale"}
-            className={`rounded-xl border-2 px-4 py-3 font-black ${queue === "redo_pending_resale" ? "border-neutral-950 bg-neutral-950 text-white" : "border-neutral-400 bg-white text-neutral-950"}`}>
-            REDO Resale Pending · {countsLoaded ? queueCounts.redo_pending_resale : "—"}
-          </button>
         </nav>
+
+        <div className="mt-3 flex flex-wrap items-center gap-2" aria-label="Sport category filter">
+          <span className="text-xs font-black uppercase tracking-wider text-neutral-600">Sport Filter:</span>
+          {SPORT_FILTERS.map((sport) => (
+            <button
+              key={sport}
+              type="button"
+              onClick={() => {
+                setSportFilter(sport);
+                setSelectedIds(new Set());
+              }}
+              className={`rounded-full border px-3 py-1 text-xs font-black ${
+                sportFilter === sport
+                  ? "border-emerald-700 bg-emerald-700 text-white"
+                  : "border-neutral-400 bg-white text-neutral-800 hover:border-neutral-800"
+              }`}
+            >
+              {sport}
+            </button>
+          ))}
+        </div>
 
         {pageError ? <div className="mt-5 rounded-xl border-2 border-red-700 bg-red-50 p-4 font-bold text-red-900">{pageError}</div> : null}
         {notice ? <div className="mt-5 rounded-xl border-2 border-emerald-700 bg-emerald-50 p-4 font-bold text-emerald-900">{notice}</div> : null}
@@ -2726,116 +2770,135 @@ export default function KingmakerPendingPage({
         ) : null}
 
         {cards.length ? (
-          <section className="mt-6 rounded-2xl border-2 border-neutral-900 bg-white p-4 shadow-[5px_5px_0_#111]" aria-label="Bulk listing tools">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <h2 className="text-xl font-black">Bulk edit</h2>
-                <p className="text-sm font-semibold text-neutral-600">{selectedIds.size} of {visibleCards.length} selected</p>
-              </div>
-              <div className="flex gap-2">
-                <button type="button" onClick={() => setSelectedIds(new Set(visibleCards.map((card) => card.inventoryItemId)))} className="rounded-lg border-2 border-neutral-900 px-3 py-2 text-sm font-black">Select all</button>
-                <button type="button" onClick={() => setSelectedIds(new Set())} className="rounded-lg border-2 border-neutral-400 px-3 py-2 text-sm font-black">Clear</button>
+          <div className="mt-6 space-y-4">
+            <section className="rounded-2xl border-2 border-indigo-900 bg-indigo-50 p-4 shadow-[5px_5px_0_#1e1b4b]" aria-label="Recomp & Targeted Sale Engine">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-xl font-black text-indigo-950">Recomp &amp; Targeted Sale Engine</h2>
+                  <p className="text-sm font-semibold text-indigo-900">
+                    Showing {visibleCards.length} of {cards.length} cards ({sportFilter}). Run live market recomping or apply a % sale/markup across Website, eBay, and/or Mercari.
+                  </p>
+                </div>
                 <button
                   type="button"
-                  disabled={!selectedIds.size || Boolean(busyId)}
-                  onClick={() => void deleteSelectedCards()}
-                  className="rounded-lg border-2 border-red-700 bg-red-600 px-3 py-2 text-sm font-black text-white disabled:opacity-40"
+                  disabled={Boolean(busyId) || visibleCards.length === 0}
+                  onClick={() => void runBulkRecompAndRefresh()}
+                  className="rounded-xl bg-indigo-800 px-4 py-2.5 text-sm font-black text-white disabled:opacity-40"
                 >
-                  Delete selected
+                  {busyId === "recomp-engine" ? "Recomping…" : "Recomp & Refresh Market"}
                 </button>
               </div>
-            </div>
-            <div className="mt-4 grid gap-3 md:grid-cols-2 lg:grid-cols-[1fr_1fr_1fr_auto]">
-              <Field label="Category (optional)" value={bulkCategory} onChange={setBulkCategory} placeholder="Trading Card Singles" />
-              <Field label="Inventory condition (optional)" value={bulkCondition} onChange={setBulkCondition} placeholder="Ungraded" />
-              <label className="text-sm font-bold">
-                eBay Card Condition (optional)
-                <select
-                  value={bulkEbayCardCondition}
-                  onChange={(event) => setBulkEbayCardCondition(event.target.value)}
-                  className="mt-1 w-full rounded-lg border-2 border-neutral-300 bg-white p-2 text-neutral-950 focus:border-neutral-950 focus:outline-none"
-                >
-                  <option value="">Leave unchanged</option>
-                  <option value="Near Mint or Better">Near Mint or Better</option>
-                  <option value="Excellent">Excellent</option>
-                  <option value="Very Good">Very Good</option>
-                  <option value="Poor">Poor</option>
-                </select>
-              </label>
-              <button type="button" disabled={!selectedIds.size || Boolean(busyId)} onClick={() => void applyBulkEdits()} className="self-end rounded-xl bg-amber-600 px-5 py-3 font-black text-white disabled:opacity-40">Apply fields</button>
-            </div>
-            <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-neutral-300 pt-3">
-              <span className="mr-2 text-sm font-black">Bulk comp pricing:</span>
-              {COMP_ADJUSTMENTS.map((adjustment) => (
-                <button
-                  key={adjustment}
-                  type="button"
-                  disabled={!selectedIds.size || Boolean(busyId)}
-                  onClick={() => void applyBulkPricing(adjustment)}
-                  className={`rounded-lg px-3 py-2 text-sm font-black text-white disabled:opacity-40 ${adjustment < 0 ? "bg-sky-700" : adjustment > 0 ? "bg-emerald-700" : "bg-neutral-950"}`}
-                >
-                  {adjustment === 0 ? "InstaComp" : `${adjustment > 0 ? "+" : ""}${adjustment}%`}
-                </button>
-              ))}
-            </div>
-            <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-neutral-300 pt-3">
-              <span className="text-sm font-black">Exact-copy merge policy:</span>
-              <select
-                value={mergeEbayStrategy}
-                onChange={(event) =>
-                  setMergeEbayStrategy(event.target.value as MergeEbayStrategy)
-                }
-                disabled={Boolean(busyId)}
-                className="rounded-lg border-2 border-neutral-900 bg-white px-3 py-2 text-sm font-black"
-              >
-                <option value="increase_existing">
-                  Website +1 · eBay +1 (if listed) · Mercari stays 1
-                </option>
-                <option value="keep_one">
-                  Website +1 · eBay stays existing qty · Mercari stays 1
-                </option>
-              </select>
-              <span className="text-xs font-semibold text-neutral-600">
-                Never creates a duplicate eBay listing. Mercari remains one active listing.
-              </span>
-            </div>
-            {(queue === "verification" || queue === "redo_pending_resale") ? (
-              <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-neutral-300 pt-3">
-                <span className="mr-2 text-sm font-black">Verification actions:</span>
-                <button
-                  type="button"
-                  disabled={!selectedIds.size || Boolean(busyId)}
-                  onClick={() => void verifySelectedToPendingListings()}
-                  className="rounded-lg bg-emerald-700 px-3 py-2 text-sm font-black text-white disabled:opacity-40"
-                >
-                  Verify Selected → Pending Listings
-                </button>
-                <button
-                  type="button"
-                  disabled={!selectedIds.size || Boolean(busyId)}
-                  onClick={() => void runSelectedExactIdentity()}
-                  className="rounded-lg bg-sky-700 px-3 py-2 text-sm font-black text-white disabled:opacity-40"
-                >
-                  Read Selected → Exact Mac Identity
-                </button>
-                <button
-                  type="button"
-                  disabled={!selectedIds.size || Boolean(busyId)}
-                  onClick={() =>
-                    void reconcileCurrentWebsiteInventory(
-                      cards.filter((card) => selectedIds.has(card.inventoryItemId)),
-                    )
-                  }
-                  className="rounded-lg bg-cyan-700 px-3 py-2 text-sm font-black text-white disabled:opacity-40"
-                >
-                  Merge Selected → Existing Exact Listing
-                </button>
-                <span className="text-xs font-semibold text-neutral-600">
-                  Exact Registry identity required · one website listing/quantity · Mercari stays one · eBay follows the merge policy above.
-                </span>
+              <div className="mt-3 flex flex-wrap items-center gap-4 border-t border-indigo-200 pt-3">
+                <div className="flex items-center gap-2 text-sm font-black text-indigo-950">
+                  <span>Scope:</span>
+                  <button
+                    type="button"
+                    onClick={() => setSaleScope("filtered")}
+                    className={`rounded-lg border px-3 py-1.5 text-xs font-black ${saleScope === "filtered" ? "border-indigo-950 bg-indigo-950 text-white" : "border-indigo-300 bg-white text-indigo-950"}`}
+                  >
+                    All Filtered ({visibleCards.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSaleScope("selected")}
+                    className={`rounded-lg border px-3 py-1.5 text-xs font-black ${saleScope === "selected" ? "border-indigo-950 bg-indigo-950 text-white" : "border-indigo-300 bg-white text-indigo-950"}`}
+                  >
+                    Selected ({selectedIds.size})
+                  </button>
+                </div>
+                <div className="flex flex-wrap items-center gap-3 text-sm font-black text-indigo-950">
+                  <span>Channels:</span>
+                  {([["website", "Website"], ["ebay", "eBay"], ["mercari", "Mercari"]] as const).map(([ch, lbl]) => (
+                    <label key={ch} className="flex cursor-pointer items-center gap-1.5 rounded-lg border border-indigo-300 bg-white px-3 py-1.5 text-xs font-black">
+                      <input
+                        type="checkbox"
+                        checked={saleChannels.has(ch)}
+                        onChange={() => toggleSaleChannel(ch)}
+                      />
+                      {lbl}
+                    </label>
+                  ))}
+                </div>
+                <label className="flex cursor-pointer items-center gap-1.5 text-xs font-black text-indigo-950">
+                  <input type="checkbox" checked={saleRound99} onChange={(e) => setSaleRound99(e.target.checked)} />
+                  Round to .99
+                </label>
+                <label className="flex cursor-pointer items-center gap-1.5 text-xs font-black text-indigo-950">
+                  <input type="checkbox" checked={salePushLive} onChange={(e) => setSalePushLive(e.target.checked)} />
+                  Push live to Website &amp; eBay
+                </label>
               </div>
-            ) : null}
-            {queue === "listings" ? (
+              <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-indigo-200 pt-3">
+                <span className="mr-1 text-xs font-black uppercase text-indigo-950">Apply Sale / Markup:</span>
+                {SALE_PERCENT_PRESETS.map((pct) => (
+                  <button
+                    key={pct}
+                    type="button"
+                    disabled={Boolean(busyId) || saleChannels.size === 0 || (saleScope === "selected" && selectedIds.size === 0)}
+                    onClick={() => void applyTargetedSale(pct)}
+                    className={`rounded-lg px-3 py-1.5 text-xs font-black text-white disabled:opacity-40 ${pct < 0 ? "bg-rose-700 hover:bg-rose-800" : "bg-emerald-700 hover:bg-emerald-800"}`}
+                  >
+                    {pct > 0 ? `+${pct}%` : `${pct}%`}
+                  </button>
+                ))}
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="number"
+                    placeholder="Custom %"
+                    value={customSalePercent}
+                    onChange={(e) => setCustomSalePercent(e.target.value)}
+                    className="w-24 rounded-lg border-2 border-indigo-300 bg-white px-2 py-1 text-xs font-black text-neutral-950"
+                  />
+                  <button
+                    type="button"
+                    disabled={Boolean(busyId) || !customSalePercent.trim() || saleChannels.size === 0}
+                    onClick={() => void applyTargetedSale(Number(customSalePercent))}
+                    className="rounded-lg bg-neutral-950 px-3 py-1.5 text-xs font-black text-white disabled:opacity-40"
+                  >
+                    Apply %
+                  </button>
+                </div>
+              </div>
+            </section>
+
+            <section className="rounded-2xl border-2 border-neutral-900 bg-white p-4 shadow-[5px_5px_0_#111]" aria-label="Bulk listing tools">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-xl font-black">Bulk edit &amp; publish</h2>
+                  <p className="text-sm font-semibold text-neutral-600">{selectedIds.size} of {visibleCards.length} selected</p>
+                </div>
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => setSelectedIds(new Set(visibleCards.map((card) => card.inventoryItemId)))} className="rounded-lg border-2 border-neutral-900 px-3 py-2 text-sm font-black">Select all</button>
+                  <button type="button" onClick={() => setSelectedIds(new Set())} className="rounded-lg border-2 border-neutral-400 px-3 py-2 text-sm font-black">Clear</button>
+                  <button
+                    type="button"
+                    disabled={!selectedIds.size || Boolean(busyId)}
+                    onClick={() => void deleteSelectedCards()}
+                    className="rounded-lg border-2 border-red-700 bg-red-600 px-3 py-2 text-sm font-black text-white disabled:opacity-40"
+                  >
+                    Delete selected
+                  </button>
+                </div>
+              </div>
+              <div className="mt-4 grid gap-3 md:grid-cols-2 lg:grid-cols-[1fr_1fr_1fr_auto]">
+                <Field label="Category (optional)" value={bulkCategory} onChange={setBulkCategory} placeholder="Trading Card Singles" />
+                <Field label="Inventory condition (optional)" value={bulkCondition} onChange={setBulkCondition} placeholder="Ungraded" />
+                <label className="text-sm font-bold">
+                  eBay Card Condition (optional)
+                  <select
+                    value={bulkEbayCardCondition}
+                    onChange={(event) => setBulkEbayCardCondition(event.target.value)}
+                    className="mt-1 w-full rounded-lg border-2 border-neutral-300 bg-white p-2 text-neutral-950 focus:border-neutral-950 focus:outline-none"
+                  >
+                    <option value="">Leave unchanged</option>
+                    <option value="Near Mint or Better">Near Mint or Better</option>
+                    <option value="Excellent">Excellent</option>
+                    <option value="Very Good">Very Good</option>
+                    <option value="Poor">Poor</option>
+                  </select>
+                </label>
+                <button type="button" disabled={!selectedIds.size || Boolean(busyId)} onClick={() => void applyBulkEdits()} className="self-end rounded-xl bg-amber-600 px-5 py-3 font-black text-white disabled:opacity-40">Apply fields</button>
+              </div>
               <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-neutral-300 pt-3">
                 <span className="mr-2 text-sm font-black">Selected group actions:</span>
                 <button
@@ -2899,8 +2962,8 @@ export default function KingmakerPendingPage({
                   List Selected → All 3
                 </button>
               </div>
-            ) : null}
-          </section>
+            </section>
+          </div>
         ) : null}
 
         {folder === "receipt" && !loading && visibleCards.length === 0 ? (
@@ -3213,62 +3276,7 @@ export default function KingmakerPendingPage({
                   </div>
                 </div>
 
-                {card.instaComp.identityTrace ? (
-                  <div className="border-b-2 border-sky-900 bg-sky-50 p-4 text-sky-950">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <p className="text-lg font-black">IDENTITY TRACE</p>
-                      <p className="text-xs font-black">
-                        {Number(card.instaComp.identityTrace.elapsedMs || 0) > 0
-                          ? `${(Number(card.instaComp.identityTrace.elapsedMs || 0) / 1000).toFixed(1)}s`
-                          : "timing unavailable"}
-                        {card.instaComp.identityTrace.failureStage
-                          ? ` · stopped at ${card.instaComp.identityTrace.failureStage}`
-                          : " · exact lock complete"}
-                      </p>
-                    </div>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {(card.instaComp.identityTrace.stages || []).map((stage, index) => (
-                        <span
-                          key={`${stage.stage || "stage"}-${index}`}
-                          className={`rounded-full border px-3 py-1 text-xs font-black ${
-                            stage.status === "pass"
-                              ? "border-emerald-700 bg-emerald-100 text-emerald-950"
-                              : "border-amber-700 bg-amber-100 text-amber-950"
-                          }`}
-                          title={[
-                            stage.detail,
-                            ...(stage.reasons || []),
-                          ].filter(Boolean).join(" · ")}
-                        >
-                          {stage.stage || "stage"} · {stage.status || "unknown"}
-                        </span>
-                      ))}
-                    </div>
-                    {(card.instaComp.identityTrace.stages || []).some(
-                      (stage) => Array.isArray(stage.attempts) && stage.attempts.length > 0,
-                    ) ? (
-                      <div className="mt-3 text-xs font-semibold">
-                        {(card.instaComp.identityTrace.stages || [])
-                          .flatMap((stage) => stage.attempts || [])
-                          .slice(0, 12)
-                          .map((attempt, index) => (
-                            <p key={index}>
-                              Registry {attempt.phase || "lookup"} · {attempt.label || "attempt"}
-                              {attempt.brand ? ` · product ${attempt.brand}` : ""}
-                              {attempt.setName ? ` · set ${attempt.setName}` : ""}
-                              {` · ${attempt.status || "unknown"}`}
-                              {Number(attempt.candidateCount || 0) > 0
-                                ? ` · ${attempt.candidateCount} candidate${Number(attempt.candidateCount || 0) === 1 ? "" : "s"}`
-                                : ""}
-                              {Number(attempt.elapsedMs || 0) > 0
-                                ? ` · ${attempt.elapsedMs}ms`
-                                : ""}
-                            </p>
-                          ))}
-                      </div>
-                    ) : null}
-                  </div>
-                ) : null}
+
 
                 {websiteLinkBlocked ? (
                   <div className="border-b-2 border-red-900 bg-red-100 p-4 text-red-950">
@@ -3440,51 +3448,7 @@ export default function KingmakerPendingPage({
                   <div className="border-b-2 border-neutral-900 bg-sky-50 p-4">
                     <PriceGuidePanel snapshot={card.instaComp.priceGuide} />
                   </div>
-                ) : (
-                  <div className="border-b-2 border-neutral-900 bg-sky-50 p-4">
-                    <div className="rounded-xl border-2 border-sky-900 bg-white p-4 shadow-[3px_3px_0_#0c4a6e]">
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div>
-                          <h3 className="text-lg font-black">eBay Price Guide · 1 year</h3>
-                          <p className="mt-1 text-sm font-bold text-neutral-700">
-                            {card.instaComp.priceGuideStatus === "checking"
-                              ? "Checking the exact card automatically…"
-                              : card.instaComp.priceGuideStatus === "no_matches"
-                                ? "CHECKED — eBay did not expose an exact-card Price Guide dataset."
-                                : card.instaComp.priceGuideStatus === "identity_mismatch"
-                                  ? "CHECKED — eBay Price Guide opened, but the identity did not pass the exact-card gate."
-                                  : card.instaComp.priceGuideStatus === "period_mismatch"
-                                    ? "PRICE GUIDE WINDOW MISMATCH — Kingmaker will only accept a confirmed 1-year dataset."
-                                    : card.instaComp.priceGuideStatus === "error"
-                                      ? "PRICE GUIDE CHECK FAILED — retry is available below."
-                                      : card.instaComp.identity?.player && card.instaComp.identity?.year && card.instaComp.identity?.cardNumber
-                                      ? "Queued for automatic eBay Price Guide check."
-                                      : "Waiting for exact player, year, and card number before Price Guide can run."}
-                          </p>
-                          {card.instaComp.priceGuideMessage ? (
-                            <p className="mt-2 text-xs font-semibold text-neutral-600">{card.instaComp.priceGuideMessage}</p>
-                          ) : null}
-                          {card.instaComp.priceGuideCheckedAt ? (
-                            <p className="mt-1 text-xs font-bold text-neutral-500">Checked {card.instaComp.priceGuideCheckedAt}</p>
-                          ) : null}
-                        </div>
-                        {card.instaComp.identity?.player && card.instaComp.identity?.year && card.instaComp.identity?.cardNumber ? (
-                          <button
-                            type="button"
-                            disabled={card.instaComp.priceGuideStatus === "checking"}
-                            onClick={() => {
-                              priceGuideAttemptedRef.current.delete(card.inventoryItemId);
-                              void refreshPriceGuide(card, true).catch((error) => setPageError(message(error)));
-                            }}
-                            className="rounded-lg border-2 border-sky-900 bg-sky-100 px-3 py-2 text-xs font-black text-sky-950 disabled:opacity-40"
-                          >
-                            {card.instaComp.priceGuideStatus === "checking" ? "Checking…" : "Recheck Price Guide"}
-                          </button>
-                        ) : null}
-                      </div>
-                    </div>
-                  </div>
-                )}
+                ) : null}
 
                 {(soldCompEvidence.length || activeCompetition.length) ? (
                   <div className="grid gap-4 border-b-2 border-neutral-900 bg-neutral-50 p-4 lg:grid-cols-2">
@@ -3510,7 +3474,6 @@ export default function KingmakerPendingPage({
                       title={card.title}
                       side={side}
                       url={url}
-                      centering={side === "front" ? card.instaComp.centering?.front : card.instaComp.centering?.back}
                       orientationVerified={card.instaComp.imageOrientation?.verified === true}
                       rotating={busyId === `${card.inventoryItemId}:rotate:${side}`}
                       onRotate={() => void rotateStoredImage(card, side)}
@@ -3518,21 +3481,21 @@ export default function KingmakerPendingPage({
                   ))}
                 </div>
 
-                {queue === "listings" ? (
-                  <div className="border-t-2 border-neutral-900 bg-amber-50 p-4">
+                {folder !== "investment" ? (
+                  <div className="border-t-2 border-neutral-900 bg-slate-50 p-4">
                     <div className="flex flex-wrap items-end justify-between gap-3">
                       <div>
-                        <p className="font-black">Manual seller price</p>
-                        <p className="text-sm font-semibold text-neutral-600">
-                          Set any price you want. This overrides the listing price only; it does not rewrite InstaComp market truth.
+                        <p className="text-lg font-black">Pricing &amp; 3-Marketplace Sync · QTY {groupQuantity}</p>
+                        <p className="mt-1 text-xs font-semibold text-neutral-600">
+                          Set a Manual Price or click any % preset to update Website, eBay &amp; Mercari together, then tweak individual channels below.
                         </p>
                         <p className="mt-1 text-xs font-bold text-neutral-500">
-                          Current draft price: {money(card.price || card.instaComp.listingPrice)}{sellerManualPrice ? " · SELLER MANUAL" : ""}
+                          Draft: {money(card.price || card.instaComp.listingPrice)}{sellerManualPrice ? " · SELLER MANUAL LOCK" : ""} · InstaComp ref: {money(card.instaComp.suggestedPrice)}
                         </p>
                       </div>
-                      <div className="flex min-w-[280px] flex-wrap items-end gap-2">
-                        <label className="min-w-[160px] flex-1 text-sm font-black">
-                          Manual price
+                      <div className="flex min-w-[260px] flex-wrap items-end gap-2">
+                        <label className="min-w-[140px] flex-1 text-xs font-black">
+                          Manual price (sets all 3)
                           <div className="mt-1 flex items-center rounded-xl border-2 border-amber-700 bg-white px-3">
                             <span className="font-black text-neutral-500">$</span>
                             <input
@@ -3552,68 +3515,34 @@ export default function KingmakerPendingPage({
                           type="button"
                           disabled={isBusy || !String(manualPrices[card.inventoryItemId] || "").trim()}
                           onClick={() => void saveManualPrice(card)}
-                          className="rounded-xl bg-amber-700 px-4 py-3 font-black text-white disabled:opacity-40"
+                          className="rounded-xl bg-amber-700 px-4 py-2.5 text-sm font-black text-white disabled:opacity-40"
                         >
                           Save Manual Price
                         </button>
                       </div>
                     </div>
-                  </div>
-                ) : null}
 
-                {priceChoices.length ? (
-                  <div className="border-t-2 border-neutral-900 bg-emerald-50 p-4">
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div>
-                        <p className="font-black">Exact-comp pricing presets</p>
-                        <p className="text-sm font-semibold text-neutral-600">Use these only when you want InstaComp-based pricing.</p>
-                      </div>
-                      <div className="grid min-w-[300px] flex-1 gap-2 sm:grid-cols-4 lg:max-w-4xl">
+                    {priceChoices.length ? (
+                      <div className="mt-3 flex flex-wrap gap-1.5 border-t border-slate-200 pt-3">
                         {priceChoices.map(({ label, value, source }) => (
                           <button
                             key={source}
                             type="button"
                             disabled={isBusy}
                             onClick={() => void savePrice(card, value, source)}
-                            className="rounded-xl border-2 border-emerald-700 bg-white p-3 text-left disabled:opacity-40"
+                            className="rounded-lg border border-emerald-700 bg-white px-2.5 py-1.5 text-left hover:bg-emerald-50 disabled:opacity-40"
                           >
-                            <span className="block text-xs font-bold text-neutral-500">{label}</span>
-                            <span className="text-lg font-black">{money(value)}</span>
+                            <span className="block text-[10px] font-bold text-neutral-500">{label}</span>
+                            <span className="text-sm font-black">{money(value)}</span>
                           </button>
                         ))}
                       </div>
-                    </div>
-                  </div>
-                ) : null}
+                    ) : null}
 
-                {queue === "listings" && folder !== "investment" ? (
-                  <div className="border-t-2 border-neutral-900 bg-sky-50 p-4">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <p className="text-lg font-black">Seller-controlled channel prices · QTY {groupQuantity}</p>
-                        <p className="mt-1 text-sm font-semibold text-neutral-700">
-                          InstaComp is the market recommendation only. Website, eBay, and Mercari each have their own exact seller price below.
-                        </p>
-                      </div>
-                      <div className="flex flex-wrap gap-2 text-xs font-black">
-                        <span className="rounded-full bg-emerald-100 px-3 py-1 text-emerald-900">Website: {channelPricing?.websiteStatus || "draft"}</span>
-                        <span className="rounded-full bg-blue-100 px-3 py-1 text-blue-900">eBay: {channelPricing?.ebayStatus || "draft"}</span>
-                        <span className="rounded-full bg-fuchsia-100 px-3 py-1 text-fuchsia-900">Mercari: {channelPricing?.mercariStatus || "draft"}</span>
-                        {ebayCardConditionRequired && !ebayCardConditionReady ? (
-                          <span className="rounded-full bg-red-100 px-3 py-1 text-red-900">eBay blocked: choose Card Condition</span>
-                        ) : null}
-                      </div>
-                    </div>
-
-                    <div className="mt-4 grid gap-3 lg:grid-cols-[0.8fr_1fr_1fr_1fr_1fr_auto]">
-                      <div className="rounded-xl border-2 border-violet-700 bg-white p-3">
-                        <p className="text-xs font-black uppercase text-violet-700">InstaComp recommendation</p>
-                        <p className="text-2xl font-black">{money(card.instaComp.suggestedPrice)}</p>
-                        <p className="mt-1 text-xs font-bold text-neutral-500">Reference only — does not overwrite seller channel prices.</p>
-                      </div>
-                      <label className="rounded-xl border-2 border-emerald-700 bg-white p-3 text-sm font-black">
-                        Exact Website price
-                        <div className="mt-2 flex items-center rounded-lg border-2 border-neutral-300 px-3">
+                    <div className="mt-4 grid gap-3 border-t border-slate-200 pt-3 lg:grid-cols-[1fr_1fr_1fr_1fr_auto]">
+                      <label className="rounded-xl border-2 border-emerald-700 bg-white p-3 text-xs font-black">
+                        Website ({channelPricing?.websiteStatus || "draft"})
+                        <div className="mt-1.5 flex items-center rounded-lg border border-neutral-300 px-2.5">
                           <span className="font-black text-neutral-500">$</span>
                           <input
                             type="number"
@@ -3629,14 +3558,13 @@ export default function KingmakerPendingPage({
                                 mercari: current[card.inventoryItemId]?.mercari ?? mercariPriceInput,
                               },
                             }))}
-                            className="w-full bg-transparent p-2 text-lg font-black outline-none"
+                            className="w-full bg-transparent p-1.5 text-base font-black outline-none"
                           />
                         </div>
-                        {channelPricing ? <p className="mt-2 text-xs text-neutral-600">Estimated fees {money(channelPricing.websiteEstimatedFees)} · net {money(channelPricing.websiteEstimatedNet)}</p> : null}
                       </label>
-                      <label className="rounded-xl border-2 border-blue-700 bg-white p-3 text-sm font-black">
-                        Exact eBay price
-                        <div className="mt-2 flex items-center rounded-lg border-2 border-neutral-300 px-3">
+                      <label className="rounded-xl border-2 border-blue-700 bg-white p-3 text-xs font-black">
+                        eBay ({channelPricing?.ebayStatus || "draft"})
+                        <div className="mt-1.5 flex items-center rounded-lg border border-neutral-300 px-2.5">
                           <span className="font-black text-neutral-500">$</span>
                           <input
                             type="number"
@@ -3652,14 +3580,13 @@ export default function KingmakerPendingPage({
                                 mercari: current[card.inventoryItemId]?.mercari ?? mercariPriceInput,
                               },
                             }))}
-                            className="w-full bg-transparent p-2 text-lg font-black outline-none"
+                            className="w-full bg-transparent p-1.5 text-base font-black outline-none"
                           />
                         </div>
-                        {channelPricing ? <p className="mt-2 text-xs text-neutral-600">Estimated fees {money(channelPricing.ebayEstimatedFees)} · net {money(channelPricing.ebayEstimatedNet)}</p> : null}
                       </label>
-                      <label className="rounded-xl border-2 border-fuchsia-700 bg-white p-3 text-sm font-black">
-                        Exact Mercari price
-                        <div className="mt-2 flex items-center rounded-lg border-2 border-neutral-300 px-3">
+                      <label className="rounded-xl border-2 border-fuchsia-700 bg-white p-3 text-xs font-black">
+                        Mercari ({channelPricing?.mercariStatus || "draft"})
+                        <div className="mt-1.5 flex items-center rounded-lg border border-neutral-300 px-2.5">
                           <span className="font-black text-neutral-500">$</span>
                           <input
                             type="number"
@@ -3676,49 +3603,39 @@ export default function KingmakerPendingPage({
                                 mercari: event.target.value,
                               },
                             }))}
-                            className="w-full bg-transparent p-2 text-lg font-black outline-none"
+                            className="w-full bg-transparent p-1.5 text-base font-black outline-none"
                           />
                         </div>
-                        <p className="mt-2 text-xs text-neutral-600">Independent Mercari seller price · Smart Pricing stays OFF.</p>
                       </label>
-                      <label className="rounded-xl border-2 border-blue-700 bg-white p-3 text-sm font-black">
-                        eBay Card Condition
+                      <label className="rounded-xl border-2 border-blue-700 bg-white p-3 text-xs font-black">
+                        eBay Condition
                         <select
                           value={ebayCardCondition}
                           onChange={(event) => setChannelConditionEdits((current) => ({
                             ...current,
                             [card.inventoryItemId]: event.target.value,
                           }))}
-                          className="mt-2 w-full rounded-lg border-2 border-neutral-300 bg-white p-2 text-sm font-black text-neutral-950 outline-none focus:border-blue-700"
+                          className="mt-1.5 w-full rounded-lg border border-neutral-300 bg-white p-1.5 text-xs font-black text-neutral-950 outline-none"
                         >
                           <option value="">Choose condition…</option>
                           {ebayCardConditionOptions.map((value) => (
                             <option key={value} value={value}>{value}</option>
                           ))}
                         </select>
-                        <p className="mt-2 text-xs font-bold text-neutral-600">Required by eBay for ungraded trading cards. KINGMAKER will not guess it.</p>
                       </label>
                       <button
                         type="button"
                         disabled={Boolean(busyId) || publishWebsitePrice <= 0 || publishEbayPrice <= 0 || publishMercariPrice <= 0}
                         onClick={() => void saveChannelPrices(card)}
-                        className="self-stretch rounded-xl bg-sky-800 px-5 py-3 font-black text-white disabled:opacity-40"
+                        className="self-stretch rounded-xl bg-sky-800 px-4 py-2.5 text-sm font-black text-white disabled:opacity-40"
                       >
-                        Save Exact Channel Prices
+                        Save Channel Prices
                       </button>
                     </div>
-                    {channelPricing ? (
-                      <>
-                        <div className="mt-3 flex flex-wrap gap-3 text-xs font-bold text-neutral-600">
-                          <span>Buyer difference: {money(channelPricing.customerSavings)}</span>
-                          <span>Website net edge: {money(channelPricing.netDifference)}</span>
-                        </div>
-                        {channelPricing.ebayLastError ? (
-                          <div className="mt-3 rounded-xl border-2 border-red-700 bg-red-50 p-3 text-sm font-black text-red-900">
-                            Last eBay publish failure: {channelPricing.ebayLastError}
-                          </div>
-                        ) : null}
-                      </>
+                    {channelPricing?.ebayLastError ? (
+                      <div className="mt-3 rounded-xl border-2 border-red-700 bg-red-50 p-3 text-xs font-black text-red-900">
+                        Last eBay publish failure: {channelPricing.ebayLastError}
+                      </div>
                     ) : null}
                   </div>
                 ) : null}
@@ -3806,23 +3723,31 @@ export default function KingmakerPendingPage({
                 ) : null}
 
                 <div className="flex flex-wrap items-center justify-between gap-3 border-t-2 border-neutral-900 p-4">
-                  <p className="text-sm font-bold">Stored image rows: {card.storedImageCount || 0} · commercial listing quantity {groupQuantity}{groupQuantity > 1 ? " from exact raw duplicate scans" : ""} · nothing auto-publishes</p>
+                  <p className="text-xs font-bold text-neutral-600">QTY {groupQuantity} · {card.storedImageCount || 0} images</p>
                   <div className="flex flex-wrap gap-2">
-                    {queue === "listings" && folder !== "investment" ? (
+                    <button
+                      type="button"
+                      onClick={() => void runExactIdentity(card)}
+                      disabled={!pairReady || Boolean(busyId)}
+                      className="rounded-xl bg-sky-700 px-3.5 py-2.5 text-sm font-black text-white disabled:bg-neutral-400"
+                    >
+                      {isBusy ? "Working…" : "1. Identify"}
+                    </button>
+                    {folder !== "investment" ? (
                       <>
                         <button
                           type="button"
                           onClick={() => void runInstaComp(card)}
                           disabled={!pairReady || Boolean(busyId)}
-                          className="rounded-xl bg-violet-700 px-4 py-3 font-black text-white disabled:bg-neutral-400"
+                          className="rounded-xl bg-violet-700 px-3.5 py-2.5 text-sm font-black text-white disabled:bg-neutral-400"
                         >
-                          {busyId === card.inventoryItemId ? "Running InstaComp…" : "Run InstaComp"}
+                          {busyId === card.inventoryItemId ? "Comping…" : "2. Comping"}
                         </button>
                         <button
                           type="button"
                           onClick={() => void publishChannels([card], "publish-website")}
                           disabled={publishWebsitePrice <= 0 || websitePublishBlocked || listingReadiness?.websiteReady !== true || Boolean(busyId)}
-                          className="rounded-xl bg-emerald-700 px-4 py-3 font-black text-white disabled:bg-neutral-400"
+                          className="rounded-xl bg-emerald-700 px-3.5 py-2.5 text-sm font-black text-white disabled:bg-neutral-400"
                         >
                           {websiteCurrent && linkedExactWebsiteProduct ? "Update Website" : "List Website"} · {money(publishWebsitePrice)}
                         </button>
@@ -3830,7 +3755,7 @@ export default function KingmakerPendingPage({
                           type="button"
                           onClick={() => void publishChannels([card], "publish-ebay")}
                           disabled={publishEbayPrice <= 0 || !ebayCardConditionReady || listingReadiness?.ebayReady !== true || Boolean(busyId)}
-                          className="rounded-xl bg-blue-700 px-4 py-3 font-black text-white disabled:bg-neutral-400"
+                          className="rounded-xl bg-blue-700 px-3.5 py-2.5 text-sm font-black text-white disabled:bg-neutral-400"
                         >
                           {ebayListed ? "Update eBay" : "List eBay"} · {money(publishEbayPrice)}
                         </button>
@@ -3838,7 +3763,7 @@ export default function KingmakerPendingPage({
                           type="button"
                           onClick={() => void publishChannels([card], "publish-mercari")}
                           disabled={publishMercariPrice <= 0 || listingReadiness?.mercariReady !== true || Boolean(busyId) || channelPricing?.mercariStatus === "active"}
-                          className="rounded-xl bg-fuchsia-700 px-4 py-3 font-black text-white disabled:bg-neutral-400"
+                          className="rounded-xl bg-fuchsia-700 px-3.5 py-2.5 text-sm font-black text-white disabled:bg-neutral-400"
                         >
                           {channelPricing?.mercariStatus === "active" ? "Mercari LIVE" : `List Mercari · ${money(publishMercariPrice)}`}
                         </button>
@@ -3846,50 +3771,46 @@ export default function KingmakerPendingPage({
                           type="button"
                           onClick={() => void publishChannels([card], "publish-website-mercari")}
                           disabled={publishWebsitePrice <= 0 || publishMercariPrice <= 0 || websitePublishBlocked || listingReadiness?.websiteReady !== true || listingReadiness?.mercariReady !== true || Boolean(busyId)}
-                          className="rounded-xl bg-purple-700 px-4 py-3 font-black text-white disabled:bg-neutral-400"
+                          className="rounded-xl bg-purple-700 px-3.5 py-2.5 text-sm font-black text-white disabled:bg-neutral-400"
                         >
-                          {websiteListed || channelPricing?.mercariStatus === "active" ? "Update / List Website + Mercari" : "List Website + Mercari"}
+                          Website + Mercari
                         </button>
                         <button
                           type="button"
-                          onClick={() => void publishChannels([card], "publish-all-3") }
+                          onClick={() => void publishChannels([card], "publish-all-3")}
                           disabled={publishWebsitePrice <= 0 || publishEbayPrice <= 0 || publishMercariPrice <= 0 || websitePublishBlocked || !ebayCardConditionReady || listingReadiness?.websiteReady !== true || listingReadiness?.ebayReady !== true || listingReadiness?.mercariReady !== true || Boolean(busyId)}
-                          className="rounded-xl bg-neutral-950 px-4 py-3 font-black text-white disabled:bg-neutral-400"
+                          className="rounded-xl bg-neutral-950 px-3.5 py-2.5 text-sm font-black text-white disabled:bg-neutral-400"
                         >
-                          {websiteListed || ebayListed || channelPricing?.mercariStatus === "active" ? "Update / List All 3" : "List All 3"}
+                          List All 3
                         </button>
                       </>
                     ) : null}
+                    {folder === "investment" ? (
+                      <button
+                        type="button"
+                        disabled={Boolean(busyId)}
+                        onClick={() => void moveInventoryDisposition(card, physicalMembers[0], "resale")}
+                        className="rounded-xl bg-emerald-700 px-3.5 py-2.5 text-sm font-black text-white disabled:bg-neutral-400"
+                      >
+                        → Resale Pending
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={Boolean(busyId)}
+                        onClick={() => void moveInventoryDisposition(card, physicalMembers[0], "investment_stash")}
+                        className="rounded-xl border-2 border-amber-700 bg-amber-50 px-3.5 py-2.5 text-sm font-black text-amber-900 disabled:opacity-40"
+                      >
+                        → Investment Stash
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => beginEdit(card)}
                       disabled={isBusy}
-                      className="rounded-xl bg-amber-600 px-4 py-3 font-black text-white disabled:bg-neutral-400"
+                      className="rounded-xl bg-amber-600 px-3.5 py-2.5 text-sm font-black text-white disabled:bg-neutral-400"
                     >
-                      Edit All Fields
-                    </button>
-                    {stage === "failed" ? (
-                      <button
-                        type="button"
-                        onClick={() => void runExactIdentity(card)}
-                        disabled={!pairReady || Boolean(busyId)}
-                        className="rounded-xl bg-red-700 px-4 py-3 font-black text-white disabled:bg-neutral-400"
-                      >
-                        Retry This Card
-                      </button>
-                    ) : null}
-                    <button
-                      type="button"
-                      title={job?.manualIdentityLocked ? "Re-scan and Replace Locked Identity" : "Read Card"}
-                      onClick={() => void runExactIdentity(card)}
-                      disabled={!pairReady || Boolean(busyId)}
-                      className="rounded-xl bg-sky-700 px-4 py-3 font-black text-white disabled:bg-neutral-400"
-                    >
-                      {isBusy
-                        ? "Working…"
-                        : job?.manualIdentityLocked
-                          ? "Replace Manual Identity with AI"
-                          : "Read Card"}
+                      Edit Fields
                     </button>
                   </div>
                 </div>

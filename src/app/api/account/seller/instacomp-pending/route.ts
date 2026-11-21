@@ -1504,6 +1504,7 @@ export async function GET(request: Request) {
         inventoryItemId: row.id,
         legacyProductId: row.legacy_product_id || projectedWebsiteProductId,
         title: displayTitle,
+        sport: textValue(row.sport) || textValue(primaryIdentity.sport) || textValue(ai.sport) || null,
         description: row.description || null,
         sku: row.sku || null,
         status: row.status || "draft",

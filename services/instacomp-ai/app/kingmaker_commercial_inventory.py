@@ -199,11 +199,96 @@ def _master_listing_queue(metadata_value: Any) -> str:
     checklist_identity = _record(instacomp.get("checklistIdentity"))
     mac_receipt = _record(instacomp.get("macReceipt"))
     seller_review = _record(metadata.get("seller_review"))
-    # Seller-deferred photo recovery must survive queue reprojection.
+    # Explicit seller-deferred original photo recovery has its own durable queue.
+    # It stays held and must never be promoted by a receipt or reprojection.
     if (instacomp.get("manualHoldBucket") == "missing_picture"
             and instacomp.get("listingPublishBlocked") is True
             and metadata.get("listingReviewRequired") is True):
         return "missing_picture"
+    # Explicit REDO seller-review membership survives re-projection while
+    # readiness gates independently prevent publication.
+    if _record(metadata.get("listingWorkflow")).get("queue") == "redo_pending_resale":
+        return "redo_pending_resale"
+    # Explicit duplicate physical-copy uncertainty takes precedence over all
+    # listing-preparation and owner identity exceptions. Do not sell twice.
+    duplicate_copy = _record(instacomp.get("possibleDuplicatePhysicalCopyReview20261025"))
+    if (duplicate_copy.get("status") == "distinct_physical_copy_unproven"
+            and _text(duplicate_copy.get("otherInventoryItemId"))
+            and duplicate_copy.get("mustNotPublishBothWithoutProof") is True
+            and _record(metadata.get("listingWorkflow")).get("queue") == "pending_verification"):
+        return "verification"
+    # A card expressly confirmed by the owner must not be downgraded by an
+    # earlier automated identity-review hold. Publishing remains separately gated.
+    owner_identity_confirmed = (
+        instacomp.get("manualIdentityLocked") is True
+        and instacomp.get("humanVerified") is True
+        and instacomp.get("identityComplete") is True
+        and instacomp.get("trustedForIdentity") is True
+        and checklist_decision.get("status") == "exact_match"
+        and _record(instacomp.get("imageOrientation")).get("status") == "completed"
+        and bool(_text(instacomp.get("frontImageUrl")))
+        and bool(_text(instacomp.get("backImageUrl")))
+        and _text(instacomp.get("frontImageUrl")) != _text(instacomp.get("backImageUrl"))
+        and not _text(instacomp.get("possibleDuplicatePhysicalPhotoId"))
+    )
+    if owner_identity_confirmed:
+        return "listings"
+    # Internal photo/checklist review can graduate into listing preparation
+    # without claiming owner approval or authorizing external publication.
+    # Unresolved physical duplicates and incomplete orientation stay held.
+    prep = _record(instacomp.get("verifiedListingPrep20261025"))
+    if (prep.get("status") == "photo_checklist_ready_for_listing_prep"
+            and instacomp.get("identityComplete") is True
+            and instacomp.get("trustedForIdentity") is True
+            and checklist_decision.get("status") == "exact_match"
+            and _record(instacomp.get("imageOrientation")).get("status") == "completed"
+            and bool(_text(instacomp.get("frontImageUrl")))
+            and bool(_text(instacomp.get("backImageUrl")))
+            and _text(instacomp.get("frontImageUrl")) != _text(instacomp.get("backImageUrl"))
+            and not _text(instacomp.get("possibleDuplicatePhysicalPhotoId"))
+            and not _text(instacomp.get("manualHoldBucket"))):
+        return "listings"
+    # Seller acceptance is an identity/queue transition, NOT permission to publish.
+    # Keep listingPublishBlocked and duplicate/review flags in the record for the
+    # later publication gate; they must not undo an accepted Pending Listings move.
+    accepted_orientation = _record(instacomp.get("imageOrientation"))
+    accepted_identity = (
+        accepted_orientation.get("source") == "seller_verification_accept"
+        and accepted_orientation.get("status") == "completed"
+        and accepted_orientation.get("verified") is True
+        and _text(_record(metadata.get("listingWorkflow")).get("queue")) == "pending_listings"
+        and instacomp.get("identityComplete") is True
+        and instacomp.get("trustedForIdentity") is True
+        and checklist_decision.get("status") == "exact_match"
+        and bool(_text(instacomp.get("frontImageUrl")))
+        and bool(_text(instacomp.get("backImageUrl")))
+        and _text(instacomp.get("frontImageUrl")) != _text(instacomp.get("backImageUrl"))
+    )
+    if accepted_identity:
+        return "listings"
+    # Live channel listings or Investment Stash cards belong in 'listings'
+    # queue, never 'verification'.
+    dual = _record(metadata.get("dual_marketplace"))
+    projection = _record(metadata.get("master_listing_projection"))
+    lifecycle = _record(metadata.get("inventory_lifecycle"))
+    if (
+        _text(lifecycle.get("disposition")) == "investment_stash"
+        or _text(lifecycle.get("state")) == "investment_stash"
+        or projection.get("websiteActive") is True
+        or projection.get("ebayActive") is True
+        or projection.get("mercariActive") is True
+        or _text(_record(dual.get("website")).get("status")) == "active"
+        or _text(_record(dual.get("ebay")).get("status")) in {"active", "linked"}
+        or _text(_record(dual.get("mercari")).get("status")) in {"active", "linked", "live"}
+    ):
+        return "listings"
+    # A seller/auditor hold overrides prior exact-match or manual-identity flags.
+    # Other processes can re-project a record while its original photos or
+    # cross-channel state are still being independently reviewed.
+    if (instacomp.get("listingPublishBlocked") is True
+            or bool(_text(instacomp.get("possibleDuplicatePhysicalPhotoId")))
+            or metadata.get("listingReviewRequired") is True):
+        return "verification"
 
     front = _text(instacomp.get("frontImageUrl"))
     back = _text(instacomp.get("backImageUrl"))
@@ -256,11 +341,41 @@ def _master_listing_queue(metadata_value: Any) -> str:
         )
         or current_registry_receipt
     )
+    # Physical photo + independently reviewed checklist take precedence over an
+    # older AI checklistDecision/remote registry receipt that can remain "review_required".
+    # Unlike the historic confidence gate, the physical proof must carry both
+    # image receipts and an explicit human-adjudicated exact checklist lock.
+    physical_proof = _record(instacomp.get("photoIdentityAdjudication20261013"))
+    photo_receipts = any(
+        bool(_record(physical_proof.get(key)))
+        for key in (
+            "originalImageChecksums", "frontBackReceipts", "originalPhotoChecksums",
+            "originalImageProof", "imageProof", "photoSha256", "photoReceipts",
+            "imageReceipt", "frontBackProof",
+        )
+    ) or bool(
+        _text(physical_proof.get("originalSourceFrontSha256"))
+        and _text(physical_proof.get("originalSourceBackSha256"))
+    )
+    physically_adjudicated = (
+        physical_proof.get("verdict") == "PHOTO_VERIFIED"
+        and checklist_identity.get("status") == "exact_match"
+        and checklist_identity.get("certificationMode") == "physical_photo_checklist_exact"
+        and bool(identity_id and fingerprint)
+        and photo_receipts
+        and distinct_pair
+    )
+
     # Registry identity and image orientation require independent receipts.
     # A persisted front/back pair alone cannot prove that the card is upright.
     if not orientation_verified:
         return "verification"
-    if manual_locked:
+    # Once a record has received the stricter independent-photo certification,
+    # an older macReceipt is never sufficient to bypass missing/broken proof.
+    if (checklist_identity.get("certificationMode") == "physical_photo_checklist_exact"
+            and not physically_adjudicated):
+        return "verification"
+    if manual_locked or physically_adjudicated:
         return "listings"
     return "listings" if exact_registry else "verification"
 
@@ -268,6 +383,15 @@ def _master_listing_queue(metadata_value: Any) -> str:
 def _master_listing_relevant(row: dict[str, Any]) -> bool:
     metadata = _record(row.get("metadata"))
     instacomp = _record(metadata.get("instacomp"))
+    # A physical Missing Picture hold must remain in the seller's queue
+    # even when an upstream source no longer has the images or scan fields.
+    if (instacomp.get("manualHoldBucket") == "missing_picture"
+            and instacomp.get("listingPublishBlocked") is True
+            and metadata.get("listingReviewRequired") is True):
+        return True
+    # Reset REDO drafts deliberately lack AI/scan evidence until re-reviewed.
+    if _record(metadata.get("listingWorkflow")).get("queue") == "redo_pending_resale":
+        return True
     card_identity = _record(metadata.get("card_identity"))
     legacy_identity = _record(metadata.get("cardIdentity"))
     sale_identity = _record(metadata.get("sale_identity"))
@@ -292,6 +416,10 @@ def _master_listing_relevant(row: dict[str, Any]) -> bool:
     has_images = bool(
         _text(recovered.get("front"))
         or _text(recovered.get("back"))
+        or _text(instacomp.get("frontImageUrl"))
+        or _text(instacomp.get("backImageUrl"))
+        or _text(row.get("image_url"))
+        or _text(row.get("imageUrl"))
         or (
             isinstance(source_images, list)
             and any(_text(value) for value in source_images)
@@ -302,11 +430,12 @@ def _master_listing_relevant(row: dict[str, Any]) -> bool:
         and not has_identity
         and not has_images
         and not has_scan_pair
-        and queue_hint not in {"pending_verification", "pending"}
+        and queue_hint not in {"pending_verification", "pending", "pending_listings", "need_pricing"}
     ):
         return False
     if (
-        queue_hint in {"pending_verification", "pending"}
+        queue_hint in {"pending_verification", "pending", "pending_listings", "need_pricing"}
+        or has_source
         or has_images
         or has_identity
         or has_scan_pair
@@ -322,6 +451,10 @@ def _master_listing_relevant(row: dict[str, Any]) -> bool:
 
 def _master_listing_folder(row: dict[str, Any]) -> str:
     metadata = _record(row.get("metadata"))
+    if _record(metadata.get("listingWorkflow")).get("queue") == "redo_pending_resale":
+        return "pending"
+    if _record(metadata.get("listingWorkflow")).get("queue") == "need_pricing":
+        return "need_pricing"
     lifecycle = _record(metadata.get("inventory_lifecycle"))
     if _text(lifecycle.get("disposition")) == "investment_stash" or _text(
         lifecycle.get("state")
@@ -339,6 +472,11 @@ def _master_listing_folder(row: dict[str, Any]) -> str:
     ebay_active = (
         projection.get("ebayActive") is True
         or _text(ebay.get("status")) in {"active", "linked"}
+        or (
+            str(row.get("status") or "").strip().lower() == "active"
+            and bool(_text(row.get("ebayItemId")) or _text(row.get("ebay_listing_id")))
+            and not str(row.get("ebay_listing_id") or "").startswith("local:")
+        )
     )
     mercari_active = (
         projection.get("mercariActive") is True
@@ -363,6 +501,7 @@ def _master_listing_folder(row: dict[str, Any]) -> str:
 
 _MASTER_LISTING_COMPACT_METADATA_KEYS = {
     "verifiedCsv",
+    "listingReviewRequired",
     "identity",
     "collectible_asset",
     "inventory_lifecycle",
@@ -392,6 +531,17 @@ _MASTER_LISTING_COMPACT_INSTACOMP_KEYS = {
     "centering",
     "checklistDecision",
     "checklistIdentity",
+    "photoIdentityAdjudication20261013",
+    "photoArchiveRecovery20261017",
+    "photoQueueCorrection20261017",
+    "listingPublishBlocked",
+    "manualHoldBucket",
+    "missingPictureHold",
+    "possibleDuplicatePhysicalPhotoId",
+    "publicationStatus",
+    "canonicalRegistryReverificationRequired",
+    "resalePendingIdentityAudit20261013",
+    "resalePendingCloudReconciliation20261013",
     "duplicateGroup",
     "duplicateInventoryDecision",
     "frontImageUrl",
@@ -423,6 +573,8 @@ _MASTER_LISTING_COMPACT_INSTACOMP_KEYS = {
     "pricingGroupKey",
     "pricingReason",
     "pricingStatus",
+    "resaleRecomp20261027",
+    "marketPriceCertification20261027",
     "recoveredImageUrls",
     "registryFingerprintSha256",
     "registryIdentityId",
@@ -435,8 +587,23 @@ _MASTER_LISTING_COMPACT_INSTACOMP_KEYS = {
 }
 
 
+def _with_listing_image_fallback(row: dict[str, Any]) -> dict[str, Any]:
+    # Display-only fallback. Source rows for seller-verified CSV imports are
+    # immutable: do not write an imageUrl into their verified provenance.
+    if _text(row.get("imageUrl")):
+        return row
+    instacomp = _record(_record(row.get("metadata")).get("instacomp"))
+    front = (_text(instacomp.get("frontImageUrl"))
+             or _text(_record(instacomp.get("recoveredImageUrls")).get("front")))
+    if not front:
+        return row
+    display = dict(row)
+    display["imageUrl"] = front
+    return display
+
+
 def _compact_master_listing_row(row: dict[str, Any]) -> dict[str, Any]:
-    compact = dict(row or {})
+    compact = _with_listing_image_fallback(dict(row or {}))
     metadata = _record(compact.get("metadata"))
     instacomp = _record(metadata.get("instacomp"))
     compact_metadata = {
@@ -1151,7 +1318,18 @@ class KingmakerCommercialInventory:
         upserted = 0
         with self._connect() as db:
             if replace:
-                db.execute("DELETE FROM master_listing_projection WHERE inventory_item_id NOT IN (SELECT inventory_item_id FROM commercial_inventory WHERE json_extract(raw_json, '$.verifiedCsv.authority')='seller_verified_csv_v1')")
+                # Cloud snapshots may omit Mac-only scanned cards. Never delete
+                # local seller-verified or physically held projections on replay.
+                db.execute(
+                    """DELETE FROM master_listing_projection
+                    WHERE inventory_item_id NOT IN (
+                        SELECT inventory_item_id FROM commercial_inventory
+                        WHERE json_extract(raw_json, '$.verifiedCsv.authority')='seller_verified_csv_v1'
+                           OR json_extract(raw_json, '$.instacomp.listingPublishBlocked')=1
+                           OR json_extract(raw_json, '$.listingReviewRequired')=1
+                           OR json_extract(raw_json, '$.instacomp.possibleDuplicatePhysicalPhotoId') IS NOT NULL
+                    )"""
+                )
             for raw in items:
                 row = dict(raw or {})
                 inventory_item_id = str(
@@ -1163,12 +1341,68 @@ class KingmakerCommercialInventory:
                 if not inventory_item_id:
                     continue
                 authoritative = db.execute("SELECT * FROM commercial_inventory WHERE inventory_item_id=?", (inventory_item_id,)).fetchone()
+                local_missing_picture = False
+                local_photo_verified_recovery = False
+                if authoritative:
+                    authoritative_metadata = _record(json.loads(authoritative["raw_json"] or "{}"))
+                    authoritative_instacomp = _record(authoritative_metadata.get("instacomp"))
+                    local_missing_picture = (
+                        authoritative_instacomp.get("manualHoldBucket") == "missing_picture"
+                        and authoritative_instacomp.get("listingPublishBlocked") is True
+                        and authoritative_metadata.get("listingReviewRequired") is True
+                    )
+                    # Never let an older cloud snapshot reapply Missing Picture
+                    # after a checksum-confirmed, seller-audited photo restoration.
+                    # Only the local proof + active publication hold can authorize
+                    # this exception; an arbitrary incoming cloud flag cannot.
+                    local_photo_verified_recovery = (
+                        not local_missing_picture
+                        and authoritative_instacomp.get("manualHoldBucket") != "missing_picture"
+                        and bool(_record(authoritative_instacomp.get("photoQueueCorrection20261017")))
+                        and authoritative_instacomp.get("imagePersistenceVerified") is True
+                        and (
+                            _record(authoritative_instacomp.get("photoIdentityAdjudication20261013")).get("verdict") == "PHOTO_VERIFIED"
+                            or (
+                                _record(authoritative_instacomp.get("photoArchiveRecovery20261017")).get("ownerObjectPathVerified") is True
+                                and (
+                                    _record(authoritative_instacomp.get("photoArchiveRecovery20261017")).get("originalPairHashVerified") is True
+                                    or (
+                                        _record(authoritative_instacomp.get("photoArchiveRecovery20261017")).get("visualCandidateMatchesPrintedIdentity") is True
+                                        and bool(_text(_record(authoritative_instacomp.get("photoArchiveRecovery20261017")).get("candidateScanId")))
+                                        and bool(_text(_record(authoritative_instacomp.get("photoArchiveRecovery20261017")).get("candidatePairHash")))
+                                    )
+                                )
+                            )
+                        )
+                        and authoritative_instacomp.get("listingPublishBlocked") is True
+                        and authoritative_metadata.get("listingReviewRequired") is True
+                    )
+                    if local_missing_picture or local_photo_verified_recovery:
+                        row["metadata"] = authoritative_metadata
+                        row["title"] = str(authoritative["title"])
+                        row["price"] = float(authoritative["price"] or 0)
+                        row["status"] = "draft"
+                        row["quantity"] = max(1, int(authoritative["quantity"] or 0))
                 if authoritative and _record(json.loads(authoritative["raw_json"])).get("verifiedCsv", {}).get("authority") == "seller_verified_csv_v1":
-                    # Untrusted bulk scans may not update or remove an
-                    # authoritative projection, even by spoofing archive state.
-                    # The certified row's normal pricing/listing actions remain
-                    # available through dedicated editable price/channel flows.
+                    # Untrusted bulk scans cannot replace or remove verified projections.
                     continue
+                if authoritative:
+                    # A cloud replay cannot remove a newer local verification hold.
+                    local_metadata = _record(json.loads(authoritative["raw_json"] or "{}"))
+                    local_instacomp = _record(local_metadata.get("instacomp"))
+                    if (
+                        local_instacomp.get("listingPublishBlocked") is True
+                        or bool(_text(local_instacomp.get("possibleDuplicatePhysicalPhotoId")))
+                        or local_metadata.get("listingReviewRequired") is True
+                    ):
+                        cloud_metadata = dict(_record(row.get("metadata")))
+                        cloud_instacomp = dict(_record(cloud_metadata.get("instacomp")))
+                        for key in ("listingPublishBlocked", "possibleDuplicatePhysicalPhotoId", "publicationStatus"):
+                            if local_instacomp.get(key):
+                                cloud_instacomp[key] = local_instacomp[key]
+                        cloud_metadata["instacomp"] = cloud_instacomp
+                        cloud_metadata["listingReviewRequired"] = True
+                        row["metadata"] = cloud_metadata
                 status = str(row.get("status") or "").strip().lower()
                 try:
                     quantity = int(float(row.get("quantity") or 0))
@@ -1184,7 +1418,7 @@ class KingmakerCommercialInventory:
                         (inventory_item_id,),
                     )
                     continue
-                folder = _master_listing_folder(row)
+                folder = "pending" if (local_missing_picture or local_photo_verified_recovery) else _master_listing_folder(row)
                 pending_queue = _master_listing_queue(row.get("metadata"))
                 compact_row = _compact_master_listing_row(row)
                 group_key = _master_listing_group_key(compact_row)
@@ -1222,6 +1456,7 @@ class KingmakerCommercialInventory:
         self.initialize()
         folder_names = (
             "pending",
+            "need_pricing",
             "website",
             "ebay",
             "mercari",
@@ -1232,14 +1467,14 @@ class KingmakerCommercialInventory:
             "investment",
         )
         folder_counts = {folder: 0 for folder in folder_names}
-        queue_counts = {"listings": 0, "verification": 0, "missing_picture": 0}
+        queue_counts = {"listings": 0, "verification": 0, "missing_picture": 0, "redo_pending_resale": 0}
         with self._read_connect() as db:
             total = int(
                 db.execute("SELECT COUNT(*) FROM master_listing_projection").fetchone()[0]
             )
             folder_rows = db.execute(
                 """
-                SELECT folder,COUNT(DISTINCT group_key) AS count
+                SELECT folder,COUNT(*) AS count
                 FROM master_listing_projection
                 WHERE NOT (folder='pending' AND pending_queue<>'listings')
                 GROUP BY folder
@@ -1291,7 +1526,7 @@ class KingmakerCommercialInventory:
             return None
         if not isinstance(payload, dict) or not payload:
             return None
-        return _compact_master_listing_row(payload) if compact else payload
+        return _compact_master_listing_row(payload) if compact else _with_listing_image_fallback(payload)
 
     def list_master_listing_group(
         self,
@@ -1321,7 +1556,7 @@ class KingmakerCommercialInventory:
                 continue
             if not isinstance(payload, dict) or not payload:
                 continue
-            items.append(_compact_master_listing_row(payload) if compact else payload)
+            items.append(_compact_master_listing_row(payload) if compact else _with_listing_image_fallback(payload))
         return items
 
     def delete_master_listing(self, inventory_item_id: str) -> bool:
@@ -1365,10 +1600,62 @@ class KingmakerCommercialInventory:
             return None
 
         authoritative = self.get_item(item_id)
+        held_title_only = False
+        if authoritative:
+            local_metadata = _record(authoritative.get("metadata"))
+            local_instacomp = _record(local_metadata.get("instacomp"))
+            if (local_instacomp.get("manualHoldBucket") == "missing_picture"
+                    and local_instacomp.get("listingPublishBlocked") is True):
+                requested_metadata = _record(edit.get("metadata"))
+                requested_ic = _record(requested_metadata.get("instacomp"))
+                requested_title = str(edit.get("title") or "").strip()[:200]
+                # A held card's only safe manual edit is its display title. It must
+                # not mark a photo-unverified identity as confirmed or release hold.
+                safe_title = (
+                    bool(requested_title)
+                    and requested_ic.get("manualListingTitleLocked") is True
+                    and requested_ic.get("manualListingTitle") == requested_title
+                    and requested_ic.get("manualIdentityLocked") is local_instacomp.get("manualIdentityLocked")
+                    and _record(requested_metadata.get("seller_review")) ==
+                        _record(_record(current.get("metadata")).get("seller_review"))
+                    and str(edit.get("status") or "draft") == "draft"
+                    and not any(str(edit.get(key) or "").strip()
+                                for key in ("publishedAt", "marketplace", "listingUrl"))
+                )
+                if not safe_title:
+                    raise ValueError("Missing Picture hold: original front/back are required to edit card identity or publish. You may still correct the listing title alone.")
+                retained = dict(local_metadata)
+                next_ic = dict(local_instacomp)
+                next_ic.update({
+                    "manualListingTitle": requested_title,
+                    "manualListingTitleLocked": True,
+                    "manualListingTitleSavedAt": str(requested_ic.get("manualListingTitleSavedAt") or _now()),
+                    "manualListingTitleSavedBy": str(requested_ic.get("manualListingTitleSavedBy") or "seller"),
+                })
+                retained["instacomp"] = next_ic
+                stamp = _now()
+                # Persist the hold-preserving title before projecting it. Cloud
+                # replays preferentially use this local row for Missing Picture.
+                with self._connect() as db:
+                    db.execute(
+                        "UPDATE commercial_inventory SET title=?,raw_json=?,updated_at=? "
+                        "WHERE inventory_item_id=? AND status='draft'",
+                        (requested_title, json.dumps(retained, separators=(",", ":"), ensure_ascii=False),
+                         stamp, item_id),
+                    )
+                    if db.execute("SELECT changes()").fetchone()[0] != 1:
+                        raise ValueError("Missing Picture draft changed before the title could be saved.")
+                edit = {"title": requested_title, "metadata": retained, "updated_at": stamp}
+                authoritative = self.get_item(item_id)
+                held_title_only = True
         if authoritative and _record(authoritative.get("metadata")).get("verifiedCsv", {}).get("authority") == "seller_verified_csv_v1":
             self.apply_local_edit(item_id, edit, False)
             authoritative = self.get_item(item_id)
             current["metadata"] = authoritative["metadata"]
+        elif authoritative and not held_title_only:
+            # Never report success when the authoritative Mac save failed.
+            self.apply_local_edit(item_id, edit, False)
+            authoritative = self.get_item(item_id)
         row = dict(current)
         field_map = {
             "title": "title",
@@ -1408,7 +1695,19 @@ class KingmakerCommercialInventory:
 
         stamp = _now()
         with self._connect() as db:
-            if not _master_listing_relevant(row):
+            # Routing truth is sticky for a normal field/price/title edit.
+            # Previously, rebuilding classification on every save silently moved
+            # hundreds of legitimate Master Listings to verification or another
+            # marketplace folder even when their routing evidence was unchanged.
+            previous_projection = db.execute(
+                "SELECT folder,pending_queue FROM master_listing_projection WHERE inventory_item_id=?",
+                (item_id,),
+            ).fetchone()
+            # Existing unsold physical cards cannot disappear after an ordinary edit
+            # merely because they use a legacy metadata schema. Explicit deletion
+            # is handled by delete_master_listing, and archive/sold may unproject.
+            if (not _master_listing_relevant(row)
+                    and str(row.get("status") or "").strip().lower() in {"archived", "sold"}):
                 db.execute(
                     "DELETE FROM master_listing_projection WHERE inventory_item_id=?",
                     (item_id,),
@@ -1416,6 +1715,36 @@ class KingmakerCommercialInventory:
             else:
                 folder = _master_listing_folder(row)
                 pending_queue = _master_listing_queue(row.get("metadata"))
+                prior_meta = _record(current.get("metadata"))
+                updated_meta = _record(row.get("metadata"))
+                # Compare routing/verification evidence, not the complete metadata;
+                # prices, titles, descriptions and audit timestamps are unrelated.
+                route_fields = (
+                    "listingWorkflow", "listing_workflow", "inventory_lifecycle",
+                    "dual_marketplace", "master_listing_projection",
+                    "pending_verification", "listingReviewRequired",
+                )
+                route_ic_fields = (
+                    "manualHoldBucket", "listingPublishBlocked",
+                    "possibleDuplicatePhysicalPhotoId", "possibleDuplicatePhysicalCopyReview20261025",
+                    "imageOrientation", "checklistDecision", "checklistIdentity",
+                    "verifiedListingPrep20261025", "manualIdentityLocked", "humanVerified",
+                    "identityComplete", "trustedForIdentity", "frontImageUrl", "backImageUrl",
+                    "imagePersistenceVerified", "imageOrientationPersisted", "registryIdentityId",
+                    "lastStatus", "pricingStatus",
+                )
+                prior_ic = _record(prior_meta.get("instacomp"))
+                updated_ic = _record(updated_meta.get("instacomp"))
+                route_unchanged = (
+                    str(current.get("status") or "") == str(row.get("status") or "")
+                    and all(prior_meta.get(k) == updated_meta.get(k) for k in route_fields)
+                    and all(prior_ic.get(k) == updated_ic.get(k) for k in route_ic_fields)
+                    and _record(prior_meta.get("seller_review")).get("identity_confirmed")
+                        == _record(updated_meta.get("seller_review")).get("identity_confirmed")
+                )
+                if previous_projection is not None and route_unchanged:
+                    folder = str(previous_projection["folder"] or folder)
+                    pending_queue = str(previous_projection["pending_queue"] or pending_queue)
                 compact_row = _compact_master_listing_row(row)
                 group_key = _master_listing_group_key(compact_row)
                 db.execute(
@@ -1443,11 +1772,6 @@ class KingmakerCommercialInventory:
                     ),
                 )
 
-        if self.get_item(item_id) is not None:
-            try:
-                self.apply_local_edit(item_id, edit, False)
-            except Exception:
-                logging.getLogger(__name__).warning("Local inventory edit failed for item %s", item_id, exc_info=True)
         return self.get_master_listing_projection(item_id, compact=False)
 
     def list_master_listing_projection(
@@ -1481,11 +1805,26 @@ class KingmakerCommercialInventory:
             except (TypeError, ValueError, json.JSONDecodeError):
                 payload = {}
             if isinstance(payload, dict) and payload:
-                items.append(
-                    _compact_master_listing_row(payload)
-                    if compact
-                    else payload
-                )
+                if compact:
+                    view = _compact_master_listing_row(payload)
+                    # Pending Resale must retain bounded evidence for the pricing
+                    # reviewer. Without this, existing sold comps disappear from
+                    # the API even though they remain saved in SQLite.
+                    if folder == "pending":
+                        source = _record(_record(payload.get("metadata")).get("instacomp"))
+                        target = _record(_record(view.get("metadata")).get("instacomp"))
+                        for field in ("soldCompEvidence", "activeCompetition"):
+                            entries = source.get(field)
+                            if isinstance(entries, list):
+                                target[field] = entries[:30]
+                        for field in ("pricingAnalysis", "priceGuide", "exactSoldCompRestoration"):
+                            entry = source.get(field)
+                            if isinstance(entry, dict):
+                                target[field] = entry
+                        view["metadata"]["instacomp"] = target
+                    items.append(view)
+                else:
+                    items.append(_with_listing_image_fallback(payload))
         return {
             **self.master_listing_projection_summary(),
             "items": items,
@@ -1504,7 +1843,7 @@ class KingmakerCommercialInventory:
                 if not listing_id or not sku or not inventory_item_id:
                     continue
                 existing = db.execute(
-                    "SELECT inventory_item_id,local_dirty FROM commercial_inventory WHERE ebay_listing_id=? OR sku=?",
+                    "SELECT inventory_item_id,local_dirty,raw_json FROM commercial_inventory WHERE ebay_listing_id=? OR sku=?",
                     (listing_id, sku),
                 ).fetchone()
                 payload = {
@@ -1540,6 +1879,16 @@ class KingmakerCommercialInventory:
                         ),
                     )
                     inserted += 1
+                    continue
+                existing_metadata = _record(json.loads(existing["raw_json"] or "{}"))
+                existing_instacomp = _record(existing_metadata.get("instacomp"))
+                if (existing_instacomp.get("manualHoldBucket") == "missing_picture"
+                        and existing_instacomp.get("listingPublishBlocked") is True):
+                    db.execute(
+                        "UPDATE commercial_inventory SET ebay_offer_id=?,last_ebay_sync_at=? WHERE inventory_item_id=?",
+                        (payload["ebay_offer_id"], stamp, existing["inventory_item_id"]),
+                    )
+                    updated += 1
                     continue
                 if int(existing["local_dirty"] or 0):
                     db.execute(
@@ -1658,9 +2007,15 @@ class KingmakerCommercialInventory:
         raw_json = json.dumps(metadata, separators=(",", ":"), ensure_ascii=False)
         with self._connect() as db:
             existing = db.execute(
-                "SELECT inventory_item_id FROM commercial_inventory WHERE inventory_item_id=?",
+                "SELECT * FROM commercial_inventory WHERE inventory_item_id=?",
                 (inventory_item_id,),
             ).fetchone()
+            if existing is not None:
+                existing_metadata = _record(json.loads(existing["raw_json"] or "{}"))
+                existing_instacomp = _record(existing_metadata.get("instacomp"))
+                if (existing_instacomp.get("manualHoldBucket") == "missing_picture"
+                        and existing_instacomp.get("listingPublishBlocked") is True):
+                    return self._payload(existing)
             if existing is None:
                 db.execute(
                     """INSERT INTO commercial_inventory(
@@ -1702,6 +2057,11 @@ class KingmakerCommercialInventory:
         current = self.get_item(inventory_item_id)
         if current is None:
             raise ValueError("Mac-local commercial inventory item was not found")
+        local_metadata = _record(current.get("metadata"))
+        local_instacomp = _record(local_metadata.get("instacomp"))
+        if (local_instacomp.get("manualHoldBucket") == "missing_picture"
+                and local_instacomp.get("listingPublishBlocked") is True):
+            raise ValueError("Missing Picture owner hold requires original-photo restoration before editing")
         if _record(current.get("metadata")).get("verifiedCsv", {}).get("authority") == "seller_verified_csv_v1":
             if "sku" in edit and edit["sku"] != current["sku"]:
                 raise sqlite3.IntegrityError("VERIFIED_CSV_IMMUTABLE: physical SKU cannot change")
