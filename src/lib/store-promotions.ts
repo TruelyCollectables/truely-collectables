@@ -43,12 +43,14 @@ export function validatePromotionInput(input: {
   percentOff: unknown;
   maxRedemptions?: unknown;
   expiresAt?: unknown;
+  startsAt?: unknown;
   category?: unknown;
   freeShipping?: unknown;
 }) {
   const code = normalizePromotionCode(input.code);
   const percentOff = Number(input.percentOff);
   const maxRedemptions = input.maxRedemptions ? Number(input.maxRedemptions) : null;
+  const startsAt = input.startsAt ? new Date(String(input.startsAt)) : null;
   const expiresAt = input.expiresAt ? new Date(String(input.expiresAt)) : null;
   const category = normalizePromotionCategory(input.category);
   const freeShipping = input.freeShipping === true;
@@ -57,7 +59,9 @@ export function validatePromotionInput(input: {
   if (!Number.isFinite(percentOff) || percentOff < 0 || percentOff > 100) throw new Error("Discount percent must be 0-100.");
   if (percentOff === 0 && !freeShipping) throw new Error("Add a discount percent or enable free shipping.");
   if (maxRedemptions !== null && (!Number.isInteger(maxRedemptions) || maxRedemptions <= 0)) throw new Error("Maximum redemptions must be a positive whole number.");
+  if (startsAt && !Number.isFinite(startsAt.getTime())) throw new Error("Start date and time must be valid.");
   if (expiresAt && (!Number.isFinite(expiresAt.getTime()) || expiresAt <= new Date())) throw new Error("Expiration must be a valid future date and time.");
+  if (startsAt && expiresAt && startsAt >= expiresAt) throw new Error("End date and time must be after the start date and time.");
 
-  return { code, percentOff, maxRedemptions, expiresAt, category, freeShipping };
+  return { code, percentOff, maxRedemptions, startsAt, expiresAt, category, freeShipping };
 }
