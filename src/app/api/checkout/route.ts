@@ -518,7 +518,7 @@ export async function POST(request: Request) {
     const requestFingerprint = checkoutRequestFingerprint({
       mode: "payment",
       payment_method_types: ["card"],
-      allow_promotion_codes: !storePromotion,
+      allow_promotion_codes: false,
       customer_creation: "always",
       customer_email: customerEmail || null,
       line_items: lineItems,
@@ -645,7 +645,7 @@ export async function POST(request: Request) {
       {
         mode: "payment",
         payment_method_types: ["card"],
-        allow_promotion_codes: !storePromotion,
+        allow_promotion_codes: false,
         customer_creation: "always",
         ...(account?.email ? { customer_email: account.email } : {}),
         client_reference_id: checkoutAttemptId,

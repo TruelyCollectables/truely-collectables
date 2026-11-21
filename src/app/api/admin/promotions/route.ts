@@ -12,6 +12,7 @@ export const dynamic = "force-dynamic";
 type StripeObject = {
   id: string;
   livemode?: boolean;
+  active?: boolean;
 };
 
 async function stripeRequest(
@@ -63,8 +64,11 @@ export async function POST(request: Request) {
     const body = await request.json();
     const input = validatePromotionInput(body);
     const firstOrderOnly = body.firstOrderOnly === true;
-    const freeShipping = input.freeShipping;
-    const categoryScope = input.category;
+    if (input.freeShipping || input.category) {
+      return NextResponse.json({
+        error: "Category-specific and free-shipping coupon codes are not supported in this form yet.",
+      }, { status: 400 });
+    }
     const supabase = createSupabaseServerClient({ admin: true });
     const storeId = getActiveStoreId();
     const runtime = await getStripePaymentRuntime({ storeId, supabase });
@@ -167,5 +171,60 @@ export async function PATCH(request: Request) {
       { error: error instanceof Error ? error.message : "Promotion could not be updated." },
       { status: 400 },
     );
+  }
+}
+
+
+export async function DELETE(request: Request) {
+  const blocked = await adminOnly(request);
+  if (blocked) return blocked;
+
+  try {
+    const body = await request.json();
+    const id = String(body.id || "");
+    if (!/^[0-9a-f-]{36}$/i.test(id)) {
+      return NextResponse.json({ error: "Invalid coupon id." }, { status: 400 });
+    }
+    const supabase = createSupabaseServerClient({ admin: true });
+    const storeId = getActiveStoreId();
+    const { data: promotion, error } = await supabase
+      .from("store_promotions")
+      .select("*")
+      .eq("id", id)
+      .eq("store_id", storeId)
+      .single();
+    if (error || !promotion) {
+      return NextResponse.json({ error: "Promotion not found." }, { status: 404 });
+    }
+    if (Number(promotion.times_redeemed || 0) > 0) {
+      return NextResponse.json({
+        error: "This code has redemption history. Deactivate it instead of deleting it.",
+      }, { status: 409 });
+    }
+
+    const runtime = await getStripePaymentRuntime({ storeId, supabase });
+    if (!runtime.allowed || !runtime.stripeKey) {
+      return NextResponse.json({ error: runtime.reason }, { status: 503 });
+    }
+    const stripePromotion = await stripeRequest(
+      runtime.stripeKey,
+      "promotion_codes/" + promotion.stripe_promotion_code_id,
+      { active: false },
+    );
+    if (stripePromotion.id !== promotion.stripe_promotion_code_id || stripePromotion.active !== false) {
+      throw new Error("Stripe did not confirm the promotion code was disabled.");
+    }
+
+    const { error: deleteError } = await supabase
+      .from("store_promotions")
+      .delete()
+      .eq("id", id)
+      .eq("store_id", storeId);
+    if (deleteError) throw deleteError;
+    return NextResponse.json({ ok: true, removed: true, stripeDisabled: true });
+  } catch (error) {
+    return NextResponse.json({
+      error: error instanceof Error ? error.message : "Coupon could not be removed.",
+    }, { status: 400 });
   }
 }

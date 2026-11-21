@@ -52,7 +52,7 @@ export default function KingmakerStatusStrip() {
         try {
           const separator = check.path.includes("?") ? "&" : "?";
           const response = await fetch(`${check.path}${separator}t=${Date.now()}`, {
-            method: "HEAD",
+            method: check.key === "edge" ? "GET" : "HEAD",
             cache: "no-store",
             credentials: "same-origin",
             signal: controller.signal,
@@ -82,9 +82,12 @@ export default function KingmakerStatusStrip() {
   }, []);
 
   useEffect(() => {
-    void runChecks();
+    const initialCheck = window.setTimeout(() => void runChecks(), 0);
     const interval = window.setInterval(() => void runChecks(), 60_000);
-    return () => window.clearInterval(interval);
+    return () => {
+      window.clearTimeout(initialCheck);
+      window.clearInterval(interval);
+    };
   }, [runChecks]);
 
   const problemCount = items.filter((item) => item.state === "problem").length;

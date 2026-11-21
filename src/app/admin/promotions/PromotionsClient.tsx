@@ -20,6 +20,7 @@ export default function PromotionsClient() {
   const [promotions, setPromotions] = useState<Promotion[]>([]);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const [showInactive, setShowInactive] = useState(false);
   const load = useCallback(async () => {
     const response = await fetch("/api/admin/promotions", { cache: "no-store" });
     const data = await response.json().catch(() => ({}));
@@ -47,7 +48,10 @@ export default function PromotionsClient() {
         body: JSON.stringify({
           code: form.get("code"), percentOff: form.get("percentOff"),
           firstOrderOnly: form.get("firstOrderOnly") === "on",
-          maxRedemptions: form.get("maxRedemptions"), expiresAt: form.get("expiresAt"),
+          maxRedemptions: form.get("maxRedemptions"),
+          expiresAt: form.get("expiresAt")
+            ? new Date(String(form.get("expiresAt"))).toISOString()
+            : null,
         }),
       });
       const data = await response.json().catch(() => ({}));
@@ -74,34 +78,64 @@ export default function PromotionsClient() {
     finally { setBusy(false); }
   }
 
+
+  async function removePromotion(id: string) {
+    if (!window.confirm("Remove this coupon? It will be deactivated in Stripe before its TC record is removed.")) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      const response = await fetch("/api/admin/promotions", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Coupon could not be removed.");
+      setMessage("Coupon disabled in Stripe and removed.");
+      await load();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
-    <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
+    <main className="mx-auto max-w-6xl px-4 py-8 text-neutral-950 sm:px-6">
       <p className="text-xs font-black uppercase tracking-[0.18em] text-cyan-700">Store checkout</p>
       <h1 className="mt-2 text-4xl font-black">Coupons</h1>
       <p className="mt-3 max-w-3xl text-neutral-600">Create Stripe-backed coupon codes and restrict them to first-time buyers when needed.</p>
 
       {message ? <div className="mt-5 rounded border border-amber-300 bg-amber-50 p-4 font-bold text-amber-950">{message}</div> : null}
 
-      <form onSubmit={createPromotion} className="mt-7 grid gap-4 rounded-2xl border border-neutral-200 bg-white p-6 text-neutral-900 shadow-sm sm:grid-cols-2">
-        <label className="font-bold">Coupon code<input name="code" defaultValue="1st10" required className="mt-2 min-h-12 w-full rounded border border-neutral-300 bg-white px-3 text-neutral-900 placeholder:text-neutral-400" /></label>
-        <label className="font-bold">Percent off<input name="percentOff" type="number" min="0.01" max="100" step="0.01" defaultValue="10" required className="mt-2 min-h-12 w-full rounded border border-neutral-300 bg-white px-3 text-neutral-900 placeholder:text-neutral-400" /></label>
-        <label className="font-bold">Category scope (optional)<input name="category" placeholder="football, hockey, baseball..." className="mt-2 min-h-12 w-full rounded border border-neutral-300 bg-white px-3 text-neutral-900 placeholder:text-neutral-400" /></label>
-        <label className="font-bold">Maximum redemptions (optional)<input name="maxRedemptions" type="number" min="1" step="1" className="mt-2 min-h-12 w-full rounded border border-neutral-300 bg-white px-3 text-neutral-900 placeholder:text-neutral-400" /></label>
-        <label className="font-bold">Expiration (optional)<input name="expiresAt" type="datetime-local" className="mt-2 min-h-12 w-full rounded border border-neutral-300 bg-white px-3 text-neutral-900 placeholder:text-neutral-400" /></label>
-        <label className="flex items-center gap-3 font-bold"><input name="freeShipping" type="checkbox" className="h-5 w-5" />Free shipping on the entire order</label>
-        <label className="flex items-center gap-3 font-bold"><input name="firstOrderOnly" type="checkbox" defaultChecked className="h-5 w-5" />First successful order only</label>
+      <form onSubmit={createPromotion} className="mt-7 grid gap-4 rounded-2xl border border-neutral-200 bg-white p-6 text-neutral-950 shadow-sm sm:grid-cols-2">
+        <label className="font-bold">Coupon code<input name="code" placeholder="SAVE15" required className="mt-2 min-h-12 w-full rounded border border-neutral-300 bg-white px-3 text-neutral-950 placeholder:text-neutral-500 focus:border-emerald-600 focus:outline-2 focus:outline-offset-1 focus:outline-emerald-600" /></label>
+        <label className="font-bold">Percent off<input name="percentOff" type="number" min="0.01" max="100" step="0.01" defaultValue="10" required className="mt-2 min-h-12 w-full rounded border border-neutral-300 bg-white px-3 text-neutral-950 placeholder:text-neutral-500 focus:border-emerald-600 focus:outline-2 focus:outline-offset-1 focus:outline-emerald-600" /></label>
+        <label className="font-bold">Maximum redemptions (optional)<input name="maxRedemptions" type="number" min="1" step="1" className="mt-2 min-h-12 w-full rounded border border-neutral-300 bg-white px-3 text-neutral-950 placeholder:text-neutral-500 focus:border-emerald-600 focus:outline-2 focus:outline-offset-1 focus:outline-emerald-600" /></label>
+        <label className="font-bold">Expiration (optional)<input name="expiresAt" type="datetime-local" className="mt-2 min-h-12 w-full rounded border border-neutral-300 bg-white px-3 text-neutral-950 placeholder:text-neutral-500 focus:border-emerald-600 focus:outline-2 focus:outline-offset-1 focus:outline-emerald-600" /></label>
+        <label className="flex items-center gap-3 font-bold"><input name="firstOrderOnly" type="checkbox" className="h-5 w-5 accent-emerald-600" />First successful order only</label>
         <button type="submit" disabled={busy} className="min-h-12 rounded bg-neutral-950 px-5 font-black text-white disabled:opacity-50">{busy ? "Working..." : "Create coupon"}</button>
       </form>
 
       <section className="mt-8 space-y-4">
-        {promotions.map((promotion) => (
-          <article key={promotion.id} className="rounded-2xl border border-neutral-200 bg-white p-5 text-neutral-900 shadow-sm">
+        {promotions.some((promotion) => !promotion.active) ? (
+          <button type="button" className="rounded-lg border border-neutral-300 bg-white px-4 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-100"
+            onClick={() => setShowInactive((current) => !current)}>
+            {showInactive ? "Hide inactive coupons" : "Show inactive coupons"}
+          </button>
+        ) : null}
+        {promotions.filter((promotion) => showInactive || promotion.active).length === 0 ? (
+          <p className="rounded-xl border border-neutral-200 bg-white p-5 text-neutral-700">No active coupon codes.</p>
+        ) : null}
+        {promotions.filter((promotion) => showInactive || promotion.active).map((promotion) => (
+          <article key={promotion.id} className="rounded-2xl border border-neutral-200 bg-white p-5 text-neutral-950 shadow-sm">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div><h2 className="text-2xl font-black">{promotion.code}</h2><p className="mt-1 font-semibold text-neutral-600">{promotion.percent_off}% off{promotion.free_shipping ? " + free shipping" : ""}{promotion.category_scope ? ` - ${promotion.category_scope}` : ""}{promotion.first_order_only ? " - first order only" : ""} - {promotion.stripe_livemode ? "LIVE Stripe" : "TEST Stripe"}</p></div>
-              <span className={`rounded-full px-3 py-1 text-sm font-black ${promotion.active ? "bg-emerald-100 text-emerald-800" : "bg-neutral-200 text-neutral-800"}`}>{promotion.active ? "ACTIVE" : "INACTIVE"}</span>
+              <span className={`rounded-full px-3 py-1 text-sm font-black ${promotion.active ? "bg-emerald-100 text-emerald-800" : "bg-neutral-200"}`}>{promotion.active ? "ACTIVE" : "INACTIVE"}</span>
             </div>
             <div className="mt-4 flex flex-wrap gap-3">
-              <button type="button" disabled={busy} onClick={() => action(promotion.id, { action: "set-active", active: !promotion.active })} className="min-h-11 rounded border border-neutral-300 bg-white px-4 font-bold text-neutral-900 hover:bg-neutral-50">{promotion.active ? "Deactivate" : "Activate"}</button>
+              <button type="button" disabled={busy} onClick={() => action(promotion.id, { action: "set-active", active: !promotion.active })} className="min-h-11 rounded border border-neutral-300 px-4 font-bold text-neutral-950 hover:bg-neutral-100">{promotion.active ? "Deactivate" : "Activate"}</button>
+              <button type="button" disabled={busy} onClick={() => void removePromotion(promotion.id)} className="min-h-11 rounded border border-red-300 px-4 font-bold text-red-800 hover:bg-red-50">Remove coupon</button>
             </div>
           </article>
         ))}
