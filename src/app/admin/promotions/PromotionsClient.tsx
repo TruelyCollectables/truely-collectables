@@ -11,7 +11,7 @@ type Promotion = {
   expires_at: string | null;
   max_redemptions: number | null;
   times_redeemed: number;
-  stripe_livemode: boolean;
+  stripe_livemode: boolean;\n  free_shipping: boolean;\n  category_scope: string | null;
 };
 
 export default function PromotionsClient() {
@@ -83,9 +83,9 @@ export default function PromotionsClient() {
       <form onSubmit={createPromotion} className="mt-7 grid gap-4 rounded-2xl border bg-white p-6 shadow-sm sm:grid-cols-2">
         <label className="font-bold">Coupon code<input name="code" defaultValue="1st10" required className="mt-2 min-h-12 w-full rounded border px-3" /></label>
         <label className="font-bold">Percent off<input name="percentOff" type="number" min="0.01" max="100" step="0.01" defaultValue="10" required className="mt-2 min-h-12 w-full rounded border px-3" /></label>
-        <label className="font-bold">Maximum redemptions (optional)<input name="maxRedemptions" type="number" min="1" step="1" className="mt-2 min-h-12 w-full rounded border px-3" /></label>
+        <label className="font-bold">Category scope (optional)<input name="category" placeholder="football, hockey, baseball..." className="mt-2 min-h-12 w-full rounded border px-3" /></label>\n        <label className="font-bold">Maximum redemptions (optional)<input name="maxRedemptions" type="number" min="1" step="1" className="mt-2 min-h-12 w-full rounded border px-3" /></label>
         <label className="font-bold">Expiration (optional)<input name="expiresAt" type="datetime-local" className="mt-2 min-h-12 w-full rounded border px-3" /></label>
-        <label className="flex items-center gap-3 font-bold"><input name="firstOrderOnly" type="checkbox" defaultChecked className="h-5 w-5" />First successful order only</label>
+        <label className="flex items-center gap-3 font-bold"><input name="freeShipping" type="checkbox" className="h-5 w-5" />Free shipping on the entire order</label>\n        <label className="flex items-center gap-3 font-bold"><input name="firstOrderOnly" type="checkbox" defaultChecked className="h-5 w-5" />First successful order only</label>
         <button type="submit" disabled={busy} className="min-h-12 rounded bg-neutral-950 px-5 font-black text-white disabled:opacity-50">{busy ? "Working..." : "Create coupon"}</button>
       </form>
 
@@ -93,7 +93,7 @@ export default function PromotionsClient() {
         {promotions.map((promotion) => (
           <article key={promotion.id} className="rounded-2xl border bg-white p-5 shadow-sm">
             <div className="flex flex-wrap items-start justify-between gap-4">
-              <div><h2 className="text-2xl font-black">{promotion.code}</h2><p className="mt-1 font-semibold text-neutral-600">{promotion.percent_off}% off{promotion.first_order_only ? " - first order only" : ""} - {promotion.stripe_livemode ? "LIVE Stripe" : "TEST Stripe"}</p></div>
+              <div><h2 className="text-2xl font-black">{promotion.code}</h2><p className="mt-1 font-semibold text-neutral-600">{promotion.percent_off}% off{promotion.free_shipping ? " + free shipping" : ""}{promotion.category_scope ? ` - ${promotion.category_scope}` : ""}{promotion.first_order_only ? " - first order only" : ""} - {promotion.stripe_livemode ? "LIVE Stripe" : "TEST Stripe"}</p></div>
               <span className={`rounded-full px-3 py-1 text-sm font-black ${promotion.active ? "bg-emerald-100 text-emerald-800" : "bg-neutral-200"}`}>{promotion.active ? "ACTIVE" : "INACTIVE"}</span>
             </div>
             <div className="mt-4 flex flex-wrap gap-3">
