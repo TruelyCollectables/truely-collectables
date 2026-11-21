@@ -11,7 +11,9 @@ type Promotion = {
   expires_at: string | null;
   max_redemptions: number | null;
   times_redeemed: number;
-  stripe_livemode: boolean;\n  free_shipping: boolean;\n  category_scope: string | null;
+  stripe_livemode: boolean;
+  free_shipping: boolean;
+  category_scope: string | null;
 };
 
 export default function PromotionsClient() {
@@ -83,9 +85,11 @@ export default function PromotionsClient() {
       <form onSubmit={createPromotion} className="mt-7 grid gap-4 rounded-2xl border bg-white p-6 shadow-sm sm:grid-cols-2">
         <label className="font-bold">Coupon code<input name="code" defaultValue="1st10" required className="mt-2 min-h-12 w-full rounded border px-3" /></label>
         <label className="font-bold">Percent off<input name="percentOff" type="number" min="0.01" max="100" step="0.01" defaultValue="10" required className="mt-2 min-h-12 w-full rounded border px-3" /></label>
-        <label className="font-bold">Category scope (optional)<input name="category" placeholder="football, hockey, baseball..." className="mt-2 min-h-12 w-full rounded border px-3" /></label>\n        <label className="font-bold">Maximum redemptions (optional)<input name="maxRedemptions" type="number" min="1" step="1" className="mt-2 min-h-12 w-full rounded border px-3" /></label>
+        <label className="font-bold">Category scope (optional)<input name="category" placeholder="football, hockey, baseball..." className="mt-2 min-h-12 w-full rounded border px-3" /></label>
+        <label className="font-bold">Maximum redemptions (optional)<input name="maxRedemptions" type="number" min="1" step="1" className="mt-2 min-h-12 w-full rounded border px-3" /></label>
         <label className="font-bold">Expiration (optional)<input name="expiresAt" type="datetime-local" className="mt-2 min-h-12 w-full rounded border px-3" /></label>
-        <label className="flex items-center gap-3 font-bold"><input name="freeShipping" type="checkbox" className="h-5 w-5" />Free shipping on the entire order</label>\n        <label className="flex items-center gap-3 font-bold"><input name="firstOrderOnly" type="checkbox" defaultChecked className="h-5 w-5" />First successful order only</label>
+        <label className="flex items-center gap-3 font-bold"><input name="freeShipping" type="checkbox" className="h-5 w-5" />Free shipping on the entire order</label>
+        <label className="flex items-center gap-3 font-bold"><input name="firstOrderOnly" type="checkbox" defaultChecked className="h-5 w-5" />First successful order only</label>
         <button type="submit" disabled={busy} className="min-h-12 rounded bg-neutral-950 px-5 font-black text-white disabled:opacity-50">{busy ? "Working..." : "Create coupon"}</button>
       </form>
 
