@@ -3,6 +3,7 @@ import { hasValidAdminRequest } from "../../../../lib/admin-request-auth";
 import { getActiveStoreId } from "../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
 import { classifyStorefrontItem } from "../../../../lib/storefront-taxonomy";
+import { loadSaleEligibleProducts } from "../../../../lib/admin-sale-inventory";
 import {
   normalizeStoreSaleScope,
   type StoreSaleScopeType,
@@ -59,24 +60,15 @@ export async function GET(request: Request) {
   if (blocked) return blocked;
   const supabase = createSupabaseServerClient({ admin: true });
   const storeId = getActiveStoreId();
-  const [campaignResult, inventoryResult] = await Promise.all([
+  const [campaignResult, inventoryRows] = await Promise.all([
     supabase
       .from("store_sales_campaigns")
       .select("*")
       .eq("store_id", storeId)
       .order("created_at", { ascending: false }),
-    supabase
-      .from("products")
-      .select("id,title,player,sport,price,quantity,image_url")
-      .eq("store_id", storeId)
-      .gt("price", 0)
-      .gt("quantity", 0)
-      .is("archived_at", null)
-      .order("id", { ascending: false })
-      .range(0, 4999),
+    loadSaleEligibleProducts(supabase, storeId),
   ]);
   if (campaignResult.error) return NextResponse.json({ error: campaignResult.error.message }, { status: 500 });
-  if (inventoryResult.error) return NextResponse.json({ error: inventoryResult.error.message }, { status: 500 });
   const now = Date.now();
   const campaigns = (campaignResult.data || []).map((campaign: any) => {
     const starts = new Date(campaign.starts_at).getTime();
@@ -90,7 +82,7 @@ export async function GET(request: Request) {
           : "live";
     return { ...campaign, status };
   });
-  const inventory = (inventoryResult.data || []).map((row: any) => {
+  const inventory = inventoryRows.map((row: any) => {
     const classification = classifyStorefrontItem({
       title: String(row.title || ""),
       description: null,

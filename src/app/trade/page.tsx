@@ -60,7 +60,7 @@ export default async function TradeSearchPage({
               Check Buy Side
             </Link>
             <Link
-              href="/account/collector/items"
+              href="/account"
               className="rounded border border-blue-700 bg-white px-4 py-2 font-bold text-blue-700 hover:bg-blue-700 hover:text-white"
             >
               Open Collection
