@@ -792,10 +792,18 @@ export async function GET(request: Request) {
       const cardIdentity = recordValue(metadata.card_identity);
       const legacyCardIdentity = recordValue(metadata.cardIdentity);
       const saleIdentity = recordValue(metadata.sale_identity);
+      const topLevelIdentity = recordValue(row.identity);
       const hasInstaCompSource = Boolean(
-        textValue(instaComp.source) || textValue(instaComp.scanId),
+        textValue(instaComp.source) ||
+        textValue(instaComp.scanId) ||
+        textValue(row.sourceOfTruth),
       );
       const hasStoredIdentity = Boolean(
+        textValue(topLevelIdentity.year) ||
+        textValue(topLevelIdentity.player) ||
+        textValue(topLevelIdentity.playerName) ||
+        textValue(topLevelIdentity.cardNumber) ||
+        textValue(topLevelIdentity.card_number) ||
         textValue(legacyCardIdentity.year) ||
         textValue(legacyCardIdentity.player) ||
         textValue(legacyCardIdentity.cardNumber) ||
@@ -819,6 +827,8 @@ export async function GET(request: Request) {
       if ((queue === "redo_pending_resale" || queueHint === "redo_pending_resale") && row.status === "draft") return true;
       const hasScanPairReceipt = Boolean(textValue(instaComp.imagePairSha256));
       const hasStoredImageHint =
+        textValue(row.frontImageUrl) ||
+        textValue(row.backImageUrl) ||
         textValue(
           instaComp.recoveredImageUrls &&
             (instaComp.recoveredImageUrls as Record<string, unknown>).front,
@@ -1104,8 +1114,18 @@ export async function GET(request: Request) {
       const imageOrientation = recordValue(instaComp.imageOrientation);
       const centering = recordValue(instaComp.centering);
       const ai = recordValue(instaComp.ai);
-      const manualIdentity = recordValue(instaComp.manualIdentity);
-      const manualIdentityLocked = instaComp.manualIdentityLocked === true;
+      const topLevelIdentity = recordValue(row.identity);
+      const hasTopLevelIdentity = Object.keys(topLevelIdentity).length > 0;
+      const storedManualIdentity = recordValue(instaComp.manualIdentity);
+      const manualIdentity =
+        Object.keys(storedManualIdentity).length > 0
+          ? storedManualIdentity
+          : row.manualIdentityLocked === true && hasTopLevelIdentity
+            ? topLevelIdentity
+            : {};
+      const manualIdentityLocked =
+        instaComp.manualIdentityLocked === true ||
+        (row.manualIdentityLocked === true && hasTopLevelIdentity);
       const checklistIdentity = recordValue(instaComp.checklistIdentity);
       const registryLockedFields = recordValue(checklistIdentity.lockedFields);
       const checklistIdentityStatus = textValue(checklistIdentity.status);
@@ -1139,7 +1159,9 @@ export async function GET(request: Request) {
                 ? registryLockedFields.subset
                 : null,
             }
-          : ai;
+          : Object.keys(ai).length > 0
+            ? ai
+            : topLevelIdentity;
       const localCertifiedPricing = manualIdentityLocked
         ? localCertifiedPricingForIdentity(
             localCertifiedPricingRows,
@@ -1174,6 +1196,7 @@ export async function GET(request: Request) {
       );
       const metadataBackUrl =
         textValue(instaComp.backImageUrl) ||
+        textValue(row.backImageUrl) ||
         textValue(recordValue(instaComp.recoveredImageUrls).back) ||
         (Array.isArray(instaComp.sourceImageUrls)
           ? textValue(instaComp.sourceImageUrls[1])
@@ -1185,6 +1208,7 @@ export async function GET(request: Request) {
         storedPair.hasStoredBackImage || Boolean(metadataBackUrl);
       const metadataFrontUrl =
         textValue(instaComp.frontImageUrl) ||
+        textValue(row.frontImageUrl) ||
         textValue(recordValue(instaComp.recoveredImageUrls).front) ||
         (Array.isArray(instaComp.sourceImageUrls)
           ? textValue(instaComp.sourceImageUrls[0])
@@ -1202,7 +1226,9 @@ export async function GET(request: Request) {
       const manualListingTitle =
         instaComp.manualListingTitleLocked === true
           ? exactStoredText(instaComp.manualListingTitle)
-          : null;
+          : row.manualListingTitleLocked === true
+            ? rawTitle
+            : null;
       const registryExactTitle = registryIdentityLocked
         ? buildInstaCompRegistryExactTitle(primaryIdentity) || null
         : null;
@@ -1284,8 +1310,13 @@ export async function GET(request: Request) {
       const feeProfile = pendingChannelFeeProfile();
       const storedEbayPrice = optionalPrice(dualEbay.price);
       const storedWebsitePrice = optionalPrice(dualWebsite.price);
-      const savedListingPrice = optionalPrice(instaComp.listingPrice);
-      const savedListingPriceSource = textValue(instaComp.listingPriceSource);
+      const topLevelPrice = optionalPrice(row.price ?? row.listPrice);
+      const savedListingPrice =
+        optionalPrice(instaComp.listingPrice) ??
+        (topLevelPrice !== null && topLevelPrice > 0 ? topLevelPrice : null);
+      const savedListingPriceSource =
+        textValue(instaComp.listingPriceSource) ||
+        (row.sellerPriceOverride === true ? "kingmaker_manual" : null);
       const channelAnchor =
         storedEbayPrice || savedListingPrice || suggestedPrice;
       const calculatedChannels = calculateDualMarketplacePricing(
@@ -1817,8 +1848,8 @@ export async function GET(request: Request) {
             ),
           ),
           pricingCheckedAt: textValue(instaComp.pricingCheckedAt),
-          listingPrice: optionalPrice(instaComp.listingPrice),
-          listingPriceSource: textValue(instaComp.listingPriceSource),
+          listingPrice: savedListingPrice,
+          listingPriceSource: savedListingPriceSource,
           channelPricing: {
             ...channelPricing,
             websiteStatus: textValue(dualWebsite.status) || "draft",
