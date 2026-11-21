@@ -12,8 +12,34 @@ import {
   listingPromotionFromMetadata,
 } from "../../../../../../lib/listing-promotions";
 import { instaCompPricingGroupKey } from "../../../../../../lib/instacomp-pricing-group";
+import {
+  calculateDualMarketplacePricing,
+  normalizeDualMarketplaceFeeProfile,
+} from "../../../../../../lib/dual-marketplace-pricing";
 
 export const dynamic = "force-dynamic";
+
+function environmentNumber(name: string, fallback: number) {
+  const raw = Number(process.env[name]);
+  if (!Number.isFinite(raw)) return fallback;
+  return raw >= 1 && raw <= 100 && name.includes("PERCENT") ? raw / 100 : raw;
+}
+
+function pendingChannelFeeProfile() {
+  return normalizeDualMarketplaceFeeProfile({
+    ebayPercent: environmentNumber("TCOS_EBAY_FEE_PERCENT", 0.1325),
+    ebayFixed: environmentNumber("TCOS_EBAY_FIXED_FEE", 0.4),
+    ebayFixedUnderTen: environmentNumber("TCOS_EBAY_FIXED_FEE_UNDER_10", 0.3),
+    promotedPercent: environmentNumber("TCOS_EBAY_PROMOTED_PERCENT", 0),
+    websitePercent: environmentNumber("TCOS_WEBSITE_PROCESSING_PERCENT", 0.029),
+    websiteFixed: environmentNumber("TCOS_WEBSITE_FIXED_FEE", 0.3),
+    minimumWebsiteDiscountPercent: environmentNumber(
+      "TCOS_MINIMUM_WEBSITE_DISCOUNT_PERCENT",
+      0.03,
+    ),
+    websitePriceEnding: environmentNumber("TCOS_WEBSITE_PRICE_ENDING", 0.99),
+  });
+}
 
 function price(value: unknown) {
   const parsed = Number(value);
@@ -64,6 +90,8 @@ export async function POST(request: Request) {
     }
 
     const now = new Date().toISOString();
+    const feeProfile = pendingChannelFeeProfile();
+    const uniformOperatorPrice = body.applyAllChannels !== false;
     const edits = candidates.map((candidate: any) => {
       const metadata = record(candidate.metadata);
       const instaComp = record(metadata.instacomp);
@@ -72,6 +100,14 @@ export async function POST(request: Request) {
         ? discountedListingPrice(selectedPrice, promotion.discountPercent) || selectedPrice
         : selectedPrice;
       const promo = record(metadata.tcos_promo);
+      const channelBreakdown = calculateDualMarketplacePricing(effectivePrice, feeProfile);
+      const websitePrice = uniformOperatorPrice ? effectivePrice : channelBreakdown.websitePrice;
+      const ebayPrice = uniformOperatorPrice ? effectivePrice : channelBreakdown.ebayPrice;
+      const mercariPrice = Math.max(1.0, uniformOperatorPrice ? effectivePrice : channelBreakdown.ebayPrice);
+      const dualMarketplace = record(metadata.dual_marketplace);
+      const dualWebsite = record(dualMarketplace.website);
+      const dualEbay = record(dualMarketplace.ebay);
+      const dualMercari = record(dualMarketplace.mercari);
       const nextMetadata = {
         ...metadata,
         ...(promotion.onSale
@@ -91,6 +127,32 @@ export async function POST(request: Request) {
           pricingChosenAt: now,
           pricingGroupKey: groupKey || null,
         },
+        dual_marketplace: {
+          ...dualMarketplace,
+          schema: "tcos.dualMarketplaceListing.v3",
+          pricing: {
+            ...channelBreakdown,
+            websitePrice,
+            ebayPrice,
+            feeProfile,
+            calculatedAt: now,
+            source,
+            sellerPriceOverride: true,
+          },
+          website: {
+            ...dualWebsite,
+            price: websitePrice,
+          },
+          ebay: {
+            ...dualEbay,
+            price: ebayPrice,
+          },
+          mercari: {
+            ...dualMercari,
+            price: mercariPrice,
+          },
+          updatedAt: now,
+        },
       };
       return {
         inventoryItemId: String(candidate.id ?? candidate.inventoryItemId ?? candidate.inventory_item_id ?? "").trim(),
@@ -103,11 +165,18 @@ export async function POST(request: Request) {
     }).filter((entry) => Boolean(entry.inventoryItemId));
     await updateMacKingmakerDrafts(edits, 20_000);
     const updatedCount = edits.length;
+    const primaryBreakdown = calculateDualMarketplacePricing(selectedPrice, feeProfile);
+    const outWebsitePrice = uniformOperatorPrice ? selectedPrice : primaryBreakdown.websitePrice;
+    const outEbayPrice = uniformOperatorPrice ? selectedPrice : primaryBreakdown.ebayPrice;
+    const outMercariPrice = Math.max(1.0, uniformOperatorPrice ? selectedPrice : primaryBreakdown.ebayPrice);
 
     return Response.json({
       success: true,
       inventoryItemId,
       price: selectedPrice,
+      websitePrice: outWebsitePrice,
+      ebayPrice: outEbayPrice,
+      mercariPrice: outMercariPrice,
       source,
       groupKey: groupKey || null,
       grouped: applyGroup,

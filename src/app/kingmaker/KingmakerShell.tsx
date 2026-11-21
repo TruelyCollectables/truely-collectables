@@ -11,17 +11,12 @@ import {
 
 const navigation = [
   { href: "/kingmaker", label: "Command Center", exact: true },
-  { href: "/kingmaker/scan", label: "Scan Cards", exact: false },
-  { href: "/kingmaker/verified-csv", label: "Verified CSV Intake", exact: false },
   { href: "/kingmaker/listings", label: "Master Listings", exact: false },
-  { href: "/kingmaker/missing-picture", label: "Missing Picture", exact: false },
-  { href: "/kingmaker/resale-ready", label: "Resale Ready", exact: false },
+  { href: "/kingmaker/scan", label: "Scan Cards", exact: false },
   { href: "/kingmaker/inventory", label: "Inventory", exact: false },
-  { href: "/kingmaker/intelligence", label: "Intelligence", exact: false },
-  { href: "/kingmaker/sourcing", label: "Deal Hunter & Sourcing", exact: false },
-  { href: "/kingmaker/offers", label: "Offers", exact: false },
   { href: "/kingmaker/orders", label: "Orders", exact: false },
   { href: "/kingmaker/marketplaces", label: "Marketplaces", exact: false },
+  { href: "/kingmaker/offers", label: "Offers", exact: false },
   { href: "/kingmaker/payouts", label: "Payouts", exact: false },
   { href: "/kingmaker/settings", label: "Settings", exact: false },
 ] as const;

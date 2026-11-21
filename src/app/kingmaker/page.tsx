@@ -5,38 +5,32 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const workflow = [
-  ["1", "Drop front + back", "KINGMAKER sends one card pair into the real InstaComp intake."],
-  ["2", "InstaComp AI identifies", "Internal visual intelligence + Checklist Registry lock the exact card identity."],
-  ["3", "Exact comps + price", "Approved external market evidence is used only after identity is locked."],
-  ["4", "Master listing review", "Edit any wrong field, verify images, choose the listing price, and keep publication blocked."],
-  ["5", "Approve + learn", "Your final confirmed identity is stored as trusted InstaComp AI teacher truth."],
+  ["1", "Resale Pending", "Scanned or received cards enter Resale Pending, separate from your Investment Stash."],
+  ["2", "Identify", "Confirm exact year, set, player, card #, parallel, and serial with front + back photos."],
+  ["3", "Comping", "Pull 365-day sold comps, apply markup or manual price, and sync all 3 marketplace prices."],
+  ["4", "Resale Pending → List", "Publish to Website, eBay, Mercari, or All 3 — or run bulk sales by channel or sport."],
 ] as const;
 
 const queues = [
   {
-    href: "/kingmaker/pending-receipts",
-    title: "Pending Receipts",
-    description: "Receive arrivals immediately; add front/back photos later without creating another purchase.",
+    href: "/kingmaker/listings?folder=pending",
+    title: "Master Listings",
+    description: "Resale Pending, Investment Stash, all live channel folders, recomping, and bulk sales.",
   },
   {
-    href: "/kingmaker/listings",
-    title: "Master Listings",
-    description: "Correct identity, review images and comps, choose price, and finish the listing.",
+    href: "/kingmaker/scan",
+    title: "Scan Cards",
+    description: "Drop front + back card scans to identify, comp, and stage into Resale Pending.",
   },
   {
     href: "/kingmaker/inventory",
     title: "Inventory",
-    description: "Cards that have completed intake and moved into canonical inventory.",
+    description: "Full catalog of active, draft, and investment cards.",
   },
   {
     href: "/kingmaker/orders",
     title: "Orders",
-    description: "Sold-card fulfillment and order work after publication.",
-  },
-  {
-    href: "/kingmaker/intelligence",
-    title: "InstaComp Intelligence",
-    description: "Diagnostics and supporting intelligence without creating a second scanner.",
+    description: "Sold-card fulfillment and order management.",
   },
 ] as const;
 
@@ -48,17 +42,15 @@ export default function KingmakerHomePage() {
           <p className="text-sm font-black uppercase tracking-[0.24em] text-emerald-300">
             KINGMAKER
           </p>
-          <h1 className="mt-2 text-4xl font-black tracking-tight sm:text-5xl">
-            One card workflow. One permanent UUID. One final truth.
+          <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">
+            Command Center
           </h1>
-          <p className="mt-4 max-w-4xl text-lg leading-8 text-slate-300">
-            Scan once here. InstaComp AI identifies the card in-house, the Registry locks identity,
-            the comp engine establishes value, and KINGMAKER carries the same physical card into Master Listings,
-            listing review, publication, and trusted learning.
+          <p className="mt-2 max-w-3xl text-base leading-7 text-slate-300">
+            Resale Pending → Identify → Comping → Resale Pending. Keep Investment Stash separate, audit every channel folder, and run recomping or targeted sales across Website, eBay, and Mercari.
           </p>
         </section>
 
-        <section className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-5" aria-label="KINGMAKER card workflow">
+        <section className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4" aria-label="KINGMAKER card workflow">
           {workflow.map(([number, title, description]) => (
             <div key={number} className="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
               <div className="flex h-8 w-8 items-center justify-center rounded-full bg-emerald-400 font-black text-slate-950">
@@ -73,13 +65,8 @@ export default function KingmakerHomePage() {
         <KingmakerInstaCompQueue />
 
         <section className="mt-8">
-          <div>
-            <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-500">
-              Work queues
-            </p>
-            <h2 className="mt-1 text-2xl font-black">Pick up where each card is now</h2>
-          </div>
-          <div className="mt-4 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <h2 className="text-xl font-black">Workspaces</h2>
+          <div className="mt-3 grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             {queues.map((item) => (
               <Link
                 key={item.href}
@@ -91,13 +78,6 @@ export default function KingmakerHomePage() {
               </Link>
             ))}
           </div>
-        </section>
-
-        <section className="mt-7 rounded-2xl border border-amber-800 bg-amber-950/20 p-5 text-amber-100">
-          <h2 className="font-black">Seller approval remains the publication gate</h2>
-          <p className="mt-2 leading-7 text-amber-100/80">
-            InstaComp can identify, comp, price, and prepare the draft. It cannot publish a card or replace an operator-confirmed identity without an explicit seller action.
-          </p>
         </section>
       </div>
     </main>
