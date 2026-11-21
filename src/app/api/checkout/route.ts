@@ -56,6 +56,12 @@ import {
   resolveCartListingCoupon,
   roundedMoney,
 } from "../../../lib/listing-promotions";
+import {
+  categoryMatchesPromotion,
+  hashPromotionIdentity,
+  normalizePromotionAddress,
+  normalizePromotionEmail,
+} from "../../../lib/store-promotions";
 import { loadLiveStoreSales, resolveStoreSale } from "../../../lib/store-sales";
 
 export const dynamic = "force-dynamic";
@@ -109,6 +115,49 @@ export async function POST(request: Request) {
     const checkoutAttemptId = String(body.checkoutAttemptId || "");
     const submittedCoupon = String(body.couponCode || "").trim();
     const couponCode = normalizeListingCouponCode(submittedCoupon);
+    const customerEmail = normalizePromotionEmail(body.customerEmail || account?.email);
+    const submittedAddress =
+      body.shippingAddress && typeof body.shippingAddress === "object"
+        ? normalizePromotionAddress(body.shippingAddress)
+        : null;
+    const promotionLookup = couponCode
+      ? await supabase
+          .from("store_promotions")
+          .select("*")
+          .eq("store_id", storeId)
+          .ilike("code", couponCode)
+          .maybeSingle()
+      : { data: null, error: null };
+    if (promotionLookup.error) throw promotionLookup.error;
+    const storePromotion = promotionLookup.data as any;
+    if (storePromotion) {
+      if (!storePromotion.active) {
+        return NextResponse.json({ error: "That promotion is no longer active.", retryable: false }, { status: 400 });
+      }
+      if (storePromotion.expires_at && new Date(storePromotion.expires_at) <= new Date()) {
+        return NextResponse.json({ error: "That promotion has expired.", retryable: false }, { status: 400 });
+      }
+      if (storePromotion.max_redemptions && storePromotion.times_redeemed >= storePromotion.max_redemptions) {
+        return NextResponse.json({ error: "That promotion has reached its redemption limit.", retryable: false }, { status: 400 });
+      }
+      if (storePromotion.first_order_only && (!customerEmail || !submittedAddress)) {
+        return NextResponse.json({ error: "Enter your email and complete shipping address before using this first-order promotion.", retryable: false }, { status: 400 });
+      }
+      if (storePromotion.first_order_only) {
+        const emailHash = hashPromotionIdentity(customerEmail);
+        const addressHash = hashPromotionIdentity(submittedAddress);
+        const redemptionQuery = await supabase
+          .from("store_promotion_redemptions")
+          .select("id")
+          .eq("promotion_id", storePromotion.id)
+          .or(`email_hash.eq.${emailHash},address_hash.eq.${addressHash}`)
+          .limit(1);
+        if (redemptionQuery.error && redemptionQuery.error.code !== "42P01") throw redemptionQuery.error;
+        if (redemptionQuery.data?.length) {
+          return NextResponse.json({ error: "That first-order promotion was already redeemed for this email or mailing address.", retryable: false }, { status: 409 });
+        }
+      }
+    }
 
     if (submittedCoupon && !couponCode) {
       return NextResponse.json(
@@ -191,27 +240,31 @@ export async function POST(request: Request) {
     const automaticFreeShippingApplies =
       cart.length > 0 &&
       cart.every((item) => automaticFreeShippingProductIds.has(item.id));
-    const couponDecision = resolveCartListingCoupon({
-      couponCode,
-      productIds: cart.map((item) => item.id),
-      promotionByProductId,
-    });
+    const storePromotionProductIds = new Set(
+      inventoryItems
+        .filter((item) => categoryMatchesPromotion(item.category, storePromotion?.category_scope))
+        .map((item) => item.legacyProductId),
+    );
+    if (storePromotion && storePromotionProductIds.size === 0) {
+      return NextResponse.json({ error: "That promotion does not apply to the items in this cart.", retryable: false }, { status: 400 });
+    }
+    const couponDecision = storePromotion
+      ? { valid: true, error: null, discountApplies: storePromotionProductIds.size > 0, freeShippingApplies: Boolean(storePromotion.free_shipping), discountProductIds: storePromotionProductIds }
+      : resolveCartListingCoupon({
+          couponCode,
+          productIds: cart.map((item) => item.id),
+          promotionByProductId,
+        });
     const discountCouponProductIds = couponDecision.discountProductIds;
     const discountCouponApplies = couponDecision.discountApplies;
     const freeShippingCouponApplies = couponDecision.freeShippingApplies;
 
     if (!couponDecision.valid) {
-      return NextResponse.json(
-        {
-          error: couponDecision.error,
-          retryable: false,
-        },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: couponDecision.error, retryable: false }, { status: 400 });
     }
 
     const freeShippingPromoApplies =
-      automaticFreeShippingApplies || freeShippingCouponApplies;
+      automaticFreeShippingApplies || freeShippingCouponApplies || Boolean(storePromotion?.free_shipping);
 
     const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = [];
     let subtotal = 0;
@@ -254,10 +307,13 @@ export async function POST(request: Request) {
           ? storeSale.price
           : Number(product.price);
       automaticSaleDiscountTotal += Math.max(0, listingOriginalPrice - normalPrice) * cartItem.quantity;
-      const couponPercent =
-        couponCode &&
-        promotion?.discountCouponCode === couponCode &&
-        discountCouponProductIds.has(cartItem.id)
+      const couponPercent = storePromotion
+        ? storePromotionProductIds.has(cartItem.id)
+          ? Number(storePromotion.percent_off || 0)
+          : 0
+        : couponCode &&
+            promotion?.discountCouponCode === couponCode &&
+            discountCouponProductIds.has(cartItem.id)
           ? promotion.discountCouponPercent
           : 0;
       const price = couponPercent > 0
@@ -462,9 +518,9 @@ export async function POST(request: Request) {
     const requestFingerprint = checkoutRequestFingerprint({
       mode: "payment",
       payment_method_types: ["card"],
-      allow_promotion_codes: true,
+      allow_promotion_codes: !storePromotion,
       customer_creation: "always",
-      customer_email: account?.email || null,
+      customer_email: customerEmail || null,
       line_items: lineItems,
       shipping_address_collection: { allowed_countries: ["US"] },
       metadata: baseMetadata,
@@ -589,7 +645,7 @@ export async function POST(request: Request) {
       {
         mode: "payment",
         payment_method_types: ["card"],
-        allow_promotion_codes: true,
+        allow_promotion_codes: !storePromotion,
         customer_creation: "always",
         ...(account?.email ? { customer_email: account.email } : {}),
         client_reference_id: checkoutAttemptId,

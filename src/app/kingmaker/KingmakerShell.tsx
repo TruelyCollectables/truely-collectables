@@ -17,6 +17,8 @@ const navigation = [
   { href: "/kingmaker/inventory", label: "Inventory", exact: false },
   { href: "/kingmaker/orders", label: "Orders", exact: false },
   { href: "/kingmaker/marketplaces", label: "Marketplaces", exact: false },
+  { href: "/kingmaker/promotions", label: "Promotions", exact: false },
+  { href: "/marketing/tc-flyer", label: "Flyer", exact: false },
   { href: "/kingmaker/offers", label: "Offers", exact: false },
   { href: "/kingmaker/payouts", label: "Payouts", exact: false },
   { href: "/kingmaker/settings", label: "Settings", exact: false },

@@ -17,6 +17,7 @@ import {
 import { selectedCheckoutShipping } from "./stripe-selected-shipping";
 import { persistBuyerProtectionForOrder } from "./buyer-protection-order";
 import { enqueueAndAttemptOrderNotification } from "./order-notifications";
+import { hashPromotionIdentity, normalizePromotionAddress, normalizePromotionEmail } from "./store-promotions";
 
 export async function finalizeCheckoutOrder(params: {
   supabase: SupabaseClient;
@@ -59,6 +60,9 @@ export async function finalizeCheckoutOrder(params: {
     } catch (promotionError) {
       console.error("Promotion redemption could not be synchronized", promotionError);
     }
+  }
+  if (!discountCode && metadata.coupon_code) {
+    discountCode = String(metadata.coupon_code).trim().toUpperCase() || null;
   }
   const taxAmount = Number(session.total_details?.amount_tax || 0) / 100;
   const selectedShipping = await selectedCheckoutShipping({
@@ -187,6 +191,36 @@ export async function finalizeCheckoutOrder(params: {
       .single();
     if (error || !order) throw error || new Error("Order insert failed");
     orderId = Number(order.id);
+  }
+
+  if (discountCode) {
+    const promotionLookup = await supabase
+      .from("store_promotions")
+      .select("id,first_order_only")
+      .eq("store_id", storeId)
+      .ilike("code", discountCode)
+      .maybeSingle();
+    if (promotionLookup.error) throw promotionLookup.error;
+    if (promotionLookup.data?.first_order_only) {
+      const normalizedEmail = normalizePromotionEmail(customerEmail);
+      const normalizedAddress = normalizePromotionAddress({
+        line1: shipping?.line1,
+        city: shipping?.city,
+        state: shipping?.state,
+        postalCode: shipping?.postal_code,
+        country: shipping?.country,
+      });
+      const { error: redemptionError } = await supabase
+        .from("store_promotion_redemptions")
+        .insert({
+          store_id: storeId,
+          promotion_id: promotionLookup.data.id,
+          order_id: orderId,
+          email_hash: hashPromotionIdentity(normalizedEmail) || "unknown",
+          address_hash: hashPromotionIdentity(normalizedAddress),
+        });
+      if (redemptionError && redemptionError.code !== "23505") throw redemptionError;
+    }
   }
 
   await persistBuyerProtectionForOrder({

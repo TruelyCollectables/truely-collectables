@@ -28,6 +28,14 @@ import {
   TERMS_OF_SERVICE_VERSION,
 } from "../../lib/legal";
 
+type ShippingAddress = {
+  line1: string;
+  city: string;
+  state: string;
+  postalCode: string;
+  country: string;
+};
+
 type CartItem = {
   id: number;
   title: string;
@@ -73,6 +81,8 @@ export default function CartClient(props: { storeDisplayName: string }) {
     useState<BuyerProtectionCheckoutChoice>(EMPTY_PROTECTION_CHOICE);
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [couponCode, setCouponCode] = useState("");
+  const [customerEmail, setCustomerEmail] = useState("");
+  const [shippingAddress, setShippingAddress] = useState<ShippingAddress>({ line1: "", city: "", state: "", postalCode: "", country: "US" });
   const pricingRefreshStarted = useRef(false);
 
   function saveCart(updatedCart: CartItem[]) {
@@ -472,6 +482,33 @@ export default function CartClient(props: { storeDisplayName: string }) {
                 Eligible card discounts and free shipping are verified before payment.
               </span>
             </label>
+
+            {couponCode.trim() ? (
+              <div className="mt-4 rounded-xl border border-cyan-200 bg-cyan-50 p-4">
+                <p className="text-sm font-black text-cyan-950">First-order promotion verification</p>
+                <p className="mt-1 text-xs font-semibold text-cyan-900">
+                  Enter the same email and mailing address used for delivery. TC hashes these values to prevent repeat first-order redemptions.
+                </p>
+                <label className="mt-3 block text-sm font-bold">
+                  Email
+                  <input type="email" value={customerEmail} onChange={(event) => setCustomerEmail(event.target.value)} className="mt-1 min-h-11 w-full rounded border border-cyan-300 px-3" />
+                </label>
+                <div className="mt-3 grid gap-3 sm:grid-cols-2">
+                  <label className="text-sm font-bold sm:col-span-2">Address
+                    <input value={shippingAddress.line1} onChange={(event) => setShippingAddress((current) => ({ ...current, line1: event.target.value }))} className="mt-1 min-h-11 w-full rounded border border-cyan-300 px-3" placeholder="Street address" />
+                  </label>
+                  <label className="text-sm font-bold">City
+                    <input value={shippingAddress.city} onChange={(event) => setShippingAddress((current) => ({ ...current, city: event.target.value }))} className="mt-1 min-h-11 w-full rounded border border-cyan-300 px-3" />
+                  </label>
+                  <label className="text-sm font-bold">State
+                    <input value={shippingAddress.state} onChange={(event) => setShippingAddress((current) => ({ ...current, state: event.target.value }))} className="mt-1 min-h-11 w-full rounded border border-cyan-300 px-3" />
+                  </label>
+                  <label className="text-sm font-bold">ZIP
+                    <input value={shippingAddress.postalCode} onChange={(event) => setShippingAddress((current) => ({ ...current, postalCode: event.target.value }))} className="mt-1 min-h-11 w-full rounded border border-cyan-300 px-3" />
+                  </label>
+                </div>
+              </div>
+            ) : null}
 
             <label className="mt-6 flex min-h-12 items-start gap-3 rounded border p-4 text-sm leading-6">
               <input

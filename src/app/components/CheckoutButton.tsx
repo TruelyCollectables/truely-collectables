@@ -69,12 +69,16 @@ export default function CheckoutButton({
   buyerProtection,
   buyerProtectionAvailable,
   couponCode = "",
+  customerEmail = "",
+  shippingAddress,
 }: {
   shippingMethod?: ShippingMethod;
   termsAccepted: boolean;
   buyerProtection: BuyerProtectionCheckoutChoice;
   buyerProtectionAvailable: boolean;
   couponCode?: string;
+  customerEmail?: string;
+  shippingAddress?: { line1: string; city: string; state: string; postalCode: string; country: string };
 }) {
   const [loading, setLoading] = useState(false);
   const inFlightRef = useRef(false);
@@ -141,6 +145,8 @@ export default function CheckoutButton({
           tosVersion: TERMS_OF_SERVICE_VERSION,
           checkoutAttemptId: checkoutAttempt.id,
           couponCode: couponCode.trim().toUpperCase(),
+          customerEmail: customerEmail.trim(),
+          shippingAddress,
         }),
       });
 
