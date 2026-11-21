@@ -33,13 +33,14 @@ export default async function KingmakerSourcingPage({ searchParams }: PageProps)
   const query = await searchParams;
   const supabase = createSupabaseServerClient({ admin: true });
 
-  const sevenDaysAgo = Date.now() - 7 * 86400 * 1000;
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
 
   // Asynchronously clean up stale dummy runs or ancient runs in Supabase
   void (async () => {
     try {
       await supabase.from("tcos_deal_hunter_runs").delete().eq("discovery_count", 0).eq("evaluated_count", 0);
-      await supabase.from("tcos_deal_hunter_runs").delete().lt("completed_at", new Date(sevenDaysAgo).toISOString());
+      await supabase.from("tcos_deal_hunter_runs").delete().lt("completed_at", sevenDaysAgo.toISOString());
     } catch {
       // Non-blocking cleanup
     }
@@ -174,7 +175,7 @@ export default async function KingmakerSourcingPage({ searchParams }: PageProps)
   const combinedRuns = macRuns.length > 0 ? macRuns : supabaseRuns;
   const runs = combinedRuns.filter((r) => {
     if (r.discovery_count === 0 && r.evaluated_count === 0) return false;
-    if (r.completed_at && new Date(r.completed_at).getTime() < sevenDaysAgo) return false;
+    if (r.completed_at && new Date(r.completed_at).getTime() < sevenDaysAgo.getTime()) return false;
     return true;
   });
 
