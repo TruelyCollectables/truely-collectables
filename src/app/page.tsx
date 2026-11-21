@@ -26,6 +26,93 @@ function CardImage({ card, sizes }: { card: UniversalInventoryItem; sizes: strin
   );
 }
 
+function LockerRoomRail({
+  eyebrow,
+  title,
+  href,
+  ctaLabel,
+  cards,
+}: {
+  eyebrow: string;
+  title: string;
+  href: string;
+  ctaLabel: string;
+  cards: UniversalInventoryItem[];
+}) {
+  if (!cards.length) return null;
+
+  return (
+    <section className="mx-auto max-w-7xl px-6 py-10">
+      <div className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <p className="text-xs font-bold uppercase tracking-[0.2em] text-[#2563eb]">
+            {eyebrow}
+          </p>
+          <h2 className="font-display mt-1 text-3xl font-extrabold uppercase tracking-tight text-[#0f172a] sm:text-4xl">
+            {title}
+          </h2>
+        </div>
+        <Link
+          href={href}
+          className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-xs font-bold uppercase tracking-wider text-[#0f172a] transition hover:border-[#0f172a] hover:bg-[#facc15]"
+        >
+          {ctaLabel} →
+        </Link>
+      </div>
+
+      <div className="mt-6 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+        {cards.map((card) => (
+          <article
+            key={card.legacyProductId}
+            className="group flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-3 shadow-xs transition hover:-translate-y-1 hover:border-slate-300 hover:shadow-lg"
+          >
+            <Link href={`/product/${card.legacyProductId}`} className="block">
+              <div className="relative aspect-[4/5] overflow-hidden rounded-lg border border-slate-100 bg-[#f8fafc]">
+                <CardImage
+                  card={card}
+                  sizes="(min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw"
+                />
+              </div>
+              <div className="pt-3">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="rounded bg-blue-50 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-[#2563eb]">
+                    {card.storefrontSection || "Collectible"}
+                  </span>
+                  {card.promotion?.onSale ? (
+                    <span className="rounded bg-[#dc2626] px-2 py-0.5 text-[10px] font-bold uppercase text-white">
+                      -{card.promotion.discountPercent}% OFF
+                    </span>
+                  ) : null}
+                </div>
+                <h3 className="mt-2 line-clamp-2 min-h-11 text-sm font-bold leading-snug text-[#0f172a]">
+                  {card.title}
+                </h3>
+              </div>
+            </Link>
+
+            <div className="mt-3 border-t border-slate-100 pt-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="font-display text-2xl font-extrabold text-[#0f172a]">
+                  ${Number(card.price).toFixed(2)}
+                </p>
+                <span className="rounded bg-slate-100 px-2 py-0.5 font-mono text-[11px] font-semibold text-slate-600">
+                  QTY {card.quantity}
+                </span>
+              </div>
+              <Link
+                href={`/product/${card.legacyProductId}`}
+                className="mt-3 block w-full rounded-lg bg-[#0f172a] py-2 text-center text-xs font-bold uppercase tracking-wider text-white transition group-hover:bg-[#facc15] group-hover:text-[#0f172a]"
+              >
+                View Item
+              </Link>
+            </div>
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export default async function Home() {
   const supabase = createSupabaseServerClient();
   const storeSettings = await getStoreSettings(supabase);
@@ -41,6 +128,19 @@ export default async function Home() {
     count: 8,
   });
   const heroCards = featured.slice(0, 4);
+  const under5Steals = selectRotatingAvailableHomepageItems(
+    products.filter((item) => Number(item.price) > 0 && Number(item.price) < 5),
+    { count: 4 },
+  );
+  const autoCards = selectRotatingAvailableHomepageItems(
+    products.filter((item) => item.features.autograph || item.features.memorabilia),
+    { count: 4 },
+  );
+  const gradedCards = selectRotatingAvailableHomepageItems(
+    products.filter((item) => item.features.graded),
+    { count: 4 },
+  );
+
   const sportCounts = Array.from(
     products.reduce((counts, product) => {
       const sport = product.storefrontSection?.trim();
@@ -98,6 +198,7 @@ export default async function Home() {
             <div className="mt-5 flex flex-wrap gap-2">
               {[
                 ["Shop All", "/shop"],
+                ["Under $5 Steals", "/shop?price=under5"],
                 ["Rookie Cards", "/shop?feature=rookie"],
                 ["Autographs", "/shop?feature=autograph"],
                 ["Numbered", "/shop?feature=numbered"],
@@ -200,10 +301,10 @@ export default async function Home() {
             {featured.map((card) => (
               <article
                 key={card.legacyProductId}
-                className="group flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-3 shadow-sm transition hover:-translate-y-1 hover:border-slate-300 hover:shadow-lg"
+                className="group flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-3 shadow-xs transition hover:-translate-y-1 hover:border-slate-300 hover:shadow-lg"
               >
                 <Link href={`/product/${card.legacyProductId}`} className="block">
-                  <div className="relative aspect-[4/5] overflow-hidden rounded-lg border border-slate-200 bg-[#f8fafc]">
+                  <div className="relative aspect-[4/5] overflow-hidden rounded-lg border border-slate-100 bg-[#f8fafc]">
                     <CardImage
                       card={card}
                       sizes="(min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw"
@@ -259,6 +360,30 @@ export default async function Home() {
           </div>
         )}
       </section>
+
+      <LockerRoomRail
+        eyebrow="Budget picks"
+        title="Under $5 Steals"
+        href="/shop?price=under5"
+        ctaLabel="Shop all under $5"
+        cards={under5Steals}
+      />
+
+      <LockerRoomRail
+        eyebrow="Verified hits"
+        title="Autos & Memorabilia"
+        href="/shop?feature=autograph"
+        ctaLabel="Shop all autos"
+        cards={autoCards}
+      />
+
+      <LockerRoomRail
+        eyebrow="Authenticated slabs"
+        title="Graded Slabs"
+        href="/shop?feature=graded"
+        ctaLabel="Shop all graded"
+        cards={gradedCards}
+      />
 
       {sportCounts.length ? (
         <section className="border-y border-slate-200 bg-white">

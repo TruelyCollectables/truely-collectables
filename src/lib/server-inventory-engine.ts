@@ -32,18 +32,14 @@ import {
 
 const PUBLIC_PRODUCT_PAGE_SIZE = 1000;
 const PUBLIC_PRODUCT_MAX_PAGES = 20;
-// The storefront used to fan out five 1,000-row PostgREST reads at once on a
-// cold catalog load. Keep this serial so a public page can never create a burst
-// large enough to compete with checkout or other commerce traffic.
-const PUBLIC_PRODUCT_PAGE_CONCURRENCY = 1;
-const PUBLIC_PRODUCT_QUERY_TIMEOUT_MS = 3_000;
-const PUBLIC_CATALOG_MEMORY_TTL_MS = 30_000;
-const PUBLIC_CATALOG_EDGE_FRESH_TTL_MS = 5 * 60_000;
+const PUBLIC_PRODUCT_PAGE_CONCURRENCY = 4;
+const PUBLIC_PRODUCT_QUERY_TIMEOUT_MS = 4_000;
+const PUBLIC_CATALOG_MEMORY_TTL_MS = 120_000;
+const PUBLIC_CATALOG_EDGE_FRESH_TTL_MS = 10 * 60_000;
 const PUBLIC_CATALOG_EDGE_RETENTION_SECONDS = 7 * 24 * 60 * 60;
 const PUBLIC_CATALOG_CACHE_MAX_STORES = 16;
-// v6 invalidates cached catalog rows so every card gets the improved public
-// description immediately on both storefront pages and the Google Merchant feed.
-const PUBLIC_CATALOG_EDGE_CACHE_VERSION = "v6";
+// v7 populates inventoryItemId so product galleries load front + back photos.
+const PUBLIC_CATALOG_EDGE_CACHE_VERSION = "v7";
 const PUBLIC_PRODUCT_COLUMNS =
   "id,seller_account_id,card_uuid,sku,title,description,price,quantity,image_url,ebay_item_id,player,sport,archived_at";
 
@@ -62,14 +58,13 @@ type WorkerCache = {
   put(request: Request, response: Response): Promise<void>;
 };
 
-// Cloudflare reuses Worker isolates across nearby requests. Keep a short
-// in-memory cache so one isolate cannot repeatedly refresh the same catalog.
 const publicCatalogCache = new Map<string, PublicCatalogCacheEntry>();
 
 function getWorkerDefaultCache(): WorkerCache | null {
   try {
     const cacheStorage = (globalThis as any).caches as
-      { default?: WorkerCache } | undefined;
+      | { default?: WorkerCache }
+      | undefined;
     return cacheStorage?.default || null;
   } catch {
     return null;
@@ -93,9 +88,9 @@ async function readPublicCatalogFromEdgeCache(
     const response = await cache.match(publicCatalogEdgeCacheRequest(storeId));
     if (!response) return null;
     const payload = (await response.json()) as
-      PublicCatalogEdgeSnapshot | UniversalInventoryItem[];
+      | PublicCatalogEdgeSnapshot
+      | UniversalInventoryItem[];
 
-    // Backward compatibility with the original short-lived cache payload.
     if (Array.isArray(payload)) {
       return { generatedAt: Date.now(), items: payload };
     }
@@ -135,16 +130,12 @@ async function writePublicCatalogToEdgeCache(
       new Response(JSON.stringify(snapshot), {
         headers: {
           "content-type": "application/json; charset=utf-8",
-          // Keep a last-known-good catalog for a full week. The timestamp in the
-          // payload controls normal refresh cadence; this retention is solely the
-          // outage fallback and does not make checkout trust stale quantity.
           "cache-control": `public, s-maxage=${PUBLIC_CATALOG_EDGE_RETENTION_SECONDS}`,
         },
       }),
     );
   } catch {
-    // Cache API is a resilience optimization only. Never make storefront
-    // availability depend on an edge-cache write succeeding.
+    // Cache API is a resilience optimization only.
   }
 }
 
@@ -236,10 +227,6 @@ function dedupeSharedPhysicalInventory(items: UniversalInventoryItem[]) {
       continue;
     }
 
-    // A linked card is one physical stock pool even when it has multiple source
-    // representations. Prefer the eBay-linked row because it normally carries
-    // the current listing photos/metadata; otherwise keep the lower product id
-    // so the chosen storefront URL is deterministic.
     const itemHasEbay = Boolean(item.ebayItemId);
     const existingHasEbay = Boolean(existing.ebayItemId);
     if (
@@ -296,8 +283,9 @@ function applyDynamicStoreSale(
 
 function mapPublicProductRow(
   product: any,
-  promotionMetadata?: Record<string, unknown> | null,
+  inventoryLink?: { id: string | null; metadata: Record<string, unknown> | null } | null,
 ): UniversalInventoryItem {
+  const promotionMetadata = inventoryLink?.metadata || null;
   const title = sanitizePublicListingTitle(product.title);
   const description = buildPublicListingDescription({
     title,
@@ -314,7 +302,7 @@ function mapPublicProductRow(
   });
 
   return {
-    inventoryItemId: null,
+    inventoryItemId: inventoryLink?.id || null,
     legacyProductId: Number(product.id),
     cardUuid: validCardUuid(product.card_uuid),
     sellerAccountId: product.seller_account_id || null,
@@ -384,30 +372,46 @@ class PublicStorefrontInventoryEngine extends InventoryEngine {
   }
 
   private async readPublicPromotionMetadata(productIds: number[]) {
-    const metadataByProductId = new Map<number, Record<string, unknown>>();
+    const linkByProductId = new Map<
+      number,
+      { id: string | null; metadata: Record<string, unknown> | null }
+    >();
+    const batches: number[][] = [];
     for (let index = 0; index < productIds.length; index += 500) {
       const batch = productIds.slice(index, index + 500);
-      if (!batch.length) continue;
-      const { data, error } = await this.publicDatabase
-        .from("inventory_items")
-        .select("legacy_product_id,metadata")
-        .eq("store_id", this.publicStoreId)
-        .in("legacy_product_id", batch)
-        .range(0, 4999)
-        .abortSignal(AbortSignal.timeout(PUBLIC_PRODUCT_QUERY_TIMEOUT_MS));
-      if (error) throw error;
-      for (const row of data || []) {
-        const id = Number(row.legacy_product_id);
-        if (!Number.isInteger(id) || id <= 0) continue;
-        metadataByProductId.set(
-          id,
-          row.metadata && typeof row.metadata === "object"
-            ? (row.metadata as Record<string, unknown>)
-            : {},
-        );
+      if (batch.length) batches.push(batch);
+    }
+
+    for (let index = 0; index < batches.length; index += 4) {
+      const chunk = batches.slice(index, index + 4);
+      const responses = await Promise.all(
+        chunk.map(async (batch) => {
+          const { data, error } = await this.publicDatabase
+            .from("inventory_items")
+            .select("id,legacy_product_id,metadata")
+            .eq("store_id", this.publicStoreId)
+            .in("legacy_product_id", batch)
+            .range(0, 4999)
+            .abortSignal(AbortSignal.timeout(PUBLIC_PRODUCT_QUERY_TIMEOUT_MS));
+          if (error) throw error;
+          return data || [];
+        }),
+      );
+      for (const rows of responses) {
+        for (const row of rows) {
+          const id = Number(row.legacy_product_id);
+          if (!Number.isInteger(id) || id <= 0) continue;
+          linkByProductId.set(id, {
+            id: row.id ? String(row.id) : null,
+            metadata:
+              row.metadata && typeof row.metadata === "object"
+                ? (row.metadata as Record<string, unknown>)
+                : {},
+          });
+        }
       }
     }
-    return metadataByProductId;
+    return linkByProductId;
   }
 
   private async readPublicProductsUncached() {
@@ -416,8 +420,6 @@ class PublicStorefrontInventoryEngine extends InventoryEngine {
     rows.push(...firstBatch);
     if (firstBatch.length < PUBLIC_PRODUCT_PAGE_SIZE) return rows;
 
-    // Deliberately keep the refresh serial. A cold storefront cache is never
-    // allowed to fan out enough reads to starve commerce traffic again.
     for (
       let startPage = 1;
       startPage < PUBLIC_PRODUCT_MAX_PAGES;
@@ -475,7 +477,7 @@ class PublicStorefrontInventoryEngine extends InventoryEngine {
 
           try {
             const products = await this.readPublicProducts();
-            const promotionMetadata = await this.readPublicPromotionMetadata(
+            const inventoryLinks = await this.readPublicPromotionMetadata(
               products.map((product) => Number(product.id)),
             );
             const catalog = dedupeSharedPhysicalInventory(
@@ -483,7 +485,7 @@ class PublicStorefrontInventoryEngine extends InventoryEngine {
                 .map((product) =>
                   mapPublicProductRow(
                     product,
-                    promotionMetadata.get(Number(product.id)) || null,
+                    inventoryLinks.get(Number(product.id)) || null,
                   ),
                 )
                 .map(enforceStrictStorefrontFeatures)
@@ -524,6 +526,9 @@ class PublicStorefrontInventoryEngine extends InventoryEngine {
       feature?: string;
       category?: string;
       sort?: StorefrontSort;
+      minPrice?: number;
+      maxPrice?: number;
+      onSale?: boolean;
     } = {},
   ) {
     const requestedFeature = normalizeStorefrontFeature(params.feature);
@@ -543,7 +548,14 @@ class PublicStorefrontInventoryEngine extends InventoryEngine {
           category: params.category,
         }),
       )
-      .filter((item) => !requestedFeature || item.features[requestedFeature]);
+      .filter((item) => !requestedFeature || item.features[requestedFeature])
+      .filter((item) =>
+        typeof params.minPrice === "number" ? Number(item.price) >= params.minPrice : true,
+      )
+      .filter((item) =>
+        typeof params.maxPrice === "number" ? Number(item.price) <= params.maxPrice : true,
+      )
+      .filter((item) => (params.onSale ? item.promotion?.onSale === true : true));
 
     return sortStorefrontItems(items, params.sort || "section");
   }
@@ -566,8 +578,6 @@ class PublicStorefrontInventoryEngine extends InventoryEngine {
   }
 
   async getByLegacyProductId(legacyProductId: number) {
-    // Product pages use the same resilient public snapshot as /shop. Checkout
-    // remains authoritative and validates live inventory before money moves.
     const [catalog, campaigns] = await Promise.all([
       this.readPublicCatalog(),
       this.readLiveSales(),

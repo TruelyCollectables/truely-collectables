@@ -3,6 +3,7 @@ import Link from "next/link";
 import Image from "next/image";
 import ClearCartOnSuccess from "../../components/ClearCartOnSuccess";
 import SoldOverlay from "../../components/SoldOverlay";
+import QuickAddButton from "./QuickAddButton";
 import {
   listRecentSoldStorefrontItems,
   type SaleEvidenceStatus,
@@ -39,10 +40,28 @@ const FEATURE_LINKS = [
   { key: "numbered", label: "Numbered Cards" },
 ] as const;
 
+const PRICE_TIERS = [
+  { key: "under5", label: "Under $5", min: 0, max: 4.99 },
+  { key: "5to25", label: "$5 – $25", min: 5, max: 25 },
+  { key: "25to100", label: "$25 – $100", min: 25.01, max: 100 },
+  { key: "over100", label: "$100+", min: 100.01, max: undefined },
+] as const;
+
+function priceTierBounds(priceKey: string): { minPrice?: number; maxPrice?: number } {
+  const found = PRICE_TIERS.find((tier) => tier.key === priceKey);
+  if (!found) return {};
+  return {
+    minPrice: found.min,
+    maxPrice: found.max,
+  };
+}
+
 function shopHref(params: {
   q?: string;
   section?: string;
   feature?: string;
+  price?: string;
+  sale?: string;
   sort?: string;
   page?: number;
 }) {
@@ -50,13 +69,20 @@ function shopHref(params: {
   if (params.q) search.set("q", params.q);
   if (params.section) search.set("section", params.section);
   if (params.feature) search.set("feature", params.feature);
+  if (params.price) search.set("price", params.price);
+  if (params.sale === "1") search.set("sale", "1");
   if (params.sort && params.sort !== "section") search.set("sort", params.sort);
   if (params.page && params.page > 1) search.set("page", String(params.page));
   const query = search.toString();
   return query ? `/shop?${query}` : "/shop";
 }
 
-function heading(params: { section: string; feature: string }) {
+function heading(params: { section: string; feature: string; price: string; sale: boolean }) {
+  if (params.sale) return "On Sale Collectibles";
+  if (params.price === "under5") return "Under $5 Steals";
+  if (params.price === "5to25") return "$5 – $25 Collectibles";
+  if (params.price === "25to100") return "$25 – $100 Collectibles";
+  if (params.price === "over100") return "$100+ Grails & Slabs";
   if (params.feature === "autograph") return "Autographed Items";
   if (params.feature === "memorabilia") return "Memorabilia Cards";
   if (params.feature === "rookie") return "Rookie Cards";
@@ -177,6 +203,8 @@ export default async function Shop({
     sport?: string;
     section?: string;
     feature?: string;
+    price?: string;
+    sale?: string;
     sort?: StorefrontSort;
     page?: string;
   }>;
@@ -185,9 +213,13 @@ export default async function Shop({
   const q = (params?.q || "").trim();
   const section = (params?.section || params?.sport || "").trim();
   const feature = (params?.feature || "").trim();
+  const price = (params?.price || "").trim();
+  const saleOnly = params?.sale === "1";
   const sort: StorefrontSort = params?.sort || "section";
   const requestedPage = Number.parseInt(params?.page || "1", 10);
+  const { minPrice, maxPrice } = priceTierBounds(price);
 
+  let allCatalog: UniversalInventoryItem[] = [];
   let products: UniversalInventoryItem[] = [];
   let soldProducts: UniversalInventoryItem[] = [];
   let sections: string[] = [];
@@ -197,11 +229,15 @@ export default async function Shop({
   const supabase = createSupabaseServerClient({ admin: true });
   const storeId = getActiveStoreId();
 
-  const [productsResult, soldResult, sectionsResult] = await Promise.allSettled([
+  const [allCatalogResult, productsResult, soldResult, sectionsResult] = await Promise.allSettled([
+    inventoryEngine.listAvailable(),
     inventoryEngine.listAvailable({
       query: q,
       section,
       feature,
+      minPrice,
+      maxPrice,
+      onSale: saleOnly,
       sort,
     }),
     listRecentSoldStorefrontItems({
@@ -214,6 +250,10 @@ export default async function Shop({
     }),
     inventoryEngine.listAvailableSections(),
   ]);
+
+  if (allCatalogResult.status === "fulfilled") {
+    allCatalog = allCatalogResult.value;
+  }
 
   if (productsResult.status === "fulfilled") {
     products = productsResult.value;
@@ -239,6 +279,42 @@ export default async function Shop({
     console.warn("Shop section list unavailable:", sectionsResult.reason);
   }
 
+  const sectionCounts = new Map<string, number>();
+  const featureCounts = {
+    autograph: 0,
+    memorabilia: 0,
+    graded: 0,
+    rookie: 0,
+    numbered: 0,
+  };
+  const priceCounts = {
+    under5: 0,
+    "5to25": 0,
+    "25to100": 0,
+    over100: 0,
+  };
+  let saleCount = 0;
+
+  for (const item of allCatalog) {
+    if (item.storefrontSection) {
+      sectionCounts.set(
+        item.storefrontSection,
+        (sectionCounts.get(item.storefrontSection) || 0) + 1,
+      );
+    }
+    if (item.features.autograph) featureCounts.autograph += 1;
+    if (item.features.memorabilia) featureCounts.memorabilia += 1;
+    if (item.features.graded) featureCounts.graded += 1;
+    if (item.features.rookie) featureCounts.rookie += 1;
+    if (item.features.numbered) featureCounts.numbered += 1;
+    if (item.promotion?.onSale) saleCount += 1;
+    const p = Number(item.price || 0);
+    if (p < 5) priceCounts.under5 += 1;
+    else if (p <= 25) priceCounts["5to25"] += 1;
+    else if (p <= 100) priceCounts["25to100"] += 1;
+    else priceCounts.over100 += 1;
+  }
+
   const totalProducts = products.length;
   const totalPages = Math.max(1, Math.ceil(totalProducts / SHOP_PAGE_SIZE));
   const currentPage = Math.min(
@@ -249,9 +325,9 @@ export default async function Shop({
   const visibleProducts = products.slice(pageStart, pageStart + SHOP_PAGE_SIZE);
   const pageEnd = Math.min(pageStart + visibleProducts.length, totalProducts);
   const pageHref = (page: number) =>
-    shopHref({ q, section, feature, sort, page });
+    shopHref({ q, section, feature, price, sale: saleOnly ? "1" : "", sort, page });
 
-  const activeFilters = Boolean(q || section || feature || sort !== "section");
+  const activeFilters = Boolean(q || section || feature || price || saleOnly || sort !== "section");
   const sectionOptions = sortStorefrontSections([
     ...SPORT_SECTIONS,
     ...COLLECTIBLE_SECTIONS,
@@ -275,10 +351,10 @@ export default async function Shop({
               Live inventory and recent sales
             </p>
             <h1 className="font-display mt-1 text-4xl font-extrabold uppercase tracking-tight text-[#0f172a] sm:text-5xl">
-              {heading({ section, feature })}
+              {heading({ section, feature, price, sale: saleOnly })}
             </h1>
             <p className="mt-2 max-w-2xl text-sm font-medium leading-6 text-slate-600">
-              Browse cards by sport, with NBA and WNBA kept separate. Sold items remain visible for seven days as market history.
+              Browse cards by sport, price tier, or feature. Sold items remain visible for seven days as market history.
             </p>
           </div>
           <div className="flex flex-wrap gap-2 text-xs font-bold uppercase tracking-wider">
@@ -310,7 +386,66 @@ export default async function Shop({
             </div>
 
             <div className="mt-4 space-y-4">
+              {saleCount > 0 ? (
+                <div>
+                  <Link
+                    href={shopHref({
+                      q,
+                      section,
+                      feature,
+                      price,
+                      sale: saleOnly ? "" : "1",
+                      sort,
+                    })}
+                    className={`flex items-center justify-between rounded-lg border px-3 py-2 text-xs font-extrabold uppercase tracking-wider transition ${
+                      saleOnly
+                        ? "border-[#dc2626] bg-[#dc2626] text-white"
+                        : "border-red-200 bg-red-50 text-[#dc2626] hover:bg-red-100"
+                    }`}
+                  >
+                    <span>On Sale Only</span>
+                    <span>{saleCount}</span>
+                  </Link>
+                </div>
+              ) : null}
+
               <details open className="group">
+                <summary className="flex cursor-pointer list-none items-center justify-between text-xs font-bold uppercase tracking-wider text-slate-500">
+                  <span>Price Range</span>
+                  <span className="text-slate-400 group-open:rotate-180">▾</span>
+                </summary>
+                <nav className="mt-2.5 flex flex-col gap-1" aria-label="Price range">
+                  {PRICE_TIERS.map((tier) => {
+                    const isActive = price === tier.key;
+                    const count = priceCounts[tier.key];
+                    return (
+                      <Link
+                        key={tier.key}
+                        href={shopHref({
+                          q,
+                          section,
+                          feature,
+                          price: isActive ? "" : tier.key,
+                          sale: saleOnly ? "1" : "",
+                          sort,
+                        })}
+                        className={`flex items-center justify-between rounded-lg px-3 py-1.5 text-sm font-semibold transition ${
+                          isActive
+                            ? "bg-[#0f172a] text-[#facc15]"
+                            : "text-slate-700 hover:bg-slate-100"
+                        }`}
+                      >
+                        <span>{tier.label}</span>
+                        <span className={`text-xs ${isActive ? "text-yellow-200" : "text-slate-400"}`}>
+                          {count.toLocaleString()}
+                        </span>
+                      </Link>
+                    );
+                  })}
+                </nav>
+              </details>
+
+              <details open className="group border-t border-slate-100 pt-4">
                 <summary className="flex cursor-pointer list-none items-center justify-between text-xs font-bold uppercase tracking-wider text-slate-500">
                   <span>Shop by Sport</span>
                   <span className="text-slate-400 group-open:rotate-180">▾</span>
@@ -318,27 +453,41 @@ export default async function Shop({
                 <nav className="mt-2.5 flex flex-col gap-1" aria-label="Shop by sport">
                   <Link
                     href="/shop"
-                    className={`rounded-lg px-3 py-1.5 text-sm font-semibold transition ${
-                      !section && !feature
+                    className={`flex items-center justify-between rounded-lg px-3 py-1.5 text-sm font-semibold transition ${
+                      !section && !feature && !price && !saleOnly
                         ? "bg-[#0f172a] text-[#facc15]"
                         : "text-slate-700 hover:bg-slate-100"
                     }`}
                   >
-                    All Inventory
+                    <span>All Inventory</span>
+                    <span className="text-xs text-slate-400">
+                      {allCatalog.length.toLocaleString()}
+                    </span>
                   </Link>
                   {SPORT_SECTIONS.map((name) => {
+                    const count = sectionCounts.get(name) || 0;
+                    if (count === 0 && section !== name) return null;
                     const isActive = section === name && !feature;
                     return (
                       <Link
                         key={name}
-                        href={shopHref({ q, section: name, sort })}
-                        className={`rounded-lg px-3 py-1.5 text-sm font-semibold transition ${
+                        href={shopHref({
+                          q,
+                          section: isActive ? "" : name,
+                          price,
+                          sale: saleOnly ? "1" : "",
+                          sort,
+                        })}
+                        className={`flex items-center justify-between rounded-lg px-3 py-1.5 text-sm font-semibold transition ${
                           isActive
                             ? "bg-[#0f172a] text-[#facc15]"
                             : "text-slate-700 hover:bg-slate-100"
                         }`}
                       >
-                        {name}
+                        <span>{name}</span>
+                        <span className={`text-xs ${isActive ? "text-yellow-200" : "text-slate-400"}`}>
+                          {count.toLocaleString()}
+                        </span>
                       </Link>
                     );
                   })}
@@ -353,17 +502,28 @@ export default async function Shop({
                 <nav className="mt-2.5 flex flex-col gap-1" aria-label="Card features">
                   {FEATURE_LINKS.map((item) => {
                     const isActive = feature === item.key;
+                    const count = featureCounts[item.key];
                     return (
                       <Link
                         key={item.key}
-                        href={shopHref({ q, section, feature: item.key, sort })}
-                        className={`rounded-lg px-3 py-1.5 text-sm font-semibold transition ${
+                        href={shopHref({
+                          q,
+                          section,
+                          feature: isActive ? "" : item.key,
+                          price,
+                          sale: saleOnly ? "1" : "",
+                          sort,
+                        })}
+                        className={`flex items-center justify-between rounded-lg px-3 py-1.5 text-sm font-semibold transition ${
                           isActive
                             ? "bg-[#0f172a] text-[#facc15]"
                             : "text-slate-700 hover:bg-slate-100"
                         }`}
                       >
-                        {item.label}
+                        <span>{item.label}</span>
+                        <span className={`text-xs ${isActive ? "text-yellow-200" : "text-slate-400"}`}>
+                          {count.toLocaleString()}
+                        </span>
                       </Link>
                     );
                   })}
@@ -377,18 +537,29 @@ export default async function Shop({
                 </summary>
                 <nav className="mt-2.5 flex flex-col gap-1" aria-label="Collectible types">
                   {COLLECTIBLE_SECTIONS.map((name) => {
+                    const count = sectionCounts.get(name) || 0;
+                    if (count === 0 && section !== name) return null;
                     const isActive = section === name && !feature;
                     return (
                       <Link
                         key={name}
-                        href={shopHref({ q, section: name, sort })}
-                        className={`rounded-lg px-3 py-1.5 text-sm font-semibold transition ${
+                        href={shopHref({
+                          q,
+                          section: isActive ? "" : name,
+                          price,
+                          sale: saleOnly ? "1" : "",
+                          sort,
+                        })}
+                        className={`flex items-center justify-between rounded-lg px-3 py-1.5 text-sm font-semibold transition ${
                           isActive
                             ? "bg-[#0f172a] text-[#facc15]"
                             : "text-slate-700 hover:bg-slate-100"
                         }`}
                       >
-                        {name}
+                        <span>{name}</span>
+                        <span className={`text-xs ${isActive ? "text-yellow-200" : "text-slate-400"}`}>
+                          {count.toLocaleString()}
+                        </span>
                       </Link>
                     );
                   })}
@@ -428,10 +599,9 @@ export default async function Shop({
                 ))}
               </select>
 
-              <label htmlFor="shop-feature" className="sr-only">
-                Filter by card feature
-              </label>
               <input type="hidden" name="feature" value={feature} />
+              <input type="hidden" name="price" value={price} />
+              {saleOnly ? <input type="hidden" name="sale" value="1" /> : null}
 
               <label htmlFor="shop-sort" className="sr-only">
                 Sort inventory
@@ -473,6 +643,16 @@ export default async function Shop({
                 {feature ? (
                   <span className="rounded-full bg-blue-100 px-3 py-1 text-[#2563eb]">
                     {feature}
+                  </span>
+                ) : null}
+                {price ? (
+                  <span className="rounded-full bg-emerald-100 px-3 py-1 text-emerald-800">
+                    {PRICE_TIERS.find((t) => t.key === price)?.label || price}
+                  </span>
+                ) : null}
+                {saleOnly ? (
+                  <span className="rounded-full bg-red-100 px-3 py-1 text-[#dc2626]">
+                    On Sale
                   </span>
                 ) : null}
                 <Link
@@ -584,12 +764,29 @@ export default async function Shop({
                         </span>
                       </div>
 
-                      <Link
-                        href={`/product/${product.legacyProductId}`}
-                        className="mt-3 flex min-h-10 w-full items-center justify-center rounded-lg bg-[#0f172a] px-4 py-2 text-center text-xs font-bold uppercase tracking-wider text-white transition group-hover:bg-[#facc15] group-hover:text-[#0f172a]"
-                      >
-                        View Item
-                      </Link>
+                      <div className="mt-3 grid grid-cols-[1fr_auto] gap-2">
+                        <Link
+                          href={`/product/${product.legacyProductId}`}
+                          className="flex min-h-10 items-center justify-center rounded-lg bg-[#0f172a] px-3 py-2 text-center text-xs font-bold uppercase tracking-wider text-white transition hover:bg-[#1e293b]"
+                        >
+                          View Item
+                        </Link>
+                        <QuickAddButton
+                          product={{
+                            id: product.legacyProductId,
+                            title: product.title,
+                            price: Number(product.price),
+                            image_url: product.imageUrl || undefined,
+                            original_price:
+                              product.promotion?.onSale && product.promotion.originalPrice
+                                ? Number(product.promotion.originalPrice)
+                                : undefined,
+                            discount_percent: product.promotion?.onSale
+                              ? Number(product.promotion.discountPercent)
+                              : undefined,
+                          }}
+                        />
+                      </div>
                     </div>
                   </article>
                 );

@@ -120,7 +120,7 @@ export default function ProductActions({ product }: { product: Product }) {
         type="button"
         onClick={handleBuyNow}
         aria-label="Make It Mine"
-        className="flex min-h-12 w-full items-center justify-center rounded bg-black px-4 py-3 text-base font-bold text-white"
+        className="flex min-h-12 w-full items-center justify-center rounded-lg bg-[#facc15] px-4 py-3 text-base font-extrabold uppercase tracking-wider text-[#0f172a] transition hover:bg-[#eab308]"
       >
         <span>Make It Mine</span>
         <sup aria-hidden="true" className="ml-0.5 text-[0.55em] leading-none">
@@ -131,7 +131,7 @@ export default function ProductActions({ product }: { product: Product }) {
       <button
         type="button"
         onClick={handleAddToCart}
-        className="min-h-12 w-full rounded border px-4 py-3 text-base font-bold"
+        className="min-h-12 w-full rounded-lg bg-[#0f172a] px-4 py-3 text-base font-bold uppercase tracking-wider text-white transition hover:bg-[#1e293b]"
       >
         Add To Cart
       </button>
