@@ -106,9 +106,20 @@ export default function KingmakerStatusStrip() {
             <p className="text-xs font-black uppercase tracking-[0.2em] text-slate-200">
               Live system status
             </p>
-            <span className="text-xs text-slate-500">
-              {checking ? "Checking..." : problemCount ? `${problemCount} problem${problemCount === 1 ? "" : "s"}` : "All clear"}
-            </span>
+            {checking ? (
+              <span className="text-xs text-slate-500">Checking...</span>
+            ) : problemCount ? (
+              <button
+                type="button"
+                onClick={() => setExpanded(true)}
+                className="rounded-full border border-rose-700/70 bg-rose-950/60 px-2.5 py-1 text-xs font-black text-rose-200 underline decoration-rose-400/60 underline-offset-2 hover:bg-rose-900/70"
+                aria-label={`Show details for ${problemCount} system problem${problemCount === 1 ? "" : "s"}`}
+              >
+                {problemCount} problem{problemCount === 1 ? "" : "s"} — click for details
+              </button>
+            ) : (
+              <span className="text-xs text-emerald-300">All clear</span>
+            )}
           </div>
           <button
             type="button"
@@ -116,12 +127,35 @@ export default function KingmakerStatusStrip() {
             className="rounded-lg border border-slate-700 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-300 hover:border-emerald-500 hover:text-white"
             aria-expanded={expanded}
           >
-            {expanded ? "Hide details" : "Show details"}
+            {expanded ? "Hide check details" : "Show check details"}
           </button>
         </div>
 
         {expanded ? (
-          <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+          <div className="mt-3">
+            {problemCount ? (
+              <div className="mb-3 rounded-xl border border-rose-800/70 bg-rose-950/40 px-3 py-3 text-xs text-rose-100">
+                <p className="font-black uppercase tracking-wider">What needs attention</p>
+                <p className="mt-1 text-rose-200/80">
+                  A problem means that check returned a non-2xx response or did not answer before the timeout. It does not automatically mean orders or inventory are broken; open the affected check below and retry after correcting the underlying issue.
+                </p>
+              </div>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => void runChecks()}
+                className="rounded-lg border border-slate-700 px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-slate-300 hover:border-emerald-500 hover:text-white"
+              >
+                Run checks again
+              </button>
+              {problemCount ? (
+                <span className="text-[11px] text-slate-500">
+                  Problem checks: {items.filter((item) => item.state === "problem").map((item) => item.label).join(", ")}
+                </span>
+              ) : null}
+            </div>
+            ) : null}
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
             {items.map((item) => (
               <div
                 key={item.label}
