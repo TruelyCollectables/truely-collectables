@@ -164,6 +164,17 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
                 <option>Basketball</option>
                 <option>Football</option>
                 <option>Hockey</option>
+                <option>Soccer</option>
+                <option>Golf</option>
+                <option>Tennis</option>
+                <option>Racing</option>
+                <option>Wrestling</option>
+                <option>Boxing / MMA</option>
+                <option>Volleyball</option>
+                <option>Cricket</option>
+                <option>Rugby</option>
+                <option>Lacrosse</option>
+                <option>Track & Field</option>
                 <option>Other Sports Card</option>
               </select>
             </label>
