@@ -3027,9 +3027,14 @@ export default function KingmakerPendingPage({
             const pairReady = hasValidPair(card);
             const isBusy = busyId === card.inventoryItemId;
             const edit = edits[card.inventoryItemId];
-            const storedStage: LocalStage = job?.manualIdentityLocked
+            const hasCompleteIdentity = Boolean(
+              card.instaComp.identity?.player &&
+                card.instaComp.identity?.year &&
+                card.instaComp.identity?.cardNumber,
+            );
+            const storedStage: LocalStage = job?.manualIdentityLocked || (card.instaComp.verifiedCsvLocked && hasCompleteIdentity)
               ? "locked"
-              : job?.identityComplete
+              : job?.identityComplete || hasCompleteIdentity
                 ? "complete"
                 : job?.status === "failed"
                   ? "failed"
@@ -3064,7 +3069,7 @@ export default function KingmakerPendingPage({
             const receivedPurchase = purchaseMembers.some((entry) => entry.purchase?.status === "received");
             const accountedPurchase = linkedExistingPurchase || receivedPurchase;
             const possiblePurchase = purchaseMembers.some((entry) => entry.purchase?.status === "possible_match");
-            const scanRequired = physicalMembers.some((member) => !member.scanId);
+            const scanRequired = !pairReady && physicalMembers.some((member) => !member.scanId);
             const listingPriceSource = String(card.instaComp.listingPriceSource || "").toLowerCase();
             const sellerManualPrice = listingPriceSource === "kingmaker_manual";
             const currentWebsiteInventory = card.websiteInventory || null;
@@ -3390,7 +3395,7 @@ export default function KingmakerPendingPage({
                               <div>
                                 <p className="font-black">Physical copy {index + 1} · ID {String(member.inventoryItemId || "missing").slice(0, 8)}</p>
                                 <p className="mt-1 break-all text-xs font-mono text-neutral-500">
-                                  {member.scanId ? `SCAN ${member.scanId}` : "NO VERIFIED SCAN ID"}
+                                  {member.scanId ? `SCAN ${member.scanId}` : pairReady ? "PHOTO PAIR VERIFIED" : "NO VERIFIED SCAN ID"}
                                 </p>
                               </div>
                               <div className="flex flex-wrap gap-2">
@@ -3398,7 +3403,7 @@ export default function KingmakerPendingPage({
                                 {memberLinkedExisting ? <span className="rounded-full bg-cyan-200 px-3 py-1 text-xs font-black text-cyan-950">EXISTING INVENTORY · PURCHASE LINKED</span> : null}
                                 {memberReceived ? <span className="rounded-full bg-emerald-200 px-3 py-1 text-xs font-black text-emerald-950">RECEIVED NEW · {memberDisposition === "investment_stash" ? "INVESTMENT STASH" : "RESALE"}</span> : null}
                                 {memberPossible ? <span className="rounded-full bg-amber-200 px-3 py-1 text-xs font-black text-amber-950">POSSIBLE MATCH</span> : null}
-                                {!member.scanId ? <span className="rounded-full bg-red-200 px-3 py-1 text-xs font-black text-red-950">SCAN REQUIRED</span> : null}
+                                {!member.scanId && !pairReady ? <span className="rounded-full bg-red-200 px-3 py-1 text-xs font-black text-red-950">SCAN REQUIRED</span> : null}
                               </div>
                             </div>
 

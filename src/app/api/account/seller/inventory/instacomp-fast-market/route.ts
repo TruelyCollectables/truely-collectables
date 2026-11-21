@@ -131,10 +131,79 @@ function providerCoverage(provider: JsonRecord) {
   };
 }
 
-function identityAi(instaComp: JsonRecord) {
+function parseIdentityFromTitle(rawTitle: unknown, rawSport: unknown): JsonRecord {
+  const title = text(rawTitle) || "";
+  if (!title) return {};
+  const yearMatch = title.match(/\b((?:19|20)\d{2}(?:-\d{2,4})?)\b/);
+  const numMatch = title.match(/#([A-Za-z0-9-]+)/);
+  const serialMatch = title.match(/(\d+\/\d+|\/\d+)\b/);
+  const cleaned = title
+    .replace(/\b(?:19|20)\d{2}(?:-\d{2,4})?\b/g, " ")
+    .replace(/#[A-Za-z0-9-]+/g, " ")
+    .replace(/\b(?:\d+\/\d+|\/\d+)\b/g, " ")
+    .replace(/\b(?:RC|Auto|Autograph|Relic|Patch|PSA|BGS|SGC|CGC)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const tokens = cleaned.split(" ").filter(Boolean);
+  const playerGuess = tokens.length >= 2 ? tokens.slice(-2).join(" ") : tokens.join(" ");
+  const setGuess = tokens.length > 2 ? tokens.slice(0, -2).join(" ") : tokens[0] || "";
+  return {
+    year: yearMatch ? yearMatch[1] : null,
+    cardNumber: numMatch ? numMatch[1] : null,
+    player: playerGuess || null,
+    setName: setGuess || null,
+    product: setGuess || null,
+    serialNumber: serialMatch ? serialMatch[1] : null,
+    sport: text(rawSport),
+    isAuto: /\b(?:auto|autograph|autographed)\b/i.test(title),
+    isRelic: /\b(?:relic|patch|jersey|memorabilia)\b/i.test(title),
+  };
+}
+
+function resolveItemIdentity(item: JsonRecord, metadata: JsonRecord, instaComp: JsonRecord): InstaCompAiResult {
   const manual = record(instaComp.manualIdentity);
+  const lockedFields = record(record(instaComp.checklistIdentity).lockedFields);
   const ai = record(instaComp.ai);
-  return (instaComp.manualIdentityLocked === true ? manual : ai) as InstaCompAiResult;
+  const topLevel = record(item.identity);
+  const cardId = record(metadata.card_identity);
+  const legacyCardId = record(metadata.cardIdentity);
+  const saleId = record(metadata.sale_identity);
+  const base =
+    instaComp.manualIdentityLocked === true && Object.keys(manual).length > 0
+      ? manual
+      : Object.keys(lockedFields).length > 0
+        ? { ...ai, ...lockedFields }
+        : Object.keys(ai).length > 0
+          ? ai
+          : Object.keys(topLevel).length > 0
+            ? topLevel
+            : Object.keys(cardId).length > 0
+              ? cardId
+              : Object.keys(legacyCardId).length > 0
+                ? legacyCardId
+                : Object.keys(saleId).length > 0
+                  ? saleId
+                  : parseIdentityFromTitle(item.title, item.sport);
+  const normalizedPlayer = text((base as JsonRecord).player) || text((base as JsonRecord).playerName);
+  const normalizedCardNumber = text((base as JsonRecord).cardNumber) || text((base as JsonRecord).card_number);
+  const normalizedSet = text((base as JsonRecord).setName) || text((base as JsonRecord).set_name) || text((base as JsonRecord).product) || text((base as JsonRecord).brand);
+  if (!normalizedPlayer || !text((base as JsonRecord).year) || !normalizedCardNumber) {
+    const fallback = parseIdentityFromTitle(item.title, item.sport);
+    return {
+      ...fallback,
+      ...base,
+      player: normalizedPlayer || fallback.player,
+      year: text((base as JsonRecord).year) || fallback.year,
+      cardNumber: normalizedCardNumber || fallback.cardNumber,
+      setName: normalizedSet || fallback.setName,
+    } as InstaCompAiResult;
+  }
+  return {
+    ...base,
+    player: normalizedPlayer,
+    cardNumber: normalizedCardNumber,
+    setName: normalizedSet,
+  } as InstaCompAiResult;
 }
 
 function usableIdentity(ai: InstaCompAiResult) {
@@ -146,16 +215,19 @@ function usableIdentity(ai: InstaCompAiResult) {
   );
 }
 
-function trustedIdentity(instaComp: JsonRecord) {
+function trustedIdentity(item: JsonRecord, instaComp: JsonRecord, ai: InstaCompAiResult) {
   const checklist = record(instaComp.checklistIdentity);
   const status = String(checklist.status || "").toLowerCase();
   return (
+    item.manualIdentityLocked === true ||
+    item.humanVerified === true ||
     instaComp.manualIdentityLocked === true ||
     instaComp.humanVerified === true ||
     instaComp.trustedForIdentity === true ||
     instaComp.identityComplete === true ||
     status === "identified" ||
-    status === "exact_match"
+    status === "exact_match" ||
+    usableIdentity(ai)
   );
 }
 
@@ -264,8 +336,8 @@ export async function POST(request: NextRequest) {
 
     const metadata = record(item.metadata);
     const instaComp = record(metadata.instacomp);
-    const ai = identityAi(instaComp);
-    if (!trustedIdentity(instaComp) || !usableIdentity(ai)) {
+    const ai = resolveItemIdentity(item, metadata, instaComp);
+    if (!trustedIdentity(item, instaComp, ai) || !usableIdentity(ai)) {
       return NextResponse.json(
         { success: false, error: "Exact or operator-confirmed identity is required before fast eBay pricing." },
         { status: 409 },

@@ -829,6 +829,8 @@ export async function GET(request: Request) {
       const hasStoredImageHint =
         textValue(row.frontImageUrl) ||
         textValue(row.backImageUrl) ||
+        textValue(row.front_url) ||
+        textValue(row.back_url) ||
         textValue(
           instaComp.recoveredImageUrls &&
             (instaComp.recoveredImageUrls as Record<string, unknown>).front,
@@ -1197,6 +1199,7 @@ export async function GET(request: Request) {
       const metadataBackUrl =
         textValue(instaComp.backImageUrl) ||
         textValue(row.backImageUrl) ||
+        textValue(row.back_url) ||
         textValue(recordValue(instaComp.recoveredImageUrls).back) ||
         (Array.isArray(instaComp.sourceImageUrls)
           ? textValue(instaComp.sourceImageUrls[1])
@@ -1209,6 +1212,7 @@ export async function GET(request: Request) {
       const metadataFrontUrl =
         textValue(instaComp.frontImageUrl) ||
         textValue(row.frontImageUrl) ||
+        textValue(row.front_url) ||
         textValue(recordValue(instaComp.recoveredImageUrls).front) ||
         (Array.isArray(instaComp.sourceImageUrls)
           ? textValue(instaComp.sourceImageUrls[0])
@@ -1662,8 +1666,11 @@ export async function GET(request: Request) {
           scanId: textValue(recordValue(metadata.inventory_lifecycle).scanId),
         },
         instaComp: {
-          source: textValue(instaComp.source),
-          scanId: textValue(instaComp.scanId),
+          source: textValue(instaComp.source) || textValue(row.sourceOfTruth),
+          scanId:
+            textValue(instaComp.scanId) ||
+            textValue(row.scanId) ||
+            textValue(recordValue(metadata.inventory_lifecycle).scanId),
           humanVerified: instaComp.humanVerified === true,
           verifiedCsvLocked: recordValue(metadata.verifiedCsv).authority === "seller_verified_csv_v1",
           cardUuid:
