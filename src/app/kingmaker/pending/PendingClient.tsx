@@ -556,6 +556,25 @@ function money(value: unknown) {
     : "—";
 }
 
+function medianMoney(rows: CompEvidence[]) {
+  const prices = rows
+    .map((r) => Number(r.price))
+    .filter((n) => Number.isFinite(n) && n > 0)
+    .sort((a, b) => a - b);
+  if (!prices.length) return "—";
+  const mid = Math.floor(prices.length / 2);
+  const med = prices.length % 2 === 1 ? prices[mid] : (prices[mid - 1] + prices[mid]) / 2;
+  return money(med);
+}
+
+function minMoney(rows: CompEvidence[]) {
+  const prices = rows
+    .map((r) => Number(r.price))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  if (!prices.length) return "—";
+  return money(Math.min(...prices));
+}
+
 const COMP_ADJUSTMENTS = [-25, -20, -15, -10, -5, 0, 5, 10, 15, 20, 25] as const;
 const BULK_PRICE_CONCURRENCY = 5;
 const MARKET_PRICE_CONCURRENCY = 3;
@@ -3508,19 +3527,37 @@ export default function KingmakerPendingPage({
                 ) : null}
 
                 {(soldCompEvidence.length || activeCompetition.length) ? (
-                  <div className="grid gap-4 border-b-2 border-neutral-900 bg-neutral-50 p-4 lg:grid-cols-2">
-                    <MarketEvidencePanel
-                      title="Exact sold evidence"
-                      subtitle="Sold transactions used to establish market value"
-                      rows={soldCompEvidence}
-                      dateKey="soldAt"
-                    />
-                    <MarketEvidencePanel
-                      title="Active competition"
-                      subtitle="Current asking prices shown separately from sold value"
-                      rows={activeCompetition}
-                      dateKey="listedAt"
-                    />
+                  <div className="border-b-2 border-neutral-900 bg-neutral-50 p-4">
+                    <div className="grid gap-4 lg:grid-cols-2">
+                      <MarketEvidencePanel
+                        title="Exact sold evidence"
+                        subtitle="Sold transactions used to establish market value"
+                        rows={soldCompEvidence}
+                        dateKey="soldAt"
+                      />
+                      <MarketEvidencePanel
+                        title="Active competition"
+                        subtitle="Current asking prices shown separately from sold value"
+                        rows={activeCompetition}
+                        dateKey="listedAt"
+                      />
+                    </div>
+                    <div className="mt-3 grid gap-4 md:grid-cols-2">
+                      <div className="rounded-xl border border-neutral-300 bg-white px-4 py-2.5 text-xs font-bold text-neutral-700">
+                        Sold Median:{" "}
+                        <span className="font-black text-neutral-950">
+                          {medianMoney(soldCompEvidence)}
+                        </span>
+                        {soldCompEvidence.length ? ` · ${soldCompEvidence.length} sold` : ""}
+                      </div>
+                      <div className="rounded-xl border-2 border-neutral-900 bg-amber-50 px-4 py-2.5 text-xs font-bold text-neutral-900">
+                        Active Listed Median:{" "}
+                        <span className="text-sm font-black text-neutral-950">
+                          {medianMoney(activeCompetition)}
+                        </span>
+                        {activeCompetition.length ? ` · Lowest: ${minMoney(activeCompetition)} · ${activeCompetition.length} listed` : ""}
+                      </div>
+                    </div>
                   </div>
                 ) : null}
 
