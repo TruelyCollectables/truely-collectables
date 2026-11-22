@@ -352,7 +352,7 @@ async def _chrome_json(url: str, javascript: str, wait_seconds: int = 4) -> dict
 
 _EBAY_JS = r'''(()=>{const body=(document.body?.innerText||'');const seen=new Set();const rows=[];for(const a of document.querySelectorAll('a[href*="/itm/"]')){let title=(a.innerText||'').replace(/\s*Opens in a new window or tab\s*/gi,' ').trim();const m=a.href.match(/\/itm\/(?:[^/]+\/)?(\d{9,15})/i);if(!m||seen.has(m[1])||title.length<8||/^shop on ebay$/i.test(title)||m[1]==='123456')continue;let e=a;let text='';for(let i=0;i<7&&e;i++,e=e.parentElement){const v=(e.innerText||'').trim();if(/Sold\s+[A-Z][a-z]{2}\s+\d{1,2},\s+\d{4}/.test(v)&&/\$\s*\d/.test(v)){text=v;break}}if(!text)continue;seen.add(m[1]);const img=(e?.querySelector('img')?.currentSrc||a.closest('li')?.querySelector('img')?.currentSrc||null);rows.push({title,url:`https://www.ebay.com/itm/${m[1]}`,text,imageUrl:img});if(rows.length>=80)break}return JSON.stringify({title:document.title,url:location.href,body:body.slice(0,5000),rows})})()'''
 
-_EBAY_ACTIVE_JS = r'''(()=>{const body=(document.body?.innerText||'');const seen=new Set();const rows=[];for(const a of document.querySelectorAll('a[href*="/itm/"]')){let title=(a.innerText||'').replace(/\s*Opens in a new window or tab\s*/gi,' ').trim();const m=a.href.match(/\/itm\/(?:[^/]+\/)?(\d{9,15})/i);if(!m||seen.has(m[1])||title.length<8||/^shop on ebay$/i.test(title)||m[1]==='123456')continue;let e=a;let text='';for(let i=0;i<7&&e;i++,e=e.parentElement){const v=(e.innerText||'').trim();if(/\$\s*\d/.test(v)&&!(/Sold\s+[A-Z][a-z]{2}\s+\d{1,2},\s+\d{4}/.test(v))){text=v;break}}if(!text)continue;seen.add(m[1]);const img=(a.closest('li,div')?.querySelector('img')?.src||null);rows.push({title,url:`https://www.ebay.com/itm/${m[1]}`,text,imageUrl:img});if(rows.length>=80)break}return JSON.stringify({title:document.title,url:location.href,body:body.slice(0,5000),rows})})()'''
+_EBAY_ACTIVE_JS = r'''(()=>{const body=(document.body?.innerText||'');const seen=new Set();const rows=[];for(const a of document.querySelectorAll('a[href*="/itm/"]')){let title=(a.innerText||'').replace(/\s*Opens in a new window or tab\s*/gi,' ').trim();const m=a.href.match(/\/itm\/(?:[^/]+\/)?(\d{9,15})/i);if(!m||seen.has(m[1])||title.length<8||/^shop on ebay$/i.test(title)||m[1]==='123456')continue;let e=a;let text='';for(let i=0;i<7&&e;i++,e=e.parentElement){const v=(e.innerText||'').trim();if(/\$\s*\d/.test(v)&&!(/Sold\s+[A-Z][a-z]{2}\s+\d{1,2},\s+\d{4}/.test(v))){text=v;break}}if(!text)continue;seen.add(m[1]);const img=(e?.querySelector('img')?.currentSrc||a.closest('li')?.querySelector('img')?.currentSrc||null);rows.push({title,url:`https://www.ebay.com/itm/${m[1]}`,text,imageUrl:img});if(rows.length>=80)break}return JSON.stringify({title:document.title,url:location.href,body:body.slice(0,5000),rows})})()'''
 
 _EBAY_PRICE_GUIDE_CLICK_JS = r'''(()=>{const t=(v)=>(v||'').replace(/\s+/g,' ').trim();const b=Array.from(document.querySelectorAll('button')).find(x=>/see insights/i.test(t(x.innerText||x.textContent)));if(!b)return JSON.stringify({ok:false,error:'see_insights_not_found',title:document.title,url:location.href});b.click();return 'CLICKED'})()'''
 
@@ -819,8 +819,58 @@ def _market_summary(sold: list[dict[str, Any]], active: list[dict[str, Any]]) ->
     }
 
 
+_PRIZM_REFERENCE_FINISHES = (
+    ("White Sparkle Prizm", r"\bwhite sparkle\b"),
+    ("White Ice Prizm", r"\bwhite (?:cracked )?ice\b"),
+    ("White Seismic Prizm", r"\bwhite seismic\b"),
+    ("Silver Prizm", r"\bsilver prizm\b"),
+    ("Ice Prizm", r"\b(?:cracked ice|ice prizm)\b"),
+)
+
+
+def _prizm_reference_finish(title: str) -> str | None:
+    norm = _norm(title)
+    if re.search(r"\b(?:green|orange|blue|purple|gold|black|red|pink|mojo|variation|logo)\b", norm):
+        return None
+    if re.search(r"\bice\b", norm) and not re.search(r"\bwhite ice|white cracked ice\b", norm):
+        return "Ice Prizm" if not _serial_denominators(title) else None
+    return next((name for name, pattern in _PRIZM_REFERENCE_FINISHES if re.search(pattern, norm)), None)
+
+
 def build_market_comp_router(require_api_key: Callable[..., None], database_path: Path | None = None) -> APIRouter:
     router = APIRouter(prefix="/v1/obbfb-market-comp", tags=["market-comp"], dependencies=[Depends(require_api_key)])
+
+    @router.post("/parallel-photos")
+    async def parallel_photos(request: MarketCompRequest):
+        identity = _canonical_identity(request.identity)
+        if (identity["year"] != "2026" or not identity["player"] or not identity["card_number"]
+                or len(identity["player"]) > 80 or not re.fullmatch(r"[0-9]{1,3}", identity["card_number"])):
+            raise HTTPException(status_code=400, detail="A 2026 WNBA Prizm player and card number are required.")
+        query = f"2026 Panini Prizm WNBA {identity['player']} #{identity['card_number']}"
+        candidates: dict[str, dict] = {}
+        async with _BROWSER_LOCK:
+            for suffix in (" Ice", " White Sparkle", " Silver Prizm"):
+                rows, _coverage = await _search_ebay_active(query + suffix)
+                for row in rows:
+                    finish = _prizm_reference_finish(row["title"])
+                    item = _item_id(row["url"])
+                    photo = urlparse(_text(row.get("image_url")))
+                    if not finish or not item or photo.scheme != "https" or photo.netloc != "i.ebayimg.com":
+                        continue
+                    check = {**identity, "parallel": finish, "serial_number": "/35" if finish == "White Ice Prizm" else ""}
+                    if finish == "Ice Prizm":
+                        check["parallel"] = "Ice"
+                    if not _strong_exact_title(row["title"], check)[0]:
+                        continue
+                    candidates.setdefault(item, {"id": item, "parallel": finish, "imageUrl": photo.geturl(), "url": row["url"]})
+        photos = []
+        seen_images = set()
+        for finish, _ in _PRIZM_REFERENCE_FINISHES:
+            for candidate in [row for row in candidates.values() if row["parallel"] == finish][:2]:
+                if candidate["imageUrl"] not in seen_images:
+                    photos.append(candidate)
+                    seen_images.add(candidate["imageUrl"])
+        return {"photos": photos}
 
     @router.post("/search")
     async def search_market_comps(request: MarketCompRequest):

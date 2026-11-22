@@ -55,3 +55,26 @@ async def test_base_search_collects_later_sales_and_rejects_photo_parallel(monke
     assert {entry["url"].split("/")[-1] for entry in payload["sold"]} == {
         "111111111111", "222222222222", "444444444444",
     }
+
+@pytest.mark.asyncio
+async def test_parallel_photo_search_requires_exact_card_and_explicit_finish(monkeypatch):
+    async def active(query):
+        assert "Nancy Lieberman #104" in query
+        return [
+            {"title": "2026 Panini Prizm WNBA Nancy Lieberman #104 Cracked Ice",
+             "url": "https://www.ebay.com/itm/111111111111", "image_url": "https://i.ebayimg.com/images/g/one/s-l500.jpg"},
+            {"title": "2026 Panini Prizm WNBA Nancy Lieberman #34 Cracked Ice",
+             "url": "https://www.ebay.com/itm/222222222222", "image_url": "https://i.ebayimg.com/images/g/two/s-l500.jpg"},
+            {"title": "2026 Panini Prizm WNBA Nancy Lieberman #104 Green Ice",
+             "url": "https://www.ebay.com/itm/333333333333", "image_url": "https://i.ebayimg.com/images/g/three/s-l500.jpg"},
+        ], {"status": "live"}
+
+    monkeypatch.setattr(market, "_search_ebay_active", active)
+    app = FastAPI()
+    app.include_router(market.build_market_comp_router(lambda: None))
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.post("/v1/obbfb-market-comp/parallel-photos", json={"identity": {
+            "year": "2026", "product": "Prizm WNBA Basketball", "player": "Nancy Lieberman", "cardNumber": "104",
+        }})
+    assert response.status_code == 200
+    assert [(r["id"], r["parallel"]) for r in response.json()["photos"]] == [("ebay:111111111111", "Ice Prizm")]

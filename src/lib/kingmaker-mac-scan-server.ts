@@ -176,6 +176,18 @@ export function scanTitle(scan: InstaCompAiLocalScan) {
     ? `${readable} — identity review`
     : "InstaComp card — identity review required";
 }
+export async function searchMacParallelPhotos(identity: JsonRecord): Promise<unknown> {
+  const response = await fetch(`${macBaseUrl()}/v1/obbfb-market-comp/parallel-photos`, {
+    method: "POST",
+    headers: macHeaders(true),
+    body: JSON.stringify({ identity, exact_title: "" }),
+    cache: "no-store",
+    signal: AbortSignal.timeout(24_000),
+  });
+  if (!response.ok) throw new Error(`Reference lookup HTTP ${response.status}`);
+  return response.json();
+}
+
 export async function searchMacMarketForIdentity(params: {
   identity: JsonRecord;
   exactTitle: string;
