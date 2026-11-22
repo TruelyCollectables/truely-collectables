@@ -22,6 +22,7 @@ export default function PromotionsClient() {
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
   const [showInactive, setShowInactive] = useState(false);
+  const [deleteOnDeactivate, setDeleteOnDeactivate] = useState<Record<string, boolean>>({});
   const load = useCallback(async () => {
     const response = await fetch("/api/admin/promotions", { cache: "no-store" });
     const data = await response.json().catch(() => ({}));
@@ -82,19 +83,27 @@ export default function PromotionsClient() {
   }
 
 
-  async function removePromotion(id: string) {
-    if (!window.confirm("Remove this coupon? It will be disabled in Stripe if necessary before its TC record is removed.")) return;
+  async function removePromotion(promotion: Promotion) {
+    const confirmed = window.confirm(
+      `Deactivate and remove ${promotion.code} from Kingmaker? This cannot be undone. If the coupon has been redeemed, its transaction history will be preserved.`,
+    );
+    if (!confirmed) return;
     setBusy(true);
     setMessage("");
     try {
       const response = await fetch("/api/admin/promotions", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id }),
+        body: JSON.stringify({ id: promotion.id }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "Coupon could not be removed.");
-      setMessage("Coupon removed.");
+      setMessage(
+        data.archived
+          ? `${promotion.code} deactivated and removed from Kingmaker. Previous redemptions remain in the accounting history.`
+          : `${promotion.code} deactivated and deleted.`,
+      );
+      setDeleteOnDeactivate((current) => ({ ...current, [promotion.id]: false }));
       await load();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
@@ -138,10 +147,56 @@ export default function PromotionsClient() {
               <div><h2 className="text-2xl font-black">{promotion.code}</h2><p className="mt-1 font-semibold text-neutral-600">{promotion.percent_off}% off{promotion.free_shipping ? " + free shipping" : ""}{promotion.category_scope ? ` - ${promotion.category_scope}` : ""}{promotion.first_order_only ? " - first order only" : ""} - {promotion.stripe_promotion_code_id ? (promotion.stripe_livemode ? "LIVE Stripe" : "TEST Stripe") : "TC checkout"}</p></div>
               <span className={`rounded-full px-3 py-1 text-sm font-black ${promotion.active ? "bg-emerald-100 text-emerald-800" : "bg-neutral-200"}`}>{promotion.active ? "ACTIVE" : "INACTIVE"}</span>
             </div>
-            <div className="mt-4 flex flex-wrap gap-3">
-              <button type="button" disabled={busy} onClick={() => action(promotion.id, { action: "set-active", active: !promotion.active })} className="min-h-11 rounded border border-neutral-300 px-4 font-bold text-neutral-950 hover:bg-neutral-100">{promotion.active ? "Deactivate" : "Activate"}</button>
-              <button type="button" disabled={busy} onClick={() => void removePromotion(promotion.id)} className="min-h-11 rounded border border-red-300 px-4 font-bold text-red-800 hover:bg-red-50">Remove coupon</button>
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              {promotion.active ? (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => deleteOnDeactivate[promotion.id]
+                    ? void removePromotion(promotion)
+                    : void action(promotion.id, { action: "set-active", active: false })}
+                  className={`min-h-11 rounded border px-4 font-bold disabled:opacity-50 ${deleteOnDeactivate[promotion.id] ? "border-red-300 text-red-800 hover:bg-red-50" : "border-neutral-300 text-neutral-950 hover:bg-neutral-100"}`}
+                >
+                  {deleteOnDeactivate[promotion.id] ? "Deactivate & delete" : "Deactivate"}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void action(promotion.id, { action: "set-active", active: true })}
+                  className="min-h-11 rounded border border-neutral-300 px-4 font-bold text-neutral-950 hover:bg-neutral-100 disabled:opacity-50"
+                >
+                  Reactivate
+                </button>
+              )}
+              {!promotion.active && deleteOnDeactivate[promotion.id] ? (
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void removePromotion(promotion)}
+                  className="min-h-11 rounded border border-red-300 px-4 font-bold text-red-800 hover:bg-red-50 disabled:opacity-50"
+                >
+                  Delete coupon
+                </button>
+              ) : null}
+              <label className="flex cursor-pointer items-center gap-2 rounded-md border border-neutral-200 px-3 py-2 text-sm font-semibold text-neutral-800">
+                <input
+                  type="checkbox"
+                  checked={Boolean(deleteOnDeactivate[promotion.id])}
+                  disabled={busy}
+                  onChange={(event) =>
+                    setDeleteOnDeactivate((current) => ({ ...current, [promotion.id]: event.target.checked }))
+                  }
+                  className="h-5 w-5 accent-red-700"
+                />
+                Delete instead of keeping inactive
+              </label>
             </div>
+            {deleteOnDeactivate[promotion.id] ? (
+              <p className="mt-2 text-xs text-neutral-600">
+                Confirmation is required. Inactive, unused codes are deleted. Active or redeemed codes are removed from the list but retained as inactive records to protect checkout and order history.
+              </p>
+            ) : null}
           </article>
         ))}
       </section>
