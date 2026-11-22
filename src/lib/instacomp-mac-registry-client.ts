@@ -38,7 +38,14 @@ export async function postInstaCompMacRegistry(
     throw new Error("The authenticated InstaComp AI Mac registry bridge is not configured.");
   }
 
-  const response = await fetch(`${baseUrl}${path}`, {
+  // Cloudflare's public /v1/kingmaker/* tunnel route returns 502 before
+  // forwarding to the healthy Mac FastAPI service. Only commercial inventory
+  // requests use this authenticated, isolated alias. All other routes retain
+  // their original paths until individually validated.
+  const macPath = path === "/v1/kingmaker/accounting/commercial-inventory"
+    ? "/v1/obbfb-inventory/commercial"
+    : path;
+  const response = await fetch(`${baseUrl}${macPath}`, {
     method: "POST",
     headers: requestHeaders(),
     body: JSON.stringify(payload),
