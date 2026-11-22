@@ -36,7 +36,11 @@ async function run() {
   let lockableDraft: Record<string, unknown> | null = null;
   const scanId = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
   Reflect.set(globalThis, Symbol.for("__cloudflare-context__"), {
-    env: { AI: { run: async () => {
+    env: { ASSETS: { fetch: async (request: Request) => {
+      assert.ok(blueFinish);
+      assert.match(new URL(request.url).pathname, /^\/kingmaker-references\/(velocity-rice|velocity-bueckers|seismic-nogic)\.jpg$/);
+      return new Response(new Uint8Array([255, 216, 255, 3]));
+    } }, AI: { run: async () => {
       cloudflareCalls++;
       return { response: JSON.stringify(identity) };
     } } },
@@ -44,9 +48,6 @@ async function run() {
   const original = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     const url = new URL(String(input));
-    if (url.hostname === "images.theclector.com" && blueFinish) {
-      return new Response(new Uint8Array([255, 216, 255, 3]));
-    }
     assert.equal(init?.method, "POST");
     if (url.pathname === "/v1/scans/supervised-archive") {
       assert.ok(init?.body instanceof FormData);
