@@ -165,6 +165,33 @@ const median = (values: number[]) => {
   const i = Math.floor(sorted.length / 2);
   return sorted.length % 2 ? sorted[i] : (sorted[i - 1] + sorted[i]) / 2;
 };
+// The source can verify a sale while misclassifying its card. Check the actual
+// title before allowing the transaction to influence the sold median.
+function soldVariantMismatch(title: string, identity: DirectCardIdentity): string | null {
+  if (/\b(?:lot|bundle|pick your|choose your|you pick|complete your set|multi[- ]?card|[x×]\s*\d+|\d+\s*[x×]\b)\b/i.test(title)) {
+    return "multi_card_or_variant_listing";
+  }
+  const variantMarkers = /\b(?:wnba logo|logo prizm|image variation|snakes?kin|silver|green|red|blue|purple|pink|orange|gold|black|white|ice|velocity|seismic|wave|shimmer|flash|mojo|pandora|refractor|holo|hyper|scope|disco|choice|sparkle|cracked|checkerboard|mosaic|pulsar|swirl|lattice|cherry blossom|lotus flower|premium box set)\b/gi;
+  const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  const finish = normalize(identity.parallel || "");
+  if (!finish) return "target_parallel_unverified";
+  const setWords = new Set(normalize([identity.brandSet, identity.subset, identity.player].filter(Boolean).join(" ")).split(" "));
+  const expectedWords = new Set(finish.split(" "));
+  if (expectedWords.has("ice")) expectedWords.add("cracked");
+  if (expectedWords.has("logo")) {
+    expectedWords.add("wnba");
+    expectedWords.add("prizm");
+  }
+  const unexpected = Array.from(title.matchAll(variantMarkers), match => normalize(match[0]))
+    .some(marker => marker.split(" ").some(word => !expectedWords.has(word) && !setWords.has(word)));
+  if (unexpected) return "sold_parallel_mismatch";
+  const requiredWords = finish.split(" ").filter(word =>
+    !/^(?:base|set|card|parallel|variant|prizm|prizms|prism|cracked|\d+)$/.test(word)
+  );
+  const titleWords = new Set(normalize(title).split(" "));
+  return requiredWords.every(word => titleWords.has(word)) ? null : "sold_parallel_unconfirmed";
+}
+
 export function select365DayComps(
   raw: VerifiedSale[], identity: DirectCardIdentity, now = new Date(),
 ): { status: "comped" | "0 Comps — Seller Price Required"; medianComp: number | null; suggestedPrice: number | null; accepted: VerifiedSale[]; rejected: Array<{ sale: VerifiedSale; reason: string }> } {
@@ -174,8 +201,9 @@ export function select365DayComps(
     const valid = s.verified === true && s.realized === true && Number.isFinite(s.price) &&
       s.price > 0 && !!s.url && !!s.title &&
       Number.isFinite(Date.parse(s.soldAt)) && Date.parse(s.soldAt) >= cutoff && Date.parse(s.soldAt) <= now.getTime();
-    if (!valid) rejected.push({ sale: s, reason: "unverified_or_outside_365_days" });
-    return valid;
+    const reason = valid ? soldVariantMismatch(s.title, identity) : "unverified_or_outside_365_days";
+    if (reason) rejected.push({ sale: s, reason });
+    return reason === null;
   });
   const distinct = new Set<string>();
   sales = sales.filter(s => {
