@@ -176,6 +176,30 @@ export function scanTitle(scan: InstaCompAiLocalScan) {
     ? `${readable} — identity review`
     : "InstaComp card — identity review required";
 }
+export type MacRecoveryScan = {
+  scan_id: string;
+  card_uuid: string;
+  created_at: string;
+  front_sha256: string;
+  back_sha256: string;
+  image_pair_sha256: string;
+  title: string | null;
+};
+
+export async function macRecoveryScans(action: "remember" | "list" | "get" | "complete", owner: string, scanId?: string, title?: string) {
+  const response = await fetch(`${macBaseUrl()}/v1/obbfb-market-comp/recovery`, {
+    method: "POST",
+    headers: macHeaders(true),
+    body: JSON.stringify({ action, owner, scanId, title }),
+    cache: "no-store",
+    signal: AbortSignal.timeout(12_000),
+  });
+  if (response.status === 404 && action === "get") return [];
+  if (!response.ok) throw new Error(`Saved-scan archive returned HTTP ${response.status}.`);
+  const body = await response.json() as { scans?: MacRecoveryScan[] };
+  return Array.isArray(body.scans) ? body.scans : [];
+}
+
 export async function searchMacParallelPhotos(identity: JsonRecord): Promise<unknown> {
   const response = await fetch(`${macBaseUrl()}/v1/obbfb-market-comp/parallel-photos`, {
     method: "POST",

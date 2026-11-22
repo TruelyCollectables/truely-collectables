@@ -1,7 +1,10 @@
 import Link from "next/link";
+import { headers } from "next/headers";
+import RecoveryHeldScans from "./RecoveryHeldScans";
+import { getAuthenticatedAccountFromRequest } from "../../../lib/kingmaker-local-auth";
 import RecoveryDrafts from "./RecoveryDrafts";
 import { marketVariantMismatch, normalizeDirectIdentity } from "../../../lib/obbfb-intake-rules";
-import { listMacMasterListingRows } from "../../../lib/kingmaker-mac-scan-server";
+import { getMacMasterListingRows, kingmakerScanImageUrl, listMacMasterListingRows, macRecoveryScans, type MacRecoveryScan } from "../../../lib/kingmaker-mac-scan-server";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -11,10 +14,20 @@ const record = (x: unknown): JsonRecord =>
 const text = (x: unknown) => String(x ?? "").trim();
 
 export default async function OBBFBRecoveryPage() {
+  const account = await getAuthenticatedAccountFromRequest(new Request("https://truelycollectables.com", { headers: await headers() }));
+  let held: MacRecoveryScan[] = [];
   let rows: JsonRecord[] = [];
   let error: string | null = null;
   try {
+    const scans = account ? await macRecoveryScans("list", account.id) : [];
     rows = await listMacMasterListingRows({ folder: "pending", pendingQueue: "listings", compact: false, timeoutMs: 25_000 }) as JsonRecord[];
+    const uniqueScans = [...new Map(scans.slice().reverse().map(scan => [scan.card_uuid, scan])).values()].reverse();
+    for (let index = 0; index < uniqueScans.length; index += 50) {
+      const group = uniqueScans.slice(index, index + 50);
+      const existing = new Set((await getMacMasterListingRows(group.map(scan => scan.card_uuid), 12_000))
+        .map(row => row.inventoryItemId || row.id));
+      held.push(...group.filter(scan => !existing.has(scan.card_uuid)));
+    }
   } catch (err) {
     error = err instanceof Error ? err.message : "Mac inventory could not be reached.";
   }
@@ -34,16 +47,19 @@ export default async function OBBFBRecoveryPage() {
       <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">
         These card fronts and backs were already saved on your Mac. Retry both sides with
         Gemini vision with Cloudflare backup. No photography or uploads are needed.
-        Cards remain private in Resale Pending. Inspect the identity, serial and price
-        before using Save &amp; Lock — No Publish.
+        Scans waiting on identification or sold comps stay here. Verified cards with exact sold comps can move to Resale Pending.
       </p>
       <p className="mt-4 font-bold text-sky-200">{archived.length} unverified OBBFB scans saved</p>
       {error ? <p className="mt-4 rounded-xl border border-red-700 bg-red-950/50 p-4 text-red-200">{error}</p> : null}
-      {!error && !archived.length ? (
+      {!error && !archived.length && !held.length ? (
         <p className="mt-5 rounded-xl border border-slate-700 p-4 text-slate-300">
-          No unverified OBBFB scans remain in Resale Pending.
+          No scans are waiting for recovery.
         </p>
       ) : null}
+      <RecoveryHeldScans scans={held.map(scan => ({
+        id: scan.scan_id, title: scan.title || "Archived card",
+        front: kingmakerScanImageUrl(scan.scan_id, "front"), back: kingmakerScanImageUrl(scan.scan_id, "back"),
+      }))} />
       <RecoveryDrafts drafts={archived.map((row) => {
         const info = record(record(row.metadata).instacomp);
         const identity = record(info.ai);

@@ -6,12 +6,12 @@ import {
   getAuthenticatedAccountFromRequest,
 } from "../../../../lib/kingmaker-local-auth";
 import {
-  archiveInstaCompAiLocalSupervisedScan,
+  archiveInstaCompAiLocalSupervisedScan, fetchInstaCompAiLocalScanImage,
 } from "../../../../lib/instacomp-ai-local";
 import {
   createMacKingmakerDraft, findMacDuplicateByImagePair,
   getMacMasterListingRow, kingmakerScanImageUrl,
-  listMacMasterListingRows, sha256File,
+  listMacMasterListingRows, macRecoveryScans, sha256File, type MacRecoveryScan,
 } from "../../../../lib/kingmaker-mac-scan-server";
 import {
   buildDirectDescription, finalPublicationBlockers,
@@ -92,28 +92,43 @@ function existingScan(row: Awaited<ReturnType<typeof getMacMasterListingRow>>, a
 }
 
 export async function POST(request: NextRequest) {
-  let archived: { scan_id: string; card_uuid: string; front_sha256: string; back_sha256: string; image_pair_sha256: string } | null = null;
+  let archived: Pick<MacRecoveryScan, "scan_id" | "card_uuid" | "front_sha256" | "back_sha256" | "image_pair_sha256"> | null = null;
   try {
     const account = await getAuthenticatedAccountFromRequest(request);
     if (!account) return respond({ success: false, code: "UNAUTHORIZED" }, 401);
     await ensureAccountStoreMembership({ accountId: account.id, role: "seller", status: "active" });
 
-    const form = await request.formData();
-    const front = validateImage(form.get("front"), "front");
-    const back = validateImage(form.get("back"), "back");
-    const [frontSha, backSha] = await Promise.all([sha256File(front), sha256File(back)]);
-    if (frontSha === backSha) return respond({ success: false, code: "FRONT_BACK_SAME_IMAGE" }, 409);
-    const pairHash = imagePairSignature(frontSha, backSha);
-    const duplicate = await findMacDuplicateByImagePair(pairHash, 10_000);
-    if (duplicate) return existingScan(await getMacMasterListingRow(duplicate.inventoryItemId, 10_000), account.id);
+    let front: File;
+    let back: File;
+    if (request.headers.get("content-type")?.includes("application/json")) {
+      const input = record(await request.json().catch(() => null));
+      const scanId = String(input.scanId || "");
+      if (!/^[0-9a-f-]{36}$/i.test(scanId)) return respond({ success: false, error: "Invalid saved scan ID." }, 400);
+      [archived] = await macRecoveryScans("get", account.id, scanId);
+      if (!archived) return respond({ success: false, error: "Saved scan not found." }, 404);
+      [front, back] = await Promise.all([
+        fetchInstaCompAiLocalScanImage({ scanId, side: "front", timeoutMs: 20_000 }),
+        fetchInstaCompAiLocalScanImage({ scanId, side: "back", timeoutMs: 20_000 }),
+      ]);
+    } else {
+      const form = await request.formData();
+      front = validateImage(form.get("front"), "front");
+      back = validateImage(form.get("back"), "back");
+      const [frontSha, backSha] = await Promise.all([sha256File(front), sha256File(back)]);
+      if (frontSha === backSha) return respond({ success: false, code: "FRONT_BACK_SAME_IMAGE" }, 409);
+      const duplicate = await findMacDuplicateByImagePair(imagePairSignature(frontSha, backSha), 10_000);
+      if (duplicate) return existingScan(await getMacMasterListingRow(duplicate.inventoryItemId, 10_000), account.id);
 
-    // Safe photo archiving only: this endpoint does NOT read checklist_registry.sqlite3,
-    // invoke Ollama, issue model lessons, or publish. It creates durable scan photos.
-    archived = await archiveInstaCompAiLocalSupervisedScan({ front, back, timeoutMs: 45_000 });
+      archived = await archiveInstaCompAiLocalSupervisedScan({ front, back, timeoutMs: 45_000 });
+      await macRecoveryScans("remember", account.id, archived.scan_id);
+    }
     // Archive UUIDs can be reused for the same physical image; never clobber a
     // prior seller-approved record if another request already stored it.
     const already = await getMacMasterListingRow(archived.card_uuid, 10_000);
-    if (already) return existingScan(already, account.id);
+    if (already) {
+      await macRecoveryScans("complete", account.id, archived.scan_id).catch(() => {});
+      return existingScan(already, account.id);
+    }
 
     let identity: DirectCardIdentity | null = null;
     let visionError: string | null = null;
@@ -134,6 +149,7 @@ export async function POST(request: NextRequest) {
     let market: Awaited<ReturnType<typeof researchOBBFBComps>> | null = null;
     if (identityComplete && identity) market = await researchOBBFBComps(identity, title);
     if (!identityComplete || blockers.length || market?.status !== "comped" || !market.accepted.length) {
+      if (identity) await macRecoveryScans("remember", account.id, archived.scan_id, title).catch(() => {});
       return respond({
         success: false, stage: "review_required", code: "OBBFB_NOT_SAVED",
         photosArchived: true, scanId: archived.scan_id, ai: identity,
@@ -164,7 +180,7 @@ export async function POST(request: NextRequest) {
       instacomp: {
         intakeEngine: "obbfb_direct_vision_v1", source: "obbfb_direct_vision_v1", model,
         scanId: archived.scan_id, cardUuid: archived.card_uuid,
-        imagePairSha256: archived.image_pair_sha256 || pairHash,
+        imagePairSha256: archived.image_pair_sha256,
         frontSha256: archived.front_sha256, backSha256: archived.back_sha256,
         frontImageUrl, backImageUrl, imagePersistenceVerified: true,
         imageOrientation: { status: "model_visual_orientation", source: "direct_cloudflare_multimodal_vision" },
@@ -202,6 +218,7 @@ export async function POST(request: NextRequest) {
       imageUrl: frontImageUrl, folder: "pending", pendingQueue: needToMerge ? "need_to_merge" : "listings",
       metadata,
     });
+    await macRecoveryScans("complete", account.id, archived.scan_id).catch(() => {});
     return respond({
       success: true, stage: needToMerge ? "need_to_merge" : identityComplete ? "complete" : "review_required",
       identityComplete, cardUuid: archived.card_uuid, inventoryItemId: item.inventoryItemId || archived.card_uuid,

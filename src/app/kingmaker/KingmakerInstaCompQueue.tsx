@@ -14,6 +14,7 @@ type IntakeResult = {
   success?: boolean;
   code?: string;
   photosArchived?: boolean;
+  scanId?: string;
   error?: string;
   stage?: string;
   identityComplete?: boolean;
@@ -214,13 +215,16 @@ export default function KingmakerInstaCompQueue() {
     try {
       const session = await getFreshAccountSession(5 * 60, false);
       if (!session?.access_token) throw new Error("Seller login is required before scanning cards.");
+      const scanId = card.result?.photosArchived ? card.result.scanId : null;
       const body = new FormData();
-      body.append("front", card.front, card.front.name);
-      body.append("back", card.back, card.back.name);
+      if (!scanId) {
+        body.append("front", card.front, card.front.name);
+        body.append("back", card.back, card.back.name);
+      }
       const response = await fetch("/api/kingmaker/instacomp-scan-intake-v2", {
         method: "POST",
-        headers: { Authorization: `Bearer ${session.access_token}` },
-        body,
+        headers: { Authorization: `Bearer ${session.access_token}`, ...(scanId ? { "Content-Type": "application/json" } : {}) },
+        body: scanId ? JSON.stringify({ scanId }) : body,
       });
       const result = (await response.json().catch(() => ({}))) as IntakeResult;
       const hasDraft = Boolean(result.inventoryItemId);
