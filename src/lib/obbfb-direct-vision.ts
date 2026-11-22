@@ -51,6 +51,7 @@ const INSTRUCTIONS = [
   "ZERO AUTOGRAPH ASSUMPTION. isAutograph can be true ONLY if a physical signature is visible or this exact card face explicitly designates an autograph. Explain that fact in autographEvidence. Printed player names aren't autographs.",
   "isRelic true only when the card visibly has a memorabilia/jersey/patch piece or explicitly says memorabilia. Record the physical evidence in relicEvidence.",
   "Use the explicit value Base for a physically supported standard base card. Do not infer a parallel from a jersey/team color or say Base when a special finish is evident. If exact parallel is uncertain, describe it conservatively in notes and use parallel null.",
+  "An insert name such as Top Tier belongs in subset, not parallel. For a visibly standard insert, use Base for the parallel. Keep it null if the photos leave the finish uncertain.",
   "For Panini Prizm or Select, preserve the full parallel name e.g. Silver Prizm, Blue Prizm; distinguish Concourse/Premier/Courtside product levels from parallel colors.",
   "Do not add team names to the brandSet field. Use the product name without a leading year; the year is a separate field.",
   "For notes include visible evidence and ambiguity. An inscription must be visibly handwritten; a printed slogan doesn't count.",
