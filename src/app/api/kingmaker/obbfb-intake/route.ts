@@ -140,7 +140,9 @@ export async function POST(request: NextRequest) {
       } catch { /* Non-blocking duplicate discovery; physical duplicate guard already ran. */ }
     }
     const needToMerge = Boolean(matching);
-    const queue = needToMerge ? "need_to_merge" : identityComplete ? "pending_listings" : "pending_verification";
+    // Never move an uncertain OBBFB card to the retired Pending Verification
+    // bucket. It remains in Resale Pending until the seller explicitly acts.
+    const queue = needToMerge ? "need_to_merge" : "pending_listings";
     const ai = identity ? {
       ...identity, setName: identity.brandSet, brand: identity.manufacturer,
       isAuto: identity.isAutograph, isRookie: identity.isRookie, isRelic: identity.isRelic,
@@ -184,7 +186,7 @@ export async function POST(request: NextRequest) {
       sku: `KM-${archived.card_uuid.slice(0,12).toUpperCase()}`,
       description, status: "draft", quantity: 1, price: market?.suggestedPrice || 0,
       player: identity?.player || null, category: "Trading Card Singles",
-      imageUrl: frontImageUrl, folder: "pending", pendingQueue: needToMerge ? "need_to_merge" : identityComplete ? "listings" : "verification",
+      imageUrl: frontImageUrl, folder: "pending", pendingQueue: needToMerge ? "need_to_merge" : "listings",
       metadata,
     });
     return respond({

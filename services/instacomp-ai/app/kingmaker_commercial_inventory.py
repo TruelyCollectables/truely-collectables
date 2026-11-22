@@ -204,7 +204,9 @@ def _master_listing_queue(metadata_value: Any) -> str:
         queue = _text(_record(metadata.get("listingWorkflow")).get("queue"))
         if queue == "need_to_merge":
             return "need_to_merge"
-        return "listings" if instacomp.get("identityComplete") is True else "verification"
+        # Incomplete visual identity stays in Resale Pending (with an
+        # explicit seller-review hold), never in the retired verification queue.
+        return "listings"
     # Explicit seller-deferred original photo recovery has its own durable queue.
     # It stays held and must never be promoted by a receipt or reprojection.
     if (instacomp.get("manualHoldBucket") == "missing_picture"
@@ -389,6 +391,13 @@ def _master_listing_queue(metadata_value: Any) -> str:
 def _master_listing_relevant(row: dict[str, Any]) -> bool:
     metadata = _record(row.get("metadata"))
     instacomp = _record(metadata.get("instacomp"))
+    # No OBBFB draft with archived physical images may vanish from Master
+    # Listings just because vision was uncertain or no comps were returned.
+    if instacomp.get("intakeEngine") == "obbfb_direct_vision_v1":
+        return bool(
+            _text(instacomp.get("imagePairSha256"))
+            or (_text(instacomp.get("frontImageUrl")) and _text(instacomp.get("backImageUrl")))
+        )
     # A physical Missing Picture hold must remain in the seller's queue
     # even when an upstream source no longer has the images or scan fields.
     if (instacomp.get("manualHoldBucket") == "missing_picture"

@@ -75,6 +75,29 @@ class OBBFBOwnerLockTests(unittest.TestCase):
         pending = self.catalog.list_master_listing_projection(folder="pending", pending_queue="listings")
         self.assertTrue(any(str(i.get("id") or i.get("inventoryItemId")) == self.identifier for i in pending["items"]))
 
+    def test_incomplete_visual_identity_stays_in_resale_pending(self):
+        metadata = {
+            **self.base_metadata,
+            "instacomp": {**self.base_metadata["instacomp"], "identityComplete": False},
+        }
+        self.catalog.create_local_draft({
+            "inventoryItemId": self.identifier,
+            "title": "Unidentified physical card — owner review",
+            "description": "Both sides saved, no verified comp yet.",
+            "sku": "KM-test-incomplete", "price": 0, "metadata": metadata,
+        })
+        self.catalog.project_master_listings([self.catalog.get_item(self.identifier)])
+        pending = self.catalog.list_master_listing_projection(folder="pending", pending_queue="listings")
+        assert any(str(i.get("id") or i.get("inventoryItemId")) == self.identifier for i in pending["items"]), (
+            "DRAFT ROUTE " + repr({
+                "row": self.catalog.get_master_listing_projection(self.identifier),
+                "summary": self.catalog.master_listing_projection_summary(),
+                "pending": pending,
+            })[:3500]
+        )
+        verified = self.catalog.list_master_listing_projection(folder="pending", pending_queue="verification")
+        assert not any(str(i.get("id") or i.get("inventoryItemId")) == self.identifier for i in verified["items"])
+
     def test_duplicate_uuid_does_not_overwrite(self):
         self.make_draft()
         with self.assertRaisesRegex(ValueError, "OBBFB_DUPLICATE_CARD_UUID"):
