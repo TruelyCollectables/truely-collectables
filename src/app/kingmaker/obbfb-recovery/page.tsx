@@ -64,6 +64,8 @@ export default async function OBBFBRecoveryPage() {
           priceNeedsRecomp,
           marketEvidence: {
             soldCompEvidence: sold,
+            rejectedSoldComps: Array.isArray(info.rejectedSoldComps)
+              ? info.rejectedSoldComps.map(record).map(row => ({ sale: record(row.sale), reason: row.reason })) : [],
             activeCompetition: Array.isArray(info.activeCompetition) ? info.activeCompetition.map(record) : [],
           },
         };

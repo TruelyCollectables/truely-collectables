@@ -207,6 +207,11 @@ export function marketVariantMismatch(title: string, identity: DirectCardIdentit
   return requiredWords.every(word => titleWords.has(word)) ? null : "sold_parallel_unconfirmed";
 }
 
+export function isSoldPricingExclusion(reason: unknown) {
+  return reason === "low_value_auction_breaker" || reason === "numbered_card_below_75_percent_max" ||
+    reason === "relic_below_eight_dollars";
+}
+
 export function select365DayComps(
   raw: VerifiedSale[], identity: DirectCardIdentity, now = new Date(),
 ): { status: "comped" | "0 Comps — Seller Price Required"; medianComp: number | null; suggestedPrice: number | null; accepted: VerifiedSale[]; rejected: Array<{ sale: VerifiedSale; reason: string }> } {

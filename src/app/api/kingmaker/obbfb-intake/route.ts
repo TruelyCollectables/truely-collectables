@@ -206,7 +206,7 @@ export async function POST(request: NextRequest) {
       success: true, stage: needToMerge ? "need_to_merge" : identityComplete ? "complete" : "review_required",
       identityComplete, cardUuid: archived.card_uuid, inventoryItemId: item.inventoryItemId || archived.card_uuid,
       title, description, ai, code: needToMerge ? "NEED_TO_MERGE" : undefined,
-      pricing: market ? { suggestedPrice: market.suggestedPrice, medianComp: market.medianComp, status: market.status, soldCompEvidence: market.accepted, activeCompetition: market.activeListings, providerCoverage: market.providerCoverage } : { suggestedPrice: null, status: identityComplete ? "0 Comps — Seller Price Required" : "identity_review_required" },
+      pricing: market ? { suggestedPrice: market.suggestedPrice, medianComp: market.medianComp, status: market.status, soldCompEvidence: market.accepted, rejectedSoldComps: market.rejected, activeCompetition: market.activeListings, providerCoverage: market.providerCoverage } : { suggestedPrice: null, status: identityComplete ? "0 Comps — Seller Price Required" : "identity_review_required" },
       pricingSucceeded: Boolean(market?.accepted.length),
       reviewHref: needToMerge ? "/kingmaker/need-to-merge" : "/kingmaker/listings?folder=pending",
       normalizedImages: { frontImageUrl, backImageUrl },
