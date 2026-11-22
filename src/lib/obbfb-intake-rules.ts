@@ -134,6 +134,11 @@ export function buildDirectDescription(identity: DirectCardIdentity, isTcCoa = f
 export function identitySufficient(identity: DirectCardIdentity): boolean {
   return Boolean(identity.year && identity.player && identity.brandSet && identity.cardNumber && identity.confidence >= 0.7);
 }
+export function isValidOBBFBSellerPrice(price: number): boolean {
+  const cents = price * 100;
+  return Number.isFinite(price) && price >= 0.01 &&
+    Number.isSafeInteger(Math.round(cents)) && Math.abs(Math.round(cents) - cents) < 1e-6;
+}
 export function finalPublicationBlockers(identity: DirectCardIdentity, title: string, description: string, front: string | null, back: string | null): string[] {
   const blockers: string[] = [];
   if (!title || title.length >= 80) blockers.push("title_under_80_required");

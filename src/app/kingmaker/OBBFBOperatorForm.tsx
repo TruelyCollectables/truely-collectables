@@ -45,7 +45,14 @@ export default function OBBFBOperatorForm(props: Props) {
   const [visionComplete, setVisionComplete] = useState(Boolean(props.identity.year && props.identity.player && props.identity.cardNumber));
 
   function setField(key: string, value: unknown) {
-    setValues(current => ({ ...current, [key]: value }));
+    setValues(current => {
+      const next = { ...current, [key]: value };
+      if (key === "year" && typeof current.year === "string" &&
+          typeof current.brandSet === "string" && current.brandSet.startsWith(current.year + " ")) {
+        next.brandSet = current.brandSet.slice(current.year.length).trim();
+      }
+      return next;
+    });
     setConfirmed(false);
   }
   function regenerate() {
@@ -212,7 +219,7 @@ export default function OBBFBOperatorForm(props: Props) {
           className="mt-1 w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-white" />
       </label>
       <label className="block text-xs font-bold text-slate-300">Operator listing price (USD)
-        <input value={price} type="number" min="2" step="0.01"
+        <input value={price} type="number" min="0.01" step="0.01"
           onChange={event => { setPrice(event.target.value); setConfirmed(false); }}
           disabled={locked || busy}
           style={{ backgroundColor: "#0f172a", color: "#f8fafc" }}

@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { NextRequest } from "next/server";
 import { POST as intake } from "../src/app/api/kingmaker/obbfb-intake/route";
 import { ADMIN_SESSION_COOKIE_NAME, createAdminSessionValue } from "../src/lib/admin-session";
-import { identifyOBBFBVision } from "../src/lib/obbfb-direct-vision";
+import { POST as lockDraft } from "../src/app/api/kingmaker/obbfb-lock/route";
+import { identifyOBBFBVision, parseOBBFBVisionJson } from "../src/lib/obbfb-direct-vision";
 import { GET, POST } from "../src/app/api/kingmaker/bulk-recomp/route";
 
 async function run() {
@@ -14,7 +15,7 @@ async function run() {
   const endpoint = "https://truelycollectables.com/api/kingmaker/bulk-recomp";
   const cookie = ADMIN_SESSION_COOKIE_NAME + "=" + await createAdminSessionValue();
   const identity = {
-    year: "2024-25", brandSet: "Upper Deck", player: "Lane Hutson", cardNumber: "229",
+    year: "2024-25", printedReleaseYear: "2024-25", copyrightYear: "2025", brandSet: "Upper Deck", player: "Lane Hutson", cardNumber: "229",
     parallel: "Base", isAutograph: false, isRelic: false, confidence: 0.94,
   };
   const row = {
@@ -29,6 +30,7 @@ async function run() {
   let noSold = false;
   let created = 0;
   let archived = 0;
+  let lockableDraft: Record<string, unknown> | null = null;
   const scanId = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
   Reflect.set(globalThis, Symbol.for("__cloudflare-context__"), {
     env: { AI: { run: async () => {
@@ -72,11 +74,19 @@ async function run() {
         case "create":
           assert.equal(body.items[0].price, 12.99);
           created++;
+          lockableDraft = body.items[0];
           return Response.json({ ok: true, items: body.items });
         case "project_master":
           return Response.json({ ok: true });
+        case "master_update":
+          assert.equal(body.items[0].price, 1);
+          assert.equal(body.items[0].updateEbay, false);
+          assert.equal(body.items[0].metadata.instacomp.sellerPriceOverride, true);
+          return Response.json({ ok: true, results: [{ success: true, item: body.items[0] }] });
         case "master_get":
-          if (body.items[0].inventoryItemId === scanId) return Response.json({ ok: true, items: [] });
+          if (body.items[0].inventoryItemId === scanId) {
+            return Response.json({ ok: true, items: lockableDraft ? [lockableDraft] : [] });
+          }
         // falls through: both fixture paths return the same active card
         case "master_list":
           return Response.json({ ok: true, items: [{
@@ -101,6 +111,12 @@ async function run() {
     const front = new File([new Uint8Array([255, 216, 255, 1])], "front.jpg", { type: "image/jpeg" });
     const back = new File([new Uint8Array([255, 216, 255, 2])], "back.jpg", { type: "image/jpeg" });
     assert.equal((await identifyOBBFBVision(front, back)).model, "gemini-3.8-flash");
+    assert.equal(parseOBBFBVisionJson(JSON.stringify({
+      ...identity, year: "2024", printedReleaseYear: "2026", copyrightYear: "2026",
+    })).year, null);
+    assert.equal(parseOBBFBVisionJson(JSON.stringify({
+      ...identity, year: "2026", printedReleaseYear: "2026", copyrightYear: "2026",
+    })).year, "2026");
     partial = true;
     assert.ok((await identifyOBBFBVision(front, back)).identity.confidence < 0.7);
     assert.equal(cloudflareCalls, 0);
@@ -148,7 +164,19 @@ async function run() {
     assert.equal((await (await scanPair()).json()).code, "OBBFB_NOT_SAVED");
     assert.equal(created, 0);
     noSold = false;
-    assert.equal((await (await scanPair()).json()).pricingSucceeded, true);
+    const staged = await (await scanPair()).json();
+    assert.equal(staged.pricingSucceeded, true);
+    const save = await lockDraft(new NextRequest("https://truelycollectables.com/api/kingmaker/obbfb-lock", {
+      method: "POST", headers: { cookie, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        confirmed: true, inventoryItemId: scanId, price: 1,
+        identity: staged.ai, title: staged.title, description: staged.description,
+      }),
+    }));
+    assert.equal(save.status, 200);
+    const saved = await save.json();
+    assert.equal(saved.price, 1);
+    assert.equal(saved.published, false);
     assert.equal(created, 1);
     assert.equal(archived, 3);
     console.log("PASS: paired Gemini, quota fallback, seller review, live-ask boundaries, price locks and read-only re-comp");
