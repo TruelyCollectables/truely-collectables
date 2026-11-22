@@ -148,7 +148,7 @@ def _run_local_ebay_bridge(payload: dict[str, Any]) -> dict[str, Any]:
 class CommercialInventoryRequest(BaseModel):
     action: str = Field(
         default="list",
-        pattern="^(list|get|find_image_pair|find_card_uuid|refresh|create|update|project_master|project_master_reset|master_list|master_get|master_group|master_update|master_delete)$",
+        pattern="^(list|get|find_image_pair|find_card_uuid|refresh|ebay_asking_prices|create|update|project_master|project_master_reset|master_list|master_get|master_group|master_update|master_delete)$",
     )
     items: list[dict[str, Any]] = Field(default_factory=list, max_length=1000)
 
@@ -514,6 +514,9 @@ def build_kingmaker_accounting_router(
     @router.post("/commercial-inventory")
     def commercial_inventory_route(request: CommercialInventoryRequest):
         try:
+            if request.action == "ebay_asking_prices":
+                return {"ok": True, **fetch_ebay_seller_snapshot(asking_prices_only=True)}
+
             if request.action in {"project_master", "project_master_reset"}:
                 result = commercial_inventory.project_master_listings(
                     request.items,

@@ -32,7 +32,7 @@ export default async function OBBFBRecoveryPage() {
       <h1 className="text-3xl font-black text-emerald-300">OBBFB — Recover Saved Scans</h1>
       <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">
         These card fronts and backs were already saved on your Mac. Retry both sides with
-        Cloudflare direct multimodal vision. No photography or uploads are needed.
+        Gemini vision with Cloudflare backup. No photography or uploads are needed.
         Cards remain private in Resale Pending. Inspect the identity, serial and price
         before using Save &amp; Lock — No Publish.
       </p>

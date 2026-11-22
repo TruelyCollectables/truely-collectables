@@ -2679,6 +2679,9 @@ export default function KingmakerPendingPage({
     <main className="min-h-screen bg-neutral-100 px-4 py-6 text-neutral-950">
       <div className="mx-auto max-w-6xl">
         <div className="flex flex-wrap items-end justify-between gap-3">
+          <Link href="/kingmaker/bulk-recomp" className="order-last rounded-lg bg-emerald-800 px-4 py-2 font-bold text-white">
+            Bulk Re-Comp
+          </Link>
           <div>
             <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-800">KINGMAKER / Master Listings</p>
             <h1 className="mt-1 text-3xl font-black">
