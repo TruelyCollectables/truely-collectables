@@ -6,7 +6,7 @@ import {
   getMacMasterListingRow, updateMacKingmakerDraft,
 } from "../../../../lib/kingmaker-mac-scan-server";
 import {
-  normalizeDirectIdentity, finalPublicationBlockers, identitySufficient, sameCardVariant, select365DayComps,
+  normalizeDirectIdentity, finalPublicationBlockers, identitySufficient, isValidOBBFBSellerPrice, sameCardVariant, select365DayComps,
   type VerifiedSale,
 } from "../../../../lib/obbfb-intake-rules";
 
@@ -49,8 +49,8 @@ export async function POST(request: NextRequest) {
     if (!identity.parallel || !identitySufficient({ ...identity, confidence: 1 })) {
       return NextResponse.json({ error: "Verify year, brand/set, player and card number before locking." }, { status: 400 });
     }
-    if (!(price >= 2) || !Number.isFinite(price) || Math.abs(Math.round(price * 100) - price * 100) > 1e-6) {
-      return NextResponse.json({ error: "Seller price must be at least $2.00 with no more than two decimals." }, { status: 400 });
+    if (!isValidOBBFBSellerPrice(price)) {
+      return NextResponse.json({ error: "Enter a positive dollar amount with no more than two decimals." }, { status: 400 });
     }
     const blockers = finalPublicationBlockers(
       { ...identity, confidence: 1 }, title, description,

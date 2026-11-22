@@ -1,5 +1,5 @@
 import {
-  finalPublicationBlockers, normalizeDirectIdentity,
+  finalPublicationBlockers, isValidOBBFBSellerPrice, normalizeDirectIdentity,
 } from "./obbfb-intake-rules";
 
 function record(value: unknown): Record<string, unknown> {
@@ -33,7 +33,7 @@ export function obbfbPublicationBlockers(params: {
   if (workflow.queue === "need_to_merge" || record(metadata.merge).status === "NEED_TO_MERGE") {
     issues.push("need_to_merge_must_be_resolved");
   }
-  if (!Number.isFinite(params.price) || params.price < 2) issues.push("seller_price_at_least_2_usd");
+  if (!isValidOBBFBSellerPrice(params.price)) issues.push("seller_price_must_be_positive_usd");
   if (ic.manualListingTitle && String(ic.manualListingTitle).trim() !== params.title.trim()) {
     issues.push("operator_title_lock_mismatch");
   }

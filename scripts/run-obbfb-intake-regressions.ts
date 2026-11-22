@@ -80,6 +80,11 @@ const sellerMetadata = {
 const publication = { metadata: sellerMetadata, title, description, price: 22.99, front: "/front", back: "/back" };
 assert.deepEqual(obbfbPublicationBlockers(publication), [], "Verified OBBFB can pass explicit publish gate");
 assert(obbfbPublicationBlockers({ ...publication, metadata: { ...sellerMetadata, instacomp: {...sellerMetadata.instacomp, manualIdentityLocked: false}} }).includes("seller_physical_identity_and_price_lock_required"));
+assert.deepEqual(obbfbPublicationBlockers({
+  ...publication, price: 1, metadata: {
+    ...sellerMetadata, instacomp: { ...sellerMetadata.instacomp, listingPrice: 1 },
+  },
+}), [], "A seller-locked dollar price passes the explicit publish gate");
 assert(obbfbPublicationBlockers({ ...publication, price: 2.99 }).includes("operator_price_lock_mismatch"));
 assert(obbfbPublicationBlockers({ ...publication, metadata: {...sellerMetadata, listingWorkflow: {queue: "need_to_merge"}} }).includes("need_to_merge_must_be_resolved"));
 assert(obbfbPublicationBlockers({ ...publication, title: "2024 Jane Doe #94 09/99" }).includes("copy_serial_forbidden_in_title"));
