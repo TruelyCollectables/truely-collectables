@@ -3,6 +3,7 @@ import { hasValidAdminRequest } from "../../../../../lib/admin-request-auth";
 import { getActiveStoreId } from "../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
 import { classifyStorefrontItem } from "../../../../../lib/storefront-taxonomy";
+import { loadSaleEligibleProducts } from "../../../../../lib/admin-sale-inventory";
 import {
   normalizeStoreSaleScope,
   resolveStoreSale,
@@ -38,15 +39,7 @@ export async function POST(request: Request) {
       scope: normalizeStoreSaleScope(body.scope),
     };
     const supabase = createSupabaseServerClient({ admin: true });
-    const { data, error } = await supabase
-      .from("products")
-      .select("id,title,player,sport,price,quantity")
-      .eq("store_id", getActiveStoreId())
-      .gt("price", 0)
-      .gt("quantity", 0)
-      .is("archived_at", null)
-      .range(0, 9999);
-    if (error) throw error;
+    const data = await loadSaleEligibleProducts(supabase, getActiveStoreId());
     const matches = (data || []).flatMap((row: any) => {
       const classification = classifyStorefrontItem({
         title: String(row.title || ""),
