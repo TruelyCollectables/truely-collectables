@@ -3,6 +3,8 @@ import sys
 import tempfile
 import unittest
 import types
+import os
+import importlib.util
 from pathlib import Path
 
 service_root = Path(__file__).resolve().parents[1]
@@ -17,7 +19,18 @@ sys.modules.setdefault("app", module)
 csv_stub = types.ModuleType("app.verified_csv_intake")
 csv_stub.install_guards = lambda db: None
 sys.modules.setdefault("app.verified_csv_intake", csv_stub)
-from app.kingmaker_commercial_inventory import KingmakerCommercialInventory
+if os.environ.get("OBBFB_TEST_INVENTORY_MODULE"):
+    spec = importlib.util.spec_from_file_location(
+        "app.kingmaker_commercial_inventory",
+        os.environ["OBBFB_TEST_INVENTORY_MODULE"],
+    )
+    assert spec is not None and spec.loader is not None
+    inventory_module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = inventory_module
+    spec.loader.exec_module(inventory_module)
+    KingmakerCommercialInventory = inventory_module.KingmakerCommercialInventory
+else:
+    from app.kingmaker_commercial_inventory import KingmakerCommercialInventory
 
 
 class OBBFBOwnerLockTests(unittest.TestCase):

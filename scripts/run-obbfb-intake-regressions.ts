@@ -23,6 +23,7 @@ assert(!title.includes("09/99"), "Title must never use full serial stamp");
 assert(!title.includes("Base"), "Remove Base token");
 assert(formatDirectTitle(normalizeDirectIdentity({...base, parallel: "Silver"})).includes("Silver Prizm"), "Keep Prizm suffix on color finishes even when visually abbreviated");
 assert(!title.includes("Basketball Basketball"), "No repeated adjacent words");
+assert(!formatDirectTitle(normalizeDirectIdentity({ ...base, brandSet: "2024-25 Panini Prizm" })).includes("2024-25 2024-25"), "Never duplicate release year in title");
 assert(description.includes("09/99"), "Description includes full serial");
 assert.equal(printRun("09/99"), "/99");
 assert.equal(printRun("3/25"), "/25");

@@ -208,7 +208,7 @@ export default function KingmakerInstaCompQueue() {
       const body = new FormData();
       body.append("front", card.front, card.front.name);
       body.append("back", card.back, card.back.name);
-      const response = await fetch("/api/kingmaker/obbfb-intake", {
+      const response = await fetch("/api/kingmaker/instacomp-scan-intake-v2", {
         method: "POST",
         headers: { Authorization: `Bearer ${session.access_token}` },
         body,

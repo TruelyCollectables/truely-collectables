@@ -9,6 +9,40 @@ function requireText(source, value, message) {
   if (!source.includes(value)) throw new Error(message);
 }
 
+// OBBFB is the new intake contract. The legacy seller/registry route remains
+// available for historical imports, but does not govern new physical scans.
+const directIntake = readFileSync("src/app/api/kingmaker/obbfb-intake/route.ts", "utf8");
+const directRules = readFileSync("src/lib/obbfb-intake-rules.ts", "utf8");
+const directLock = readFileSync("src/app/api/kingmaker/obbfb-lock/route.ts", "utf8");
+const directPublish = readFileSync("src/lib/obbfb-publication-guard.ts", "utf8");
+const directUi = readFileSync("src/app/kingmaker/OBBFBOperatorForm.tsx", "utf8");
+const alias = readFileSync("src/app/api/kingmaker/instacomp-scan-intake-v2/route.ts", "utf8");
+if (alias.includes("obbfbPost")) {
+  for (const [source, expected, label] of [
+    [directIntake, "archiveInstaCompAiLocalSupervisedScan", "Durable physical front/back archival"],
+    [directIntake, "identifyOBBFBVision", "Direct multimodal first-time visual identification"],
+    [directIntake, "findMacDuplicateByImagePair", "Physical image-pair duplicates"],
+    [directIntake, "createMacKingmakerDraft", "No-publish Mac-local Pending inventory"],
+    [directIntake, "researchOBBFBComps", "Verified 365-day sold comp search"],
+    [directPublish, "sellerPriceOverride", "Seller price lock"],
+    [directRules, "formatDirectTitle", "Print-run-only title"],
+    [directRules, "serialFull", "Complete serial in description"],
+    [directRules, "select365DayComps", "365-day raw median pricing"],
+    [directLock, "manualIdentityLocked: true", "Human owner identity lock"],
+    [directLock, "sellerPriceOverride: true", "Manual owner price lock"],
+    [directPublish, "finalPublicationBlockers", "Never auto-publish without physical readiness"],
+    [directUi, "SAVE & LOCK", "Seller review and confirmation"],
+  ]) {
+    requireText(source, expected, "OBBFB scanner certification missing: " + label);
+  }
+  if (directIntake.includes("runKingmakerMacScan(")) {
+    throw new Error("OBBFB new scans must not invoke legacy Checklist Registry pipeline.");
+  }
+  console.log("OBBFB direct image intake, verified comps and owner publish firewall certified.");
+  process.exit(0);
+}
+
+
 function requireOrder(source, first, second, message) {
   const firstIndex = source.indexOf(first);
   const secondIndex = source.indexOf(second);

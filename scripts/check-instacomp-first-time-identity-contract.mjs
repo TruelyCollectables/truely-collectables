@@ -103,57 +103,41 @@ for (const required of [
   );
 }
 
-const intake = read(
-  "src/app/api/kingmaker/instacomp-scan-intake-v2/route.ts",
-);
-requireText(
-  intake,
-  "runKingmakerMacScan",
-  "Fresh scanner intake must use the Mac-local KINGMAKER scan server.",
-);
-requireText(
-  intake,
-  'sourceOfTruth: "mac_local"',
-  "Fresh scanner intake must declare the Mac-local identity authority.",
-);
-forbidText(
-  intake,
-  "createSupabaseServerClient",
-  "Fresh scanner intake must not use Supabase as the scanner identity authority.",
-);
-forbidText(
-  intake,
-  "persistNormalizedInstaCompImagePair",
-  "Fresh scanner intake must not store provisional raw images before the Mac-local normalized scan pass.",
-);
-for (const required of ["front,", "back,"]) {
-  requireText(
-    intake,
-    required,
-    "Fresh scanner intake must hand the original front/back uploads directly to the Mac-local scan server.",
-  );
+// OBBFB owns NEW intake; the old API route is a compatibility alias only.
+// Legacy Registry tests above still cover the historical exact route for
+// existing inventory, not the new owner-verified physical card intake.
+const intakeAlias = read("src/app/api/kingmaker/instacomp-scan-intake-v2/route.ts");
+const intake = read("src/app/api/kingmaker/obbfb-intake/route.ts");
+const directVision = read("src/lib/obbfb-direct-vision.ts");
+const publication = read("src/lib/obbfb-publication-guard.ts");
+for (const required of ['../obbfb-intake/route', 'export const POST = obbfbPost']) {
+  requireText(intakeAlias, required, "Legacy scan URL must delegate to OBBFB.");
 }
-
-forbidText(
-  intake,
-  "mirrorKingmakerScanToPendingStaging",
-  "Fresh scanner intake must not mirror authoritative Mac-local results back into legacy Supabase staging.",
-);
-forbidText(
-  intake,
-  "persistKingmakerPendingStagingImages",
-  "Fresh scanner intake must not duplicate Mac-local normalized images into legacy Supabase storage.",
-);
-requireText(
-  intake,
-  'stagingMirrored: false',
-  "Fresh scanner intake must declare that the removed legacy staging mirror is not used.",
-);
-requireText(
-  intake,
-  "front:${frontSha256}|back:${backSha256}",
-  "Fresh scanner input-pair receipt must use the same pair-hash grammar as the Mac.",
-);
+for (const required of [
+  "archiveInstaCompAiLocalSupervisedScan", "identifyOBBFBVision",
+  "researchOBBFBComps", "front,", "back,",
+  "createMacKingmakerDraft", 'sourceOfTruth: "mac_local"',
+  "imagePairSignature(frontSha, backSha)", "published: false",
+]) {
+  requireText(intake, required, `OBBFB direct front/back intake missing: ${required}`);
+}
+for (const required of [
+  "normalizeCardPhoto(front)", "normalizeCardPhoto(back)",
+  "https://api.openai.com/v1/chat/completions",
+  'detail: "high"', "ZERO AUTOGRAPH ASSUMPTION",
+]) {
+  requireText(directVision, required, `OBBFB multimodal vision missing: ${required}`);
+}
+for (const forbidden of [
+  "checklist_gateway.match(", "readChecklistRegistryReceipt(",
+  "runKingmakerMacScan(", "OllamaReader(", "createSupabaseServerClient",
+  "persistNormalizedInstaCompImagePair", "mirrorKingmakerScanToPendingStaging",
+]) {
+  forbidText(intake, forbidden, `OBBFB fresh intake contains forbidden legacy behavior: ${forbidden}`);
+}
+requireText(publication, "manualIdentityLocked", "OBBFB must retain seller identity lock.");
+requireText(publication, "sellerPriceOverride", "OBBFB must protect operator price.");
+requireText(publication, "finalPublicationBlockers", "OBBFB must gate publishing on images, serial and title.");
 
 const macScanServer = read("src/lib/kingmaker-mac-scan-server.ts");
 for (const required of [

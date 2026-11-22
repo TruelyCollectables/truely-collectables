@@ -79,7 +79,12 @@ function dedupeAdjacentWords(value: string): string {
   return value.replace(/\b([\p{L}\p{N}]+)(?:\s+\1)+\b/giu, "$1").replace(/\s+/g, " ").trim();
 }
 export function formatDirectTitle(identity: DirectCardIdentity): string {
-  const set = stripBase(identity.brandSet);
+  // The visual reader can include the release year inside brand/set;
+  // the title already starts with year, so show it only once.
+  const originalSet = stripBase(identity.brandSet);
+  const set = identity.year && originalSet.toLowerCase().startsWith(identity.year.toLowerCase() + " ")
+    ? originalSet.slice(identity.year.length).trim()
+    : originalSet;
   let parallel = stripBase(identity.parallel);
   // Panini Prizm/Select colored and finish variants retain their printed
   // Prizm suffix even when multimodal vision returns just "Silver"/"Blue".
