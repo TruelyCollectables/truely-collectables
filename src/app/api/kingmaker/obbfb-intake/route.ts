@@ -74,6 +74,23 @@ function respond(payload: Record<string, unknown>, status = 200) {
   return NextResponse.json(payload, { status, headers: { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" } });
 }
 
+function existingScan(row: Awaited<ReturnType<typeof getMacMasterListingRow>>, accountId: string) {
+  const meta = record(row?.metadata);
+  const info = record(meta.instacomp);
+  const canRetry = row?.status === "draft" && meta.obbfbSellerAccountId === accountId &&
+    info.intakeEngine === "obbfb_direct_vision_v1" && Boolean(info.scanId) &&
+    !info.humanVerified && !info.manualIdentityLocked && !info.sellerPriceOverride &&
+    record(meta.merge).status !== "NEED_TO_MERGE";
+  return respond({
+    success: true, stage: "review_required", code: canRetry ? "DUPLICATE_RECOVERABLE" : "DUPLICATE_SCAN",
+    ...(canRetry ? { inventoryItemId: row.inventoryItemId || row.id,
+      title: row.title, reviewHref: "/kingmaker/obbfb-recovery" } : {}),
+    error: canRetry
+      ? "This pair belongs to an existing draft. Open Recover Saved Scans to retry it."
+      : "This image pair is already in inventory.",
+  }, 202);
+}
+
 export async function POST(request: NextRequest) {
   let archived: { scan_id: string; card_uuid: string; front_sha256: string; back_sha256: string; image_pair_sha256: string } | null = null;
   try {
@@ -88,14 +105,7 @@ export async function POST(request: NextRequest) {
     if (frontSha === backSha) return respond({ success: false, code: "FRONT_BACK_SAME_IMAGE" }, 409);
     const pairHash = imagePairSignature(frontSha, backSha);
     const duplicate = await findMacDuplicateByImagePair(pairHash, 10_000);
-    if (duplicate) return respond({
-      success: true, stage: "review_required", identityComplete: false,
-      intakeEngine: "obbfb_direct_vision_v1",
-      code: "DUPLICATE_SCAN", inventoryItemId: duplicate.inventoryItemId,
-      title: duplicate.title, duplicate,
-      reviewHref: "/kingmaker/need-to-merge",
-      error: "The original physical image pair already exists in inventory; it was not overwritten.",
-    }, 202);
+    if (duplicate) return existingScan(await getMacMasterListingRow(duplicate.inventoryItemId, 10_000), account.id);
 
     // Safe photo archiving only: this endpoint does NOT read checklist_registry.sqlite3,
     // invoke Ollama, issue model lessons, or publish. It creates durable scan photos.
@@ -103,12 +113,7 @@ export async function POST(request: NextRequest) {
     // Archive UUIDs can be reused for the same physical image; never clobber a
     // prior seller-approved record if another request already stored it.
     const already = await getMacMasterListingRow(archived.card_uuid, 10_000);
-    if (already) return respond({
-      success: true, stage: "review_required", code: "DUPLICATE_SCAN",
-      intakeEngine: "obbfb_direct_vision_v1",
-      inventoryItemId: archived.card_uuid, title: already.title,
-      error: "Existing inventory record found for the archived image pair. No mutation performed.",
-    }, 202);
+    if (already) return existingScan(already, account.id);
 
     let identity: DirectCardIdentity | null = null;
     let visionError: string | null = null;
@@ -128,6 +133,16 @@ export async function POST(request: NextRequest) {
 
     let market: Awaited<ReturnType<typeof researchOBBFBComps>> | null = null;
     if (identityComplete && identity) market = await researchOBBFBComps(identity, title);
+    if (!identityComplete || blockers.length || market?.status !== "comped" || !market.accepted.length) {
+      return respond({
+        success: false, stage: "review_required", code: "OBBFB_NOT_SAVED",
+        photosArchived: true, scanId: archived.scan_id, ai: identity,
+        title: identity ? title : undefined, normalizedImages: { frontImageUrl, backImageUrl },
+        error: !identityComplete || blockers.length
+          ? "Photos archived. Card identity needs verification before inventory can be saved."
+          : "Photos archived. Verified sold comps are required before inventory can be saved.",
+      }, 202);
+    }
     let matching: Record<string, unknown> | null = null;
     if (identityComplete && identity) {
       try {
@@ -140,8 +155,6 @@ export async function POST(request: NextRequest) {
       } catch { /* Non-blocking duplicate discovery; physical duplicate guard already ran. */ }
     }
     const needToMerge = Boolean(matching);
-    // Never move an uncertain OBBFB card to the retired Pending Verification
-    // bucket. It remains in Resale Pending until the seller explicitly acts.
     const queue = needToMerge ? "need_to_merge" : "pending_listings";
     const ai = identity ? {
       ...identity, setName: identity.brandSet, brand: identity.manufacturer,

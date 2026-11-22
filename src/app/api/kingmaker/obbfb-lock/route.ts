@@ -6,9 +6,13 @@ import {
   getMacMasterListingRow, updateMacKingmakerDraft,
 } from "../../../../lib/kingmaker-mac-scan-server";
 import {
-  normalizeDirectIdentity, finalPublicationBlockers, identitySufficient,
+  normalizeDirectIdentity, finalPublicationBlockers, identitySufficient, sameCardVariant, select365DayComps,
+  type VerifiedSale,
 } from "../../../../lib/obbfb-intake-rules";
 
+import { researchOBBFBComps } from "../../../../lib/obbfb-market-comps";
+
+export const maxDuration = 300;
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 const record = (value: unknown): Record<string, unknown> =>
@@ -42,7 +46,7 @@ export async function POST(request: NextRequest) {
     const title = String(body.title || "").trim();
     const description = String(body.description || "").trim();
     const price = Number(body.price);
-    if (!identitySufficient({ ...identity, confidence: 1 })) {
+    if (!identity.parallel || !identitySufficient({ ...identity, confidence: 1 })) {
       return NextResponse.json({ error: "Verify year, brand/set, player and card number before locking." }, { status: 400 });
     }
     if (!(price >= 2) || !Number.isFinite(price) || Math.abs(Math.round(price * 100) - price * 100) > 1e-6) {
@@ -61,6 +65,15 @@ export async function POST(request: NextRequest) {
     if (record(metadata.merge).status === "NEED_TO_MERGE") {
       return NextResponse.json({ error: "Resolve NEED TO MERGE before price/identity locking." }, { status: 409 });
     }
+    const previousIdentity = normalizeDirectIdentity(record(instacomp.ai));
+    const storedEvidence = Array.isArray(instacomp.soldCompEvidence) ? instacomp.soldCompEvidence as VerifiedSale[] : [];
+    const validStored = sameCardVariant(previousIdentity, identity) && previousIdentity.serialNumber === identity.serialNumber
+      && instacomp.pricingStatus === "comped" && storedEvidence.length > 0
+      ? select365DayComps(storedEvidence, identity) : null;
+    const comps = validStored?.status === "comped" ? validStored : await researchOBBFBComps(identity, title);
+    if (comps.status !== "comped" || !comps.accepted.length) {
+      return NextResponse.json({ error: "Verified sold comps for this exact identity are required before saving and locking the card." }, { status: 422 });
+    }
     const now = new Date().toISOString();
     const verifiedIdentity = { ...identity, confidence: 1 };
     const nextMetadata = {
@@ -74,7 +87,9 @@ export async function POST(request: NextRequest) {
         manualIdentity: verifiedIdentity, manualIdentityLocked: true,
         sellerPriceOverride: true, humanVerified: true, trustedForIdentity: true,
         manualListingTitleLocked: true, manualListingTitle: title,
-        listingPrice: price, suggestedPrice: instacomp.suggestedPrice || null,
+        listingPrice: price, suggestedPrice: comps.suggestedPrice, medianComp: comps.medianComp,
+        soldCompEvidence: comps.accepted, rejectedSoldComps: comps.rejected, pricingStatus: comps.status,
+        pricingCheckedAt: now,
         listingPriceSource: "seller_operator_locked",
         sellerPriceLockedAt: now, manualIdentityLockedAt: now,
         listingPublishBlocked: true, publicationStatus: "operator_locked_not_published",

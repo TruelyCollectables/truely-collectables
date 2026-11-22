@@ -51,6 +51,11 @@ export async function POST(request: NextRequest) {
       catch (error) { marketFailure = error instanceof Error ? error.message.slice(0, 120) : "Market source unavailable"; }
     }
     const blockers = finalPublicationBlockers(identity, title, description, String(insta.frontImageUrl || ""), String(insta.backImageUrl || ""));
+    if (!complete || blockers.length || comps?.status !== "comped" || !comps.accepted.length) {
+      return fail(!complete || blockers.length
+        ? "The saved photos could not establish the exact card identity. The draft was left untouched."
+        : "Verified sold comps were unavailable. The draft was left untouched.", 422);
+    }
     const updated = {
       ...metadata,
       instacomp: {

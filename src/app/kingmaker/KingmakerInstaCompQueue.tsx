@@ -141,6 +141,8 @@ function statusText(card: QueueCard) {
     return suggestedPrice(card.result) ? "Direct vision + 365-day comps — seller verification needed" : "0 Comps — Seller Price Required";
   }
   if (card.status === "pending") return suggestedPrice(card.result) ? "Identified & comped — ready to price" : "Identity saved — pricing queued";
+  if (card.result?.code === "OBBFB_NOT_SAVED") return "Photos archived · inventory save held";
+  if (card.result?.code === "DUPLICATE_RECOVERABLE") return "Existing draft · saved-photo retry available";
   if (card.status === "review" && card.result?.resumedExisting)
     return "Existing scan resumed — saved for review";
   if (card.status === "review" && card.result?.code?.startsWith("DUPLICATE"))
@@ -641,6 +643,7 @@ export default function KingmakerInstaCompQueue() {
                   ) : null}
                   {card.result?.intakeEngine === "obbfb_direct_vision_v1"
                     && card.result.inventoryItemId
+                    && !card.result.code?.startsWith("DUPLICATE")
                     && !card.result.exactMatch?.found ? (
                       <OBBFBOperatorForm
                         key={card.result.inventoryItemId}
@@ -668,6 +671,12 @@ export default function KingmakerInstaCompQueue() {
                       ))}
                     </div>
                   ) : null}
+                  {card.result?.code === "OBBFB_NOT_SAVED" && card.front && card.back ? (
+                    <button type="button" disabled={card.status === "working"} onClick={() => void processCard(card)}
+                      className="mt-3 rounded-lg border border-sky-500 px-4 py-2 text-sm font-bold text-sky-100">
+                      Retry identification and comps
+                    </button>
+                  ) : null}
                   {card.error ? (
                     <div className="mt-3 rounded-xl border border-red-800 bg-red-950/40 p-3 text-sm font-bold text-red-200">
                       {card.error}
@@ -681,7 +690,7 @@ export default function KingmakerInstaCompQueue() {
                       }
                       className="mt-3 inline-flex rounded-xl bg-white px-4 py-2 text-sm font-black text-slate-950"
                     >
-                      Review in Master Listings →
+                      {card.result.code === "DUPLICATE_RECOVERABLE" ? "Recover Saved Scans →" : "Review in Master Listings →"}
                     </Link>
                   ) : null}
                 </div>
