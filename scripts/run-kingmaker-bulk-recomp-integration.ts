@@ -27,6 +27,7 @@ async function run() {
   let cloudflareCalls = 0;
   let locked = false;
   let partial = false;
+  let blueFinish: "match" | "ambiguous" | null = null;
   let noSold = false;
   let clearance = false;
   let clearanceWrites = 0;
@@ -43,6 +44,9 @@ async function run() {
   const original = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     const url = new URL(String(input));
+    if (url.hostname === "images.theclector.com" && blueFinish) {
+      return new Response(new Uint8Array([255, 216, 255, 3]));
+    }
     assert.equal(init?.method, "POST");
     if (url.pathname === "/v1/scans/supervised-archive") {
       assert.ok(init?.body instanceof FormData);
@@ -54,12 +58,28 @@ async function run() {
       assert.equal(new Headers(init?.headers).get("x-goog-api-key"), "test-only-gemini-key");
       assert.equal(url.search, "");
       const parts = body.contents[0].parts;
+      if (blueFinish && parts[1].text === "TARGET BACK") {
+        assert.equal(parts[3].text, "TARGET FRONT");
+        assert.equal(parts.filter((part: { inlineData?: object }) => part.inlineData).length, 5);
+        return Response.json({
+          candidates: [{ finishReason: "STOP", content: { parts: [{ text: JSON.stringify({
+            printedProductLine: "2026 PANINI – WNBA PRIZM BASKETBALL",
+            player: "Napheesa Collier", cardNumber: "41",
+            matchedReferenceIds: blueFinish === "match" ? ["velocity-rice", "velocity-bueckers"] : ["velocity-rice"],
+            visiblePattern: "Intersecting angular blue foil lines", confidence: 0.94,
+          }) }] } }],
+        });
+      }
       assert.equal(parts[1].text, "FRONT CARD PHOTO");
       assert.equal(parts[3].text, "BACK CARD PHOTO");
       assert.notEqual(parts[2].inlineData.data, parts[4].inlineData.data);
       return Response.json({
         candidates: [{ finishReason: "STOP", content: { parts: [{
-          text: JSON.stringify(partial ? { ...identity, parallel: null } : identity),
+          text: JSON.stringify(blueFinish ? {
+            ...identity, year: "2024", printedReleaseYear: "2024", copyrightYear: "2024",
+            player: "Napheesa Collier", cardNumber: "41", brandSet: "WNBA Prizm Basketball",
+            parallel: null, notes: "Blue crossed foil",
+          } : partial ? { ...identity, parallel: null } : identity),
         }] } }],
       }, { status: geminiStatus });
     }
@@ -131,6 +151,16 @@ async function run() {
     assert.equal(collier.year, "2026");
     assert.equal(collier.parallel, null);
     assert.ok(collier.confidence < 0.7);
+    blueFinish = "match";
+    const compared = (await identifyOBBFBVision(front, back)).identity;
+    assert.equal(compared.year, "2026");
+    assert.equal(compared.parallel, "Blue Velocity Prizm");
+    blueFinish = "ambiguous";
+    const ambiguous = (await identifyOBBFBVision(front, back)).identity;
+    assert.equal(ambiguous.year, "2026");
+    assert.equal(ambiguous.parallel, null);
+    assert.ok(ambiguous.confidence < 0.7);
+    blueFinish = null;
     partial = true;
     assert.ok((await identifyOBBFBVision(front, back)).identity.confidence < 0.7);
     assert.equal(cloudflareCalls, 0);
