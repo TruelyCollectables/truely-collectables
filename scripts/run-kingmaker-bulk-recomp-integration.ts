@@ -123,6 +123,14 @@ async function run() {
     assert.equal(parseOBBFBVisionJson(JSON.stringify({
       ...identity, year: "2026", printedReleaseYear: "2026", copyrightYear: "2026",
     })).year, "2026");
+    const collier = parseOBBFBVisionJson(JSON.stringify({
+      ...identity, year: null, printedReleaseYear: null, copyrightYear: null,
+      player: "Napheesa Collier", cardNumber: "41", brandSet: "WNBA Prizm Basketball",
+      parallel: "Blue Prizm", notes: "The back explicitly states '2026 PANINI – WNBA PRIZM BASKETBALL' and '© 2026'.",
+    }));
+    assert.equal(collier.year, "2026");
+    assert.equal(collier.parallel, null);
+    assert.ok(collier.confidence < 0.7);
     partial = true;
     assert.ok((await identifyOBBFBVision(front, back)).identity.confidence < 0.7);
     assert.equal(cloudflareCalls, 0);

@@ -72,10 +72,18 @@ export function parseOBBFBVisionJson(raw: string): DirectCardIdentity {
   const identity = normalizeDirectIdentity(fields);
   const printed = typeof fields.printedReleaseYear === "string" ? fields.printedReleaseYear.trim() : "";
   const copyright = typeof fields.copyrightYear === "string" ? fields.copyrightYear.trim() : "";
+  const quotedProductYears = [...new Set(Array.from((identity.notes || "").matchAll(
+    /["'“‘]((?:19|20)\d{2}(?:[-–]\d{2,4})?)\s+(?=panini|topps|upper deck|bowman|fleer)/gi,
+  ), match => match[1].replace("–", "-")))];
+  const quotedCopyrightYears = [...new Set(Array.from((identity.notes || "").matchAll(
+    /©\s*((?:19|20)\d{2})\b/g,
+  ), match => match[1]))];
+  const quotedYears = quotedProductYears.length ? quotedProductYears : quotedCopyrightYears;
   const supportedYear = /^(?:19|20)\d{2}(?:[-–](?:\d{2}|(?:19|20)\d{2}))?$/.test(printed)
-    ? printed.replace("–", "-") : /^(?:19|20)\d{2}$/.test(copyright) ? copyright : null;
+    ? printed.replace("–", "-") : /^(?:19|20)\d{2}$/.test(copyright) ? copyright
+      : quotedYears.length === 1 ? quotedYears[0] : null;
   const setYear = identity.brandSet?.match(/^(?:19|20)\d{2}(?:[-–](?:\d{2}|(?:19|20)\d{2}))?(?=\s)/)?.[0];
-  if (!supportedYear || identity.year?.replace("–", "-") !== supportedYear ||
+  if (!supportedYear || (identity.year && identity.year.replace("–", "-") !== supportedYear) ||
       (setYear && setYear.replace("–", "-") !== supportedYear)) {
     identity.year = null;
     identity.confidence = Math.min(identity.confidence, 0.69);
@@ -87,6 +95,17 @@ export function parseOBBFBVisionJson(raw: string): DirectCardIdentity {
   } else {
     identity.year = supportedYear;
     if (setYear) identity.brandSet = identity.brandSet!.slice(setYear.length).trim() || null;
+  }
+  // This set has multiple blue finishes. Plain Blue is numbered /199.
+  if (identity.year === "2026" && /\bwnba\b/i.test(identity.brandSet || "") &&
+      /\bprizm\b/i.test(identity.brandSet || "") &&
+      /^blue(?: prizm)?$/i.test(identity.parallel || "") && !identity.serialNumber?.endsWith("/199")) {
+    identity.parallel = null;
+    identity.confidence = Math.min(identity.confidence, 0.69);
+    identity.notes = [
+      "Confirm the blue parallel. The standard Blue Prizm requires a visible /199 serial.",
+      identity.notes,
+    ].filter(Boolean).join(" ");
   }
   return identity;
 }
