@@ -116,3 +116,13 @@ const cechovaSales = [
 const cleanedCechova = select365DayComps(cechovaSales, cechova, now);
 assert.deepEqual(cleanedCechova.accepted.map(row => row.price), [3.11]);
 assert.equal(cleanedCechova.rejected.length, 4);
+
+const cunningham = normalizeDirectIdentity({
+  year: "2026", brandSet: "Panini Prizm WNBA", player: "Sophie Cunningham", cardNumber: "22", parallel: "Base",
+});
+const cleanedCunningham = select365DayComps([
+  { ...sale(4.35), title: "2026 SOPHIE CUNNINGHAM Prizm WNBA #22 & #26 (2) Indiana Fever" },
+  { ...sale(3.24), title: "Sophie Cunningham 2026 WNBA Prizm Base #22 Indiana Fever" },
+], cunningham, now);
+assert.deepEqual(cleanedCunningham.accepted.map(row => row.price), [3.24]);
+assert.equal(cleanedCunningham.rejected[0]?.reason, "multi_card_or_variant_listing");
