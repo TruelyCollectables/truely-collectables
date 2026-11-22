@@ -1,5 +1,6 @@
 import Link from "next/link";
 import RecoveryDrafts from "./RecoveryDrafts";
+import { marketVariantMismatch, normalizeDirectIdentity } from "../../../lib/obbfb-intake-rules";
 import { listMacMasterListingRows } from "../../../lib/kingmaker-mac-scan-server";
 
 export const dynamic = "force-dynamic";
@@ -45,17 +46,26 @@ export default async function OBBFBRecoveryPage() {
       ) : null}
       <RecoveryDrafts drafts={archived.map((row) => {
         const info = record(record(row.metadata).instacomp);
-        const price = Number(info.suggestedPrice || row.price);
+        const identity = record(info.ai);
+        const sold = Array.isArray(info.soldCompEvidence) ? info.soldCompEvidence.map(record) : [];
+        const exact = normalizeDirectIdentity(identity);
+        const priceNeedsRecomp = sold.some(sale => marketVariantMismatch(text(sale.title), exact));
+        const price = Number(info.suggestedPrice ?? row.price);
         return {
           id: text(row.inventoryItemId || row.id || row.card_uuid),
           title: text(row.title) || "Unidentified archived card",
           description: text(row.description),
-          identity: record(info.ai),
-          suggestedPrice: Number.isFinite(price) && price > 0 ? price : null,
+          identity,
+          suggestedPrice: !priceNeedsRecomp && Number.isFinite(price) && price > 0 ? price : null,
           pricingStatus: text(info.pricingStatus),
           front: text(info.frontImageUrl),
           back: text(info.backImageUrl),
           visualFailure: text(info.visualFailure),
+          priceNeedsRecomp,
+          marketEvidence: {
+            soldCompEvidence: sold,
+            activeCompetition: Array.isArray(info.activeCompetition) ? info.activeCompetition.map(record) : [],
+          },
         };
       })} />
       <Link href="/kingmaker/scan" className="mt-6 inline-flex rounded-lg border border-slate-500 px-4 py-2 font-bold text-slate-200">

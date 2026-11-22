@@ -78,7 +78,8 @@ export async function POST(request: NextRequest) {
     if (clearance && (validStored?.status !== "comped" || validStored.suggestedPrice !== 0)) {
       return NextResponse.json({ error: "Current exact sold comps no longer qualify for under-$2 pricing." }, { status: 422 });
     }
-    const comps = validStored?.status === "comped" ? validStored : await researchOBBFBComps(identity, title);
+    const refreshed = validStored?.status === "comped" ? null : await researchOBBFBComps(identity, title);
+    const comps = refreshed || validStored!;
     if (comps.status !== "comped" || !comps.accepted.length) {
       return NextResponse.json({ error: "Verified sold comps for this exact identity are required before saving and locking the card." }, { status: 422 });
     }
@@ -96,6 +97,7 @@ export async function POST(request: NextRequest) {
         sellerPriceOverride: true, humanVerified: true, trustedForIdentity: true,
         manualListingTitleLocked: true, manualListingTitle: title,
         listingPrice: price, suggestedPrice: comps.suggestedPrice, medianComp: comps.medianComp,
+        ...(refreshed ? { activeCompetition: refreshed.activeListings, providerCoverage: refreshed.providerCoverage } : {}),
         soldCompEvidence: comps.accepted, rejectedSoldComps: comps.rejected, pricingStatus: comps.status,
         pricingCheckedAt: now,
         listingPriceSource: "seller_operator_locked",

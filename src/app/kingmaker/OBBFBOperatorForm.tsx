@@ -4,7 +4,7 @@ import { forwardRef, useImperativeHandle, useRef, useState } from "react";
 import { getKingmakerLocalSession } from "./kingmaker-session";
 import { getFreshAccountSession } from "../account/account-session";
 import {
-  buildDirectDescription, formatDirectTitle, normalizeDirectIdentity,
+  buildDirectDescription, formatDirectTitle, marketVariantMismatch, normalizeDirectIdentity,
 } from "../../lib/obbfb-intake-rules";
 
 type Identity = Record<string, unknown>;
@@ -15,7 +15,40 @@ type Props = {
   identity: Identity;
   suggestedPrice: number | null;
   pricingStatus: string | null;
+  marketEvidence?: MarketEvidence;
 };
+type MarketEvidence = {
+  soldCompEvidence?: Array<Record<string, unknown>>;
+  activeCompetition?: Array<Record<string, unknown>>;
+};
+
+function MarketRows({ label, rows, identity }: {
+  label: string;
+  rows?: Array<Record<string, unknown>>;
+  identity: Identity;
+}) {
+  const exact = normalizeDirectIdentity(identity);
+  const matches = (Array.isArray(rows) ? rows : []).filter(row =>
+    typeof row?.title === "string" && Number(row.price) > 0 && !marketVariantMismatch(row.title, exact));
+  return (
+    <details className="rounded-lg border border-slate-700 p-3 text-sm">
+      <summary className="cursor-pointer font-semibold">{label} ({matches.length})</summary>
+      {matches.length ? (
+        <ul className="mt-2 space-y-2">
+          {matches.map((row, index) => {
+            const url = typeof row.url === "string" && /^https:\/\/(?:www\.)?ebay\.com\/itm\//i.test(row.url)
+              ? row.url : null;
+            return <li key={index}>
+              <strong>${Number(row.price).toFixed(2)}</strong>{" · "}
+              {url ? <a href={url} target="_blank" rel="noreferrer" className="underline">{String(row.title)}</a> : String(row.title)}
+            </li>;
+          })}
+        </ul>
+      ) : <p className="mt-2 text-slate-400">No matching evidence available.</p>}
+    </details>
+  );
+}
+
 const fields = [
   ["year", "Year"],
   ["brandSet", "Brand / Set"],
@@ -41,6 +74,7 @@ export default forwardRef<OBBFBOperatorHandle, Props>(function OBBFBOperatorForm
   const [title, setTitle] = useState(props.originalTitle);
   const [description, setDescription] = useState(props.originalDescription);
   const [price, setPrice] = useState(props.suggestedPrice ? props.suggestedPrice.toFixed(2) : "");
+  const [marketEvidence, setMarketEvidence] = useState(props.marketEvidence);
   const [confirmed, setConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
   const saving = useRef(false);
@@ -91,7 +125,9 @@ export default forwardRef<OBBFBOperatorHandle, Props>(function OBBFBOperatorForm
       setTitle(String(payload.title || ""));
       setDescription(String(payload.description || ""));
       const suggested = Number(payload.pricing?.suggestedPrice);
+      setMarketEvidence(payload.pricing || {});
       if (previewOnly) {
+        setPrice("");
         setVisionComplete(false);
         setConfirmed(false);
         setError(String(payload.error));
@@ -231,6 +267,12 @@ export default forwardRef<OBBFBOperatorHandle, Props>(function OBBFBOperatorForm
           style={{ backgroundColor: "#0f172a", color: "#f8fafc" }}
           className="mt-1 w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-white" />
       </label>
+      {marketEvidence ? (
+        <>
+          <MarketRows label="Exact sold comps" rows={marketEvidence.soldCompEvidence} identity={values} />
+          <MarketRows label="Current eBay asking prices" rows={marketEvidence.activeCompetition} identity={values} />
+        </>
+      ) : null}
       <label className="block text-xs font-bold text-slate-300">Operator listing price (USD)
         <input value={price} type="number" min="0.01" step="0.01"
           onChange={event => { setPrice(event.target.value); setConfirmed(false); }}

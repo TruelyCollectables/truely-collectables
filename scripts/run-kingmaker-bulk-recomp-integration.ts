@@ -129,7 +129,10 @@ async function run() {
         title: "Lane Hutson #229", source: "mac_130point_exact_sold", sourceCategory: "sold",
         url: "https://www.ebay.com/itm/" + (222222222221 + index),
         price, soldAt: new Date(Date.now() - 86_400_000).toISOString(),
-      })) });
+      })), active: [
+        { title: "Lane Hutson #229", price: 11 },
+        { title: "Lane Hutson #229 Rookie Variation", price: 17 },
+      ] });
     }
     assert.fail("Unexpected external call or write: " + url.pathname);
   };
@@ -211,6 +214,7 @@ async function run() {
     noSold = false;
     const staged = await (await scanPair()).json();
     assert.equal(staged.pricingSucceeded, true);
+    assert.deepEqual(staged.pricing.activeCompetition, [{ title: "Lane Hutson #229", price: 11 }]);
     const save = await lockDraft(new NextRequest("https://truelycollectables.com/api/kingmaker/obbfb-lock", {
       method: "POST", headers: { cookie, "Content-Type": "application/json" },
       body: JSON.stringify({

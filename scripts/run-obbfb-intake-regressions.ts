@@ -126,3 +126,14 @@ const cleanedCunningham = select365DayComps([
 ], cunningham, now);
 assert.deepEqual(cleanedCunningham.accepted.map(row => row.price), [3.24]);
 assert.equal(cleanedCunningham.rejected[0]?.reason, "multi_card_or_variant_listing");
+
+const johnson = normalizeDirectIdentity({
+  year: "2026", brandSet: "Panini Prizm WNBA", player: "Flau'jae Johnson", cardNumber: "150", parallel: "Base",
+});
+const cleanedJohnson = select365DayComps([
+  { ...sale(2.94), title: "Panini 2026 WNBA Prizm Flau'Jae Johnson Seattle Storm #150 RC Rookie Variation" },
+  { ...sale(9.94), title: "2026 WNBA Prizm LOGO FLAU'JAE JOHNSON Storm RC Rookie # 150" },
+  { ...sale(1.75), title: "2026 Panini Prizm WNBA Flau'jae Johnson #150 Base RC" },
+], johnson, now);
+assert.deepEqual(cleanedJohnson.accepted.map(row => row.price), [1.75]);
+assert.equal(cleanedJohnson.suggestedPrice, 0);
