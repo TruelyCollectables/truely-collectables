@@ -54,6 +54,15 @@ function hasStrictExactChecklistDecision(instaComp: UnknownRecord) {
 }
 
 export function isInstaCompPublicationIdentityConfirmed(metadataValue: unknown) {
-  void metadataValue;
+  const metadata = record(metadataValue);
+  const ic = record(metadata.instacomp);
+  if (ic.intakeEngine === "obbfb_direct_vision_v1") {
+    return ic.manualIdentityLocked === true &&
+      ic.sellerPriceOverride === true &&
+      ic.humanVerified === true &&
+      ic.manualListingTitleLocked === true &&
+      record(metadata.seller_review).identity_confirmed === true;
+  }
+  // Keep legacy behavior for existing inventory; OBBFB has an independent gate.
   return true;
 }

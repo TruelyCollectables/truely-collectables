@@ -170,7 +170,7 @@ export default function InstaCompScanPage() {
       const timeoutId = window.setTimeout(() => controller.abort(), 130_000);
       let response: Response;
       try {
-        response = await fetch("/api/kingmaker/instacomp-scan-intake-v2", {
+        response = await fetch("/api/kingmaker/obbfb-intake", {
           method: "POST",
           headers: { Authorization: `Bearer ${session.access_token}` },
           body,

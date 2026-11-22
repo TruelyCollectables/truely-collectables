@@ -183,6 +183,8 @@ export async function searchMacMarketForIdentity(params: {
   registryIdentityId?: string | null;
   registryFingerprintSha256?: string | null;
   operatorCertifiedIdentity?: boolean;
+  include130point?: boolean;
+  includeFanatics?: boolean;
 }) {
   const identity = params.identity;
   const year = text(identity.year, 20);
@@ -200,10 +202,10 @@ export async function searchMacMarketForIdentity(params: {
       registry_identity_id: params.registryIdentityId,
       registry_fingerprint_sha256: params.registryFingerprintSha256 || null,
       operator_certified_identity: params.operatorCertifiedIdentity === true,
-      include_130point: false,
+      include_130point: params.include130point === true,
       include_active: true,
       include_price_guide: true,
-      include_fanatics: false,
+      include_fanatics: params.includeFanatics === true,
       max_sold: 50,
       max_active: 30,
     }),

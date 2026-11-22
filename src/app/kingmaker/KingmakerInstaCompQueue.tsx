@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import OBBFBOperatorForm from "./OBBFBOperatorForm";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getKingmakerLocalSession as getFreshAccountSession } from "./kingmaker-session";
 import {
@@ -18,6 +19,9 @@ type IntakeResult = {
   cardUuid?: string | null;
   inventoryItemId?: string | null;
   title?: string | null;
+  description?: string | null;
+  intakeEngine?: string;
+  verifiedLocked?: boolean;
   reviewHref?: string | null;
   resumedExisting?: boolean;
   ai?: Record<string, unknown> | null;
@@ -71,6 +75,7 @@ type QueueCard = {
   error: string | null;
   durationMs: number | null;
   savingPrice: boolean;
+  operatorLocked?: boolean;
   dismissedMatch?: boolean;
   merged?: boolean;
   mergeMessage?: string;
@@ -131,7 +136,10 @@ function identityRows(result: IntakeResult | null) {
 
 function statusText(card: QueueCard) {
   if (card.status === "queued") return "Queued";
-  if (card.status === "working") return "Coding AI + InstaComp identifying & comping";
+  if (card.status === "working") return "OBBFB direct vision + verified 365-day sold comps";
+  if (card.status === "pending" && card.result?.intakeEngine === "obbfb_direct_vision_v1") {
+    return suggestedPrice(card.result) ? "Direct vision + 365-day comps — seller verification needed" : "0 Comps — Seller Price Required";
+  }
   if (card.status === "pending") return suggestedPrice(card.result) ? "Identified & comped — ready to price" : "Identity saved — pricing queued";
   if (card.status === "review" && card.result?.resumedExisting)
     return "Existing scan resumed — saved for review";
@@ -200,7 +208,7 @@ export default function KingmakerInstaCompQueue() {
       const body = new FormData();
       body.append("front", card.front, card.front.name);
       body.append("back", card.back, card.back.name);
-      const response = await fetch("/api/kingmaker/instacomp-scan-intake-v2", {
+      const response = await fetch("/api/kingmaker/obbfb-intake", {
         method: "POST",
         headers: { Authorization: `Bearer ${session.access_token}` },
         body,
@@ -321,6 +329,10 @@ export default function KingmakerInstaCompQueue() {
   async function choosePrice(card: QueueCard, price: number, source: string) {
     const inventoryItemId = card.result?.inventoryItemId;
     if (!inventoryItemId) return;
+    if (card.result?.intakeEngine === "obbfb_direct_vision_v1") {
+      patch(card.id, { error: "Use the OBBFB seller verification form below to lock price and identity together." });
+      return;
+    }
     patch(card.id, { savingPrice: true, error: null });
     try {
       const session = await getFreshAccountSession(5 * 60, false);
@@ -345,6 +357,10 @@ export default function KingmakerInstaCompQueue() {
   }
 
   async function handleMergeExactMatch(card: QueueCard) {
+    if (card.result?.intakeEngine === "obbfb_direct_vision_v1") {
+      patch(card.id, { error: "OBBFB duplicate requires seller review under NEED TO MERGE. No quantity changed." });
+      return;
+    }
     const existingId = card.result?.exactMatch?.existingInventoryItemId;
     const newId = card.result?.inventoryItemId || card.result?.exactMatch?.newInventoryItemId;
     if (!existingId || !newId) return;
@@ -398,8 +414,7 @@ export default function KingmakerInstaCompQueue() {
             Drop card fronts + backs here
           </h2>
           <p className="mt-2 max-w-4xl leading-7 text-slate-300">
-            One intake runs Coding AI + InstaComp physical vision, Mac orientation, and immediate
-            eBay sold comping — no checklists. Nothing publishes automatically.
+            OBBFB reads both sides directly, searches genuine 365-day sold comps, and uses +25% with .99 pricing. No Checklist Registry or Ollama batch. Nothing publishes automatically.
           </p>
         </div>
         <Link
@@ -493,7 +508,7 @@ export default function KingmakerInstaCompQueue() {
           const displayImages = showNormalizedImages
             ? [normalizedFront, normalizedBack]
             : [card.frontPreview || null, card.backPreview || null];
-          const choices = basePrice
+          const choices = basePrice && card.result?.intakeEngine !== "obbfb_direct_vision_v1"
             ? [
                 ["InstaComp", basePrice, "instacomp"],
                 ["+5%", Math.round(basePrice * 1.05 * 100) / 100, "instacomp_plus_5"],
@@ -531,7 +546,13 @@ export default function KingmakerInstaCompQueue() {
                   ))}
                 </div>
                 <div className="min-w-0">
-                  {card.result?.exactMatch?.found ? (
+                  {card.result?.exactMatch?.found && card.result?.intakeEngine === "obbfb_direct_vision_v1" ? (
+                    <div className="mb-4 rounded-xl border border-amber-500 bg-amber-950/50 p-4">
+                      <p className="font-black text-amber-200">NEED TO MERGE — existing active card may already match</p>
+                      <p className="mt-2 text-xs text-slate-200">No quantity or marketplace listing has been changed. Verify the separate physical copy before merging.</p>
+                      <Link href="/kingmaker/need-to-merge" className="mt-3 inline-block rounded-lg bg-amber-300 px-4 py-2 font-black text-slate-950">Open Need to Merge</Link>
+                    </div>
+                  ) : card.result?.exactMatch?.found ? (
                     card.merged ? (
                       <div className="mb-4 rounded-2xl border border-emerald-500 bg-emerald-950/70 p-4 text-emerald-200">
                         <div className="flex items-center gap-2 font-black text-emerald-300">
@@ -618,6 +639,19 @@ export default function KingmakerInstaCompQueue() {
                       ))}
                     </dl>
                   ) : null}
+                  {card.result?.intakeEngine === "obbfb_direct_vision_v1"
+                    && card.result.inventoryItemId
+                    && !card.result.exactMatch?.found ? (
+                      <OBBFBOperatorForm
+                        key={card.result.inventoryItemId}
+                        inventoryItemId={card.result.inventoryItemId}
+                        identity={card.result.ai || {}}
+                        originalTitle={card.result.title || ""}
+                        originalDescription={card.result.description || ""}
+                        suggestedPrice={basePrice}
+                        pricingStatus={String(card.result.pricing?.status || "")}
+                      />
+                    ) : null}
                   {choices.length ? (
                     <div className="mt-3 grid gap-2 sm:grid-cols-3">
                       {choices.map(([label, value, source]) => (

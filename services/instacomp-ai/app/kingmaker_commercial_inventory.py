@@ -199,6 +199,12 @@ def _master_listing_queue(metadata_value: Any) -> str:
     checklist_identity = _record(instacomp.get("checklistIdentity"))
     mac_receipt = _record(instacomp.get("macReceipt"))
     seller_review = _record(metadata.get("seller_review"))
+    # Direct multimodal OBBFB intake uses photos and seller confirmation, never Registry.
+    if instacomp.get("intakeEngine") == "obbfb_direct_vision_v1":
+        queue = _text(_record(metadata.get("listingWorkflow")).get("queue"))
+        if queue == "need_to_merge":
+            return "need_to_merge"
+        return "listings" if instacomp.get("identityComplete") is True else "verification"
     # Explicit seller-deferred original photo recovery has its own durable queue.
     # It stays held and must never be promoted by a receipt or reprojection.
     if (instacomp.get("manualHoldBucket") == "missing_picture"
@@ -1446,6 +1452,10 @@ class KingmakerCommercialInventory:
                     # Untrusted bulk scans cannot replace or remove verified projections.
                     continue
                 if authoritative:
+                    current_ic = _record(_record(json.loads(authoritative["raw_json"] or "{}")).get("instacomp"))
+                    if current_ic.get("sellerPriceOverride") is True or current_ic.get("manualIdentityLocked") is True:
+                        continue
+                if authoritative:
                     # A cloud replay cannot remove a newer local verification hold.
                     local_metadata = _record(json.loads(authoritative["raw_json"] or "{}"))
                     local_instacomp = _record(local_metadata.get("instacomp"))
@@ -1526,7 +1536,7 @@ class KingmakerCommercialInventory:
             "investment",
         )
         folder_counts = {folder: 0 for folder in folder_names}
-        queue_counts = {"listings": 0, "verification": 0, "missing_picture": 0, "redo_pending_resale": 0}
+        queue_counts = {"listings": 0, "verification": 0, "missing_picture": 0, "redo_pending_resale": 0, "need_to_merge": 0}
         with self._read_connect() as db:
             total = int(
                 db.execute("SELECT COUNT(*) FROM master_listing_projection").fetchone()[0]
@@ -1941,6 +1951,9 @@ class KingmakerCommercialInventory:
                     continue
                 existing_metadata = _record(json.loads(existing["raw_json"] or "{}"))
                 existing_instacomp = _record(existing_metadata.get("instacomp"))
+                if (existing_instacomp.get("sellerPriceOverride") is True
+                        or existing_instacomp.get("manualIdentityLocked") is True):
+                    continue
                 if (existing_instacomp.get("manualHoldBucket") == "missing_picture"
                         and existing_instacomp.get("listingPublishBlocked") is True):
                     db.execute(
@@ -1983,6 +1996,8 @@ class KingmakerCommercialInventory:
             db.execute(
                 """UPDATE commercial_inventory SET status='archived', quantity=0, updated_at=?
                    WHERE ebay_listing_id NOT LIKE 'local:%'
+                     AND COALESCE(json_extract(raw_json, '$.instacomp.sellerPriceOverride'), 0) <> 1
+                     AND COALESCE(json_extract(raw_json, '$.instacomp.manualIdentityLocked'), 0) <> 1
                      AND (last_ebay_sync_at IS NULL OR last_ebay_sync_at<>?)""",
                 (stamp, stamp),
             )
@@ -2075,6 +2090,8 @@ class KingmakerCommercialInventory:
                 if (existing_instacomp.get("manualHoldBucket") == "missing_picture"
                         and existing_instacomp.get("listingPublishBlocked") is True):
                     return self._payload(existing)
+            if existing is not None and _record(metadata.get("instacomp")).get("intakeEngine") == "obbfb_direct_vision_v1":
+                raise ValueError("OBBFB_DUPLICATE_CARD_UUID: existing physical card unchanged")
             if existing is None:
                 db.execute(
                     """INSERT INTO commercial_inventory(
@@ -2118,6 +2135,10 @@ class KingmakerCommercialInventory:
             raise ValueError("Mac-local commercial inventory item was not found")
         local_metadata = _record(current.get("metadata"))
         local_instacomp = _record(local_metadata.get("instacomp"))
+        if ((local_instacomp.get("sellerPriceOverride") is True
+             or local_instacomp.get("manualIdentityLocked") is True)
+                and edit.get("obbfbOperatorSave") is not True):
+            raise ValueError("OBBFB_OPERATOR_LOCKED: automated mutation blocked")
         if (local_instacomp.get("manualHoldBucket") == "missing_picture"
                 and local_instacomp.get("listingPublishBlocked") is True):
             raise ValueError("Missing Picture owner hold requires original-photo restoration before editing")

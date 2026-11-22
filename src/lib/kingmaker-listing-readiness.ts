@@ -1,4 +1,6 @@
 import { hasVerifiedCsvAuthority } from "./kingmaker-verified-csv";
+import { isOBBFBMetadata } from "./obbfb-publication-guard";
+import { isInstaCompPublicationIdentityConfirmed } from "./instacomp-publication-identity";
 import {
   checklistRegistryReceiptBlockers,
   readChecklistRegistryReceipt,
@@ -98,10 +100,13 @@ export function buildKingmakerListingReadiness(params: {
   ebayCardCondition?: unknown;
   graded?: boolean;
 }): KingmakerListingReadiness {
-  const receipt = readChecklistRegistryReceipt(params.metadata);
+  const isOBBFB = isOBBFBMetadata(params.metadata);
+  const receipt = isOBBFB
+    ? { registryIdentityId: null }
+    : readChecklistRegistryReceipt(params.metadata);
   const metadata = record(params.metadata);
   const instaComp = record(metadata.instacomp);
-  const registryBlockers = checklistRegistryReceiptBlockers(params.metadata);
+  const registryBlockers = isOBBFB ? [] : checklistRegistryReceiptBlockers(params.metadata);
   const staleReviewStatusOnly =
     registryBlockers.length === 1 &&
     registryBlockers[0] === "checklist_identity_review_required";
@@ -109,16 +114,18 @@ export function buildKingmakerListingReadiness(params: {
   const exactIdentity = true;
   const frontImage = text(params.frontImageUrl);
   const backImage = text(params.backImageUrl);
-  const acquisitionSource = text(params.acquisitionSource) || (verifiedCsv ? "Verified CSV" : null);
+  const acquisitionSource = text(params.acquisitionSource) || (isOBBFB ? "OBBFB physical front/back intake" : verifiedCsv ? "Verified CSV" : null);
   const rawEbayConditionReady =
     params.graded === true || Boolean(text(params.ebayCardCondition));
 
   const checks: KingmakerListingReadinessCheck[] = [
-    { code: "identity_not_exact", label: "Exact Registry identity", ready: true },
+    { code: "identity_not_exact", label: isOBBFB ? "Seller-verified physical card identity" : "Exact Registry identity", ready: isOBBFB ? isInstaCompPublicationIdentityConfirmed(metadata) : true },
     {
       code: "price_guide_not_checked_1_year",
-      label: "1-year eBay Price Guide checked",
-      ready: verifiedCsv || priceGuideOneYearComplete(params.metadata),
+      label: isOBBFB ? "365-day sold-comp attempt + operator price verified" : "1-year eBay Price Guide checked",
+      ready: isOBBFB
+        ? Boolean(text(instaComp.pricingCheckedAt) && instaComp.sellerPriceOverride === true)
+        : verifiedCsv || priceGuideOneYearComplete(params.metadata),
     },
     { code: "missing_front_image", label: "Front photo", ready: Boolean(frontImage) },
     { code: "missing_back_image", label: "Back photo", ready: Boolean(backImage) },

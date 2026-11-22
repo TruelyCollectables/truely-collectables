@@ -75,6 +75,12 @@ export async function POST(request: Request) {
       return Response.json({ success: false, error: "Pending item not found." }, { status: 404 });
     }
 
+    if (record(record(row.metadata).instacomp).intakeEngine === "obbfb_direct_vision_v1") {
+      return Response.json({
+        success: false,
+        error: "OBBFB card prices may only be saved through direct-vision seller review & identity lock.",
+      }, { status: 409 });
+    }
     const groupKey = instaCompPricingGroupKey(row.metadata) || "";
     const applyGroup = body.applyGroup !== false && Boolean(groupKey);
     let candidates: any[] = [row];
