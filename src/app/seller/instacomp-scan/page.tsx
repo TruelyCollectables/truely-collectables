@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { getFreshAccountSession } from "../../account/account-session";
 import KingmakerInstaCompQueue from "../../kingmaker/KingmakerInstaCompQueue";
+import OBBFBOperatorForm from "../../kingmaker/OBBFBOperatorForm";
 
 type ScannerResult = {
   success: boolean;
@@ -13,6 +14,8 @@ type ScannerResult = {
   stage?: string;
   identityComplete?: boolean;
   inventoryItemId?: string;
+  intakeEngine?: string;
+  description?: string | null;
   title?: string;
   pricingSucceeded?: boolean;
   scan?: any;
@@ -119,7 +122,7 @@ export default function InstaCompScanPage() {
   const suggestedPrice = findSuggestedPrice(result);
   const pricingChoices = useMemo(
     () =>
-      suggestedPrice
+      suggestedPrice && result?.intakeEngine !== "obbfb_direct_vision_v1"
         ? [
             {
               label: "InstaComp",
@@ -138,7 +141,7 @@ export default function InstaCompScanPage() {
             },
           ]
         : [],
-    [suggestedPrice],
+    [suggestedPrice, result?.intakeEngine],
   );
 
   async function scan() {
@@ -163,9 +166,7 @@ export default function InstaCompScanPage() {
       const body = new FormData();
       body.append("front", front);
       body.append("back", back);
-      setStage(
-        "Orienting images, reading core identity, then matching color, pattern, and serial",
-      );
+      setStage("OBBFB: reading both photographs directly, then researching 365-day sold comps");
       const controller = new AbortController();
       const timeoutId = window.setTimeout(() => controller.abort(), 130_000);
       let response: Response;
@@ -227,6 +228,10 @@ export default function InstaCompScanPage() {
 
   async function choosePrice(choice: { value: number; source: string }) {
     if (!result?.inventoryItemId) return;
+    if (result.intakeEngine === "obbfb_direct_vision_v1") {
+      setError("Use the OBBFB seller review form below to verify and lock price and identity together.");
+      return;
+    }
     setSavingPrice(true);
     setError("");
     try {
@@ -529,7 +534,12 @@ export default function InstaCompScanPage() {
                 >
                   Open existing inventory record
                 </Link>
-                {duplicate.status !== "archived" ? (
+                {result?.intakeEngine === "obbfb_direct_vision_v1" ? (
+                  <Link href="/kingmaker/need-to-merge"
+                    className="rounded-lg border border-amber-300 px-4 py-2 font-black text-amber-200">
+                    Review in NEED TO MERGE — no quantity changed
+                  </Link>
+                ) : duplicate.status !== "archived" ? (
                   <button
                     type="button"
                     className="rounded-lg border border-amber-300 px-4 py-2 font-black text-amber-50 hover:bg-amber-900/40"
@@ -576,8 +586,10 @@ export default function InstaCompScanPage() {
               >
                 <p className="font-black">
                   {result.identityComplete
-                    ? "Coding AI + InstaComp identity resolved"
-                    : "Saved safely — exact parallel review required"}
+                    ? result.intakeEngine === "obbfb_direct_vision_v1"
+                      ? "OBBFB direct vision complete — verify and lock before listing"
+                      : "Coding AI + InstaComp identity resolved"
+                    : "Saved safely — seller visual review required"}
                 </p>
                 <p className="mt-1 text-sm text-slate-300">{result.title}</p>
                 {result.error ? (
@@ -620,6 +632,17 @@ export default function InstaCompScanPage() {
                 </div>
               ) : null}
 
+              {result.intakeEngine === "obbfb_direct_vision_v1" && result.inventoryItemId && !result.exactMatch?.found ? (
+                <OBBFBOperatorForm
+                  key={result.inventoryItemId}
+                  inventoryItemId={result.inventoryItemId}
+                  identity={result.ai || {}}
+                  originalTitle={result.title || ""}
+                  originalDescription={result.description || ""}
+                  suggestedPrice={suggestedPrice}
+                  pricingStatus={String(result.pricing?.status || "")}
+                />
+              ) : null}
               {pricingChoices.length ? (
                 <div>
                   <p className="mb-3 font-black">Choose listing price</p>
@@ -642,10 +665,17 @@ export default function InstaCompScanPage() {
                   </div>
                 </div>
               ) : (
-                <p className="rounded-xl bg-slate-900 p-4 text-sm text-slate-300">
-                  Pricing remains blocked until one exact checklist identity is
-                  proven. The front and back are preserved in Pending Listings.
-                </p>
+                result.intakeEngine === "obbfb_direct_vision_v1" ? (
+                  <p className="rounded-xl bg-slate-900 p-4 text-sm text-slate-300">
+                    {result.pricing?.status === "0 Comps — Seller Price Required"
+                      ? "0 Comps — Seller Price Required. Enter your price in OBBFB review above; no sales were fabricated."
+                      : "OBBFB direct vision saved the front and back. Verify card details and seller price above."}
+                  </p>
+                ) : (
+                  <p className="rounded-xl bg-slate-900 p-4 text-sm text-slate-300">
+                    Legacy pricing is unavailable until the card is identified. The photos remain in Pending Listings.
+                  </p>
+                )
               )}
             </div>
           ) : null}

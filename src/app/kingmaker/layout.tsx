@@ -11,7 +11,7 @@ import KingmakerShell from "./KingmakerShell";
 export const metadata: Metadata = {
   title: "KINGMAKER | Truely Collectables",
   description:
-    "Seller operations powered by InstaComp AI intelligence and Checklist Registry identity.",
+    "Seller operations powered by direct front/back InstaComp vision and seller verification.",
 };
 
 export default async function KingmakerLayout({

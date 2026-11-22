@@ -16,6 +16,7 @@ import {
 import { assertSafeEbayListingContent } from "../../../../../../lib/ebay-listing-content";
 import { effectiveInstaCompPricingGroupKey } from "../../../../../../lib/instacomp-pricing-group";
 import { isInstaCompPublicationIdentityConfirmed } from "../../../../../../lib/instacomp-publication-identity";
+import { isOBBFBMetadata, obbfbPublicationBlockers } from "../../../../../../lib/obbfb-publication-guard";
 import {
   classifyWebsiteProductIdentity,
   isSellableWebsiteProduct,
@@ -513,6 +514,10 @@ export async function POST(request: Request) {
 
     const metadata = record(keeper.metadata);
     const instaComp = record(metadata.instacomp);
+    const ownerLockedOBBFB = isOBBFBMetadata(metadata);
+    if (ownerLockedOBBFB && action === "save") {
+      return Response.json({ success: false, error: "OBBFB seller edits must use Save & Lock, never automatic channel repricing." }, { status: 409 });
+    }
     const scanId =
       text(instaComp.scanId, 120) ||
       text(record(instaComp.ai).internalScanId, 120) ||
@@ -561,6 +566,24 @@ export async function POST(request: Request) {
       }
     }
     if (publicImagePair) imageUrls = publicImagePair;
+    if (ownerLockedOBBFB) {
+      const blockers = obbfbPublicationBlockers({
+        metadata,
+        title: String(keeper.title || ""),
+        description: String(keeper.description || ""),
+        price: Number(keeper.price || 0),
+        front: imageUrls[0] || null,
+        back: imageUrls[1] || null,
+      });
+      if (blockers.length) {
+        return Response.json({
+          success: false,
+          code: "OBBFB_SELLER_REVIEW_REQUIRED",
+          error: "OBBFB publication blocked until the real card, serial, title, both photographs and seller price are verified.",
+          blockers,
+        }, { status: 409 });
+      }
+    }
     const linkedWebsiteIdentity = linkedProduct
       ? classifyWebsiteProductIdentity({
           metadata,
@@ -580,9 +603,10 @@ export async function POST(request: Request) {
       metadata,
     });
 
-    const requestedEbayPrice = money(body.ebayPrice) || money(storedEbay.price);
-    const requestedWebsitePrice = money(body.websitePrice) || money(storedWebsite.price);
-    const requestedMercariPrice = money(body.mercariPrice) || money(storedMercari.price);
+    const lockedSellerPrice = money(instaComp.listingPrice) || money(keeper.price);
+    const requestedEbayPrice = ownerLockedOBBFB ? lockedSellerPrice : money(body.ebayPrice) || money(storedEbay.price);
+    const requestedWebsitePrice = ownerLockedOBBFB ? lockedSellerPrice : money(body.websitePrice) || money(storedWebsite.price);
+    const requestedMercariPrice = ownerLockedOBBFB ? lockedSellerPrice : money(body.mercariPrice) || money(storedMercari.price);
     const basePrice =
       requestedEbayPrice ||
       requestedMercariPrice ||
@@ -598,10 +622,15 @@ export async function POST(request: Request) {
     }
 
     const fees = feeProfile();
-    const automaticPricing = calculateDualMarketplacePricing(basePrice, fees);
-    const ebayPrice = requestedEbayPrice || automaticPricing.ebayPrice;
-    const websitePrice = requestedWebsitePrice || automaticPricing.websitePrice;
-    const mercariPrice = requestedMercariPrice || ebayPrice;
+    if (ownerLockedOBBFB && !lockedSellerPrice) {
+      return Response.json({ success: false, error: "OBBFB operator price lock is missing." }, { status: 409 });
+    }
+    const automaticPricing = ownerLockedOBBFB
+      ? calculateCustomWebsitePricing(basePrice, basePrice, fees)
+      : calculateDualMarketplacePricing(basePrice, fees);
+    const ebayPrice = ownerLockedOBBFB ? lockedSellerPrice : requestedEbayPrice || automaticPricing.ebayPrice;
+    const websitePrice = ownerLockedOBBFB ? lockedSellerPrice : requestedWebsitePrice || automaticPricing.websitePrice;
+    const mercariPrice = ownerLockedOBBFB ? lockedSellerPrice : requestedMercariPrice || ebayPrice;
     const pricing = calculateCustomWebsitePricing(ebayPrice, websitePrice, fees);
     const now = new Date().toISOString();
     const sku = text(keeper.sku, 120) || text(linkedProduct?.sku, 120) || generatedSku(keeper);
@@ -703,7 +732,7 @@ export async function POST(request: Request) {
     });
 
     for (const check of listingReadiness.checks) {
-      if (check.code === "identity_not_exact") {
+      if (check.code === "identity_not_exact" && !ownerLockedOBBFB) {
         check.ready = true;
       }
     }

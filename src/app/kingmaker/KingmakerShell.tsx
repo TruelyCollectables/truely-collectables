@@ -13,7 +13,8 @@ import KingmakerStatusStrip from "./KingmakerStatusStrip";
 const navigation = [
   { href: "/kingmaker", label: "Command Center", exact: true },
   { href: "/kingmaker/listings", label: "Master Listings", exact: false },
-  { href: "/kingmaker/scan", label: "Scan Cards", exact: false },
+  { href: "/kingmaker/scan", label: "InstaComp Intake (OBBFB)", exact: false },
+  { href: "/kingmaker/need-to-merge", label: "Need to Merge", exact: false },
   { href: "/kingmaker/intelligence", label: "Intelligence", exact: false },
   { href: "/kingmaker/sourcing", label: "Sourcing", exact: false },
   { href: "/kingmaker/inventory", label: "Inventory", exact: false },
@@ -91,7 +92,7 @@ export default function KingmakerShell({
               <Link href={loginHref} prefetch={false} className="rounded-lg bg-emerald-400 px-4 py-2 font-bold text-slate-950">Kingmaker Login</Link>
             )}
             <span className="rounded-full border border-emerald-800 bg-emerald-950/40 px-3 py-2 font-bold text-emerald-200">
-              Registry controls identity
+              Visual evidence + seller verify identity
             </span>
             <span className="rounded-full border border-blue-800 bg-blue-950/40 px-3 py-2 font-bold text-blue-200">
               Seller approval controls execution
@@ -126,7 +127,7 @@ export default function KingmakerShell({
           <div className="mt-5 rounded-2xl border border-slate-800 bg-slate-900/60 p-4 text-xs leading-5 text-slate-400">
             <p className="font-black text-slate-200">Authority chain</p>
             <p className="mt-2">
-              InstaComp analyzes and recommends. The Checklist Registry locks exact identity. KINGMAKER manages review and authorized seller actions.
+              OBBFB reads both card photos directly; only seller verification locks identity/price and authorizes publication.
             </p>
           </div>
         </aside>

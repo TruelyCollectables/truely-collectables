@@ -16,6 +16,7 @@ import {
   pendingDuplicateProtectionMatchKey,
 } from "../../../../../../lib/pending-duplicate-protection";
 import { assertChecklistRegistryReceipt } from "../../../../../../lib/instacomp-registry-receipt";
+import { isOBBFBMetadata, obbfbPublicationBlockers } from "../../../../../../lib/obbfb-publication-guard";
 import { getActiveStoreId } from "../../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
 import { inventoryEngine } from "../../../../../../modules/inventory";
@@ -47,7 +48,8 @@ function hasDurablePhysicalScanReceipt(row: any) {
   const scannerSource = text(instacomp.source);
   const physicalScannerSource =
     scannerSource === "kingmaker_exact_scan_intake_v2" ||
-    scannerSource === "mac_registry_scanner";
+    scannerSource === "mac_registry_scanner" ||
+    scannerSource === "obbfb_direct_vision_v1";
   const completePair = Boolean(
     text(instacomp.imagePairSha256) &&
       text(instacomp.frontSha256) &&
@@ -278,7 +280,25 @@ export async function POST(request: Request) {
           throw new Error("This draft is not an InstaComp pending listing.");
         }
 
-        const registryReceipt = assertChecklistRegistryReceipt(metadata);
+        const ownerOBBFB = isOBBFBMetadata(metadata);
+        if (ownerOBBFB) {
+          const blockers = obbfbPublicationBlockers({
+            metadata,
+            title: String(row.title || ""),
+            description: String(row.description || ""),
+            price: Number(row.price || 0),
+            front: String(instaComp.frontImageUrl || "") || null,
+            back: String(instaComp.backImageUrl || "") || null,
+          });
+          if (blockers.length) {
+            const error = new Error("OBBFB seller verification and exact front/back listing requirements are incomplete.") as Error & { blockers?: string[] };
+            error.blockers = blockers;
+            throw error;
+          }
+        }
+        const registryReceipt = ownerOBBFB
+          ? { registryIdentityId: null, registryFingerprintSha256: null }
+          : assertChecklistRegistryReceipt(metadata);
         const duplicateMatchKey = effectiveInstaCompPricingGroupKey(metadata);
         const duplicateDecision = recordValue(
           instaComp.duplicateInventoryDecision,

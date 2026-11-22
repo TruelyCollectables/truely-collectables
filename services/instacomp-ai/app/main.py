@@ -45,6 +45,7 @@ from .settings_routes import build_settings_router
 from .storage import MemoryStore
 from .training_routes import build_training_router
 from .market_comp_routes import build_market_comp_router
+from .obbfb_market_comp_routes import build_market_comp_router as build_obbfb_market_comp_router
 from .kingmaker_accounting_routes import build_kingmaker_accounting_router
 
 settings.ensure_directories()
@@ -174,6 +175,7 @@ app.include_router(
 )
 app.include_router(build_registry_router(require_api_key, registry_store))
 app.include_router(build_market_comp_router(require_api_key, database_path))
+app.include_router(build_obbfb_market_comp_router(require_api_key, database_path))
 app.include_router(
     build_kingmaker_accounting_router(
         require_api_key,
