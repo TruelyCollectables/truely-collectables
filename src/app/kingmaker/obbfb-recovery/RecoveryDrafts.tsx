@@ -13,6 +13,8 @@ type Draft = {
   front: string;
   back: string;
   visualFailure: string;
+  priceNeedsRecomp: boolean;
+  marketEvidence: { soldCompEvidence: Array<Record<string, unknown>>; activeCompetition: Array<Record<string, unknown>> };
 };
 
 export default function RecoveryDrafts({ drafts }: { drafts: Draft[] }) {
@@ -70,6 +72,11 @@ export default function RecoveryDrafts({ drafts }: { drafts: Draft[] }) {
                   className="h-52 w-36 rounded-lg border border-slate-600 bg-slate-950 object-contain" />
               ) : null)}
             </div>
+            {draft.priceNeedsRecomp ? (
+              <p className="mt-4 rounded-lg border border-amber-600/40 bg-amber-950/30 p-3 text-sm text-amber-200">
+                The saved suggestion used a different variant or a multi-card sale. Retry identification and comps for a fresh price.
+              </p>
+            ) : null}
             {draft.visualFailure ? (
               <p className="mt-4 rounded-lg border border-amber-600/40 bg-amber-950/30 p-3 text-sm text-amber-200">
                 Previous vision error: {draft.visualFailure}
@@ -86,6 +93,7 @@ export default function RecoveryDrafts({ drafts }: { drafts: Draft[] }) {
               originalDescription={draft.description}
               suggestedPrice={draft.suggestedPrice}
               pricingStatus={draft.pricingStatus}
+              marketEvidence={draft.marketEvidence}
             />
           </article>
         ))}

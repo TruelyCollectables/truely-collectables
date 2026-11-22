@@ -4,7 +4,7 @@ import { searchMacMarketForIdentity } from "./kingmaker-mac-scan-server";
 import { createSupabaseServerClient } from "./supabase-server";
 import { getActiveStoreId } from "./stores";
 import {
-  normalizeDirectIdentity, sameCardVariant, select365DayComps,
+  marketVariantMismatch, normalizeDirectIdentity, sameCardVariant, select365DayComps,
   type DirectCardIdentity, type VerifiedSale,
 } from "./obbfb-intake-rules";
 
@@ -94,16 +94,10 @@ export async function researchOBBFBComps(identity: DirectCardIdentity, title: st
     resultCount: 0,
   };
   const providerCoverage: Json[] = [sportsCardsPro];
+  let prior: VerifiedSale | null = null;
   try {
-    const prior = await getPreviousVerifiedCopySale(identity);
-    if (prior) {
-      const picked = select365DayComps([prior], identity);
-      return {
-        ...picked, priceGuide: null, activeListings: [],
-        providerCoverage: [{ source: "tcos_verified_sale", status: "live", resultCount: 1 }, sportsCardsPro],
-        source: "verified_prior_sale_different_serial",
-      };
-    }
+    prior = await getPreviousVerifiedCopySale(identity);
+    if (prior) providerCoverage.push({ source: "tcos_verified_sale", status: "live", resultCount: 1 });
   } catch (error) {
     providerCoverage.push({ source: "tcos_verified_sale", status: "error", message: String(error instanceof Error ? error.message : error).slice(0, 140) });
   }
@@ -139,14 +133,19 @@ export async function researchOBBFBComps(identity: DirectCardIdentity, title: st
         realized: row.priceIncludesShipping === true || fanaticsRealized || exact130pointRealized,
       };
     });
-    const selected = select365DayComps(sales, identity);
+    const priorComps = prior ? select365DayComps([prior], identity) : null;
+    const selected = priorComps?.status === "comped" ? priorComps : select365DayComps(sales, identity);
     return {
       ...selected, providerCoverage, priceGuide: Object.keys(record(market.priceGuide)).length ? record(market.priceGuide) : null,
-      activeListings: Array.isArray(market.active) ? market.active.map(record) : [],
-      source: "mac_verified_365_day_sold_comps",
+      activeListings: Array.isArray(market.active) ? market.active.map(record).filter(row => str(row.title) && !marketVariantMismatch(str(row.title), identity)) : [],
+      source: priorComps?.status === "comped" ? "verified_prior_sale_different_serial" : "mac_verified_365_day_sold_comps",
     };
   } catch (error) {
     providerCoverage.push({ source: "mac_direct_market", status: "error", message: String(error instanceof Error ? error.message : error).slice(0, 200) });
+    const priorComps = prior ? select365DayComps([prior], identity) : null;
+    if (priorComps?.status === "comped") {
+      return { ...priorComps, providerCoverage, priceGuide: null, activeListings: [], source: "verified_prior_sale_different_serial" };
+    }
     return {
       status: "0 Comps — Seller Price Required", medianComp: null, suggestedPrice: null,
       accepted: [], rejected: [], providerCoverage, priceGuide: null, activeListings: [], source: "no_verified_sales",

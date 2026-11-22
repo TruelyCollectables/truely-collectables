@@ -174,19 +174,24 @@ const median = (values: number[]) => {
 };
 // The source can verify a sale while misclassifying its card. Check the actual
 // title before allowing the transaction to influence the sold median.
-function soldVariantMismatch(title: string, identity: DirectCardIdentity): string | null {
+export function marketVariantMismatch(title: string, identity: DirectCardIdentity): string | null {
   const cardNumbers = new Set(Array.from(title.matchAll(/#\s*([a-z0-9][a-z0-9-]*[0-9]|[0-9]+)\b/gi),
     match => match[1].toLowerCase()));
   if (cardNumbers.size > 1 ||
       /\b(?:lot|bundle|pick your|choose your|you pick|complete your set|multi[- ]?card|[x×]\s*\d+|\d+\s*[x×]\b)\b/i.test(title)) {
     return "multi_card_or_variant_listing";
   }
-  const variantMarkers = /\b(?:wnba logo|logo prizm|image variation|snakes?kin|silver|green|red|blue|purple|pink|orange|gold|black|white|ice|velocity|seismic|wave|shimmer|flash|mojo|pandora|refractor|holo|hyper|scope|disco|choice|sparkle|cracked|checkerboard|mosaic|pulsar|swirl|lattice|cherry blossom|lotus flower|premium box set)\b/gi;
+  const variantMarkers = /\b(?:wnba logo|logo prizm|image variation|rookie variation|variation|snakes?kin|silver|green|red|blue|purple|pink|orange|gold|black|white|ice|velocity|seismic|wave|shimmer|flash|mojo|pandora|refractor|holo|hyper|scope|disco|choice|sparkle|cracked|checkerboard|mosaic|pulsar|swirl|lattice|cherry blossom|lotus flower|premium box set)\b/gi;
   const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
   const finish = normalize(identity.parallel || "");
   if (!finish) return "target_parallel_unverified";
   const setWords = new Set(normalize([identity.brandSet, identity.subset, identity.player].filter(Boolean).join(" ")).split(" "));
   const expectedWords = new Set(finish.split(" "));
+  if (/\bwnba\b/.test(normalize(identity.brandSet || "")) &&
+      /\bprizm\b/.test(normalize(identity.brandSet || "")) &&
+      /\blogo\b/i.test(title) && !expectedWords.has("logo") && !setWords.has("logo")) {
+    return "sold_parallel_mismatch";
+  }
   if (expectedWords.has("ice")) expectedWords.add("cracked");
   if (expectedWords.has("logo")) {
     expectedWords.add("wnba");
@@ -211,7 +216,7 @@ export function select365DayComps(
     const valid = s.verified === true && s.realized === true && Number.isFinite(s.price) &&
       s.price > 0 && !!s.url && !!s.title &&
       Number.isFinite(Date.parse(s.soldAt)) && Date.parse(s.soldAt) >= cutoff && Date.parse(s.soldAt) <= now.getTime();
-    const reason = valid ? soldVariantMismatch(s.title, identity) : "unverified_or_outside_365_days";
+    const reason = valid ? marketVariantMismatch(s.title, identity) : "unverified_or_outside_365_days";
     if (reason) rejected.push({ sale: s, reason });
     return reason === null;
   });
