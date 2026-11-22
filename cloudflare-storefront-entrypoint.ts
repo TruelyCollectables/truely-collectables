@@ -194,8 +194,11 @@ export default {
       return Response.redirect(url.toString(), 308);
     }
 
-    if (request.method === "GET" && url.pathname === "/__edge-health") {
-      return edgeHealthResponse();
+    if ((request.method === "GET" || request.method === "HEAD") && url.pathname === "/__edge-health") {
+      const response = edgeHealthResponse();
+      return request.method === "HEAD"
+        ? new Response(null, { status: response.status, headers: response.headers })
+        : response;
     }
 
     if (request.method === "GET" && url.pathname === "/__emergency-store") {

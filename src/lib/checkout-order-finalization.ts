@@ -41,7 +41,10 @@ export async function finalizeCheckoutOrder(params: {
   const shippingCountry = shipping?.country || null;
   const shippingAllowed = isAllowedShippingCountry(shippingCountry);
   const total = Number(session.amount_total || 0) / 100;
-  const discountAmount = Number(session.total_details?.amount_discount || 0) / 100;
+  const discountAmount = Math.max(
+    Number(session.total_details?.amount_discount || 0) / 100,
+    Number(metadata.coupon_discount_total || 0),
+  );
   const discount = session.discounts?.[0];
   const promotionCodeId =
     typeof discount?.promotion_code === "string"
@@ -220,6 +223,22 @@ export async function finalizeCheckoutOrder(params: {
           address_hash: hashPromotionIdentity(normalizedAddress),
         });
       if (redemptionError && redemptionError.code !== "23505") throw redemptionError;
+      if (redemptionError?.code === "23505") {
+        console.warn("Repeat promotion use flagged for order", orderId);
+      }
+      const { count, error: countError } = await supabase
+        .from("store_promotion_redemptions")
+        .select("id", { count: "exact", head: true })
+        .eq("promotion_id", promotionLookup.data.id);
+      if (countError) throw countError;
+      if (typeof count === "number") {
+        const { error: updateError } = await supabase
+          .from("store_promotions")
+          .update({ times_redeemed: count, updated_at: new Date().toISOString() })
+          .eq("id", promotionLookup.data.id)
+          .is("stripe_promotion_code_id", null);
+        if (updateError) throw updateError;
+      }
     }
   }
 

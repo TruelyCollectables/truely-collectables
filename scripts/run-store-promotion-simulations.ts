@@ -7,7 +7,7 @@ const flyerCoupon = validatePromotionInput({
   code: "1st10",
   percentOff: 10,
 });
-assert.equal(flyerCoupon.code, "1st10");
+assert.equal(flyerCoupon.code, "1ST10");
 assert.equal(flyerCoupon.percentOff, 10);
 assert.equal(flyerCoupon.maxRedemptions, null);
 
@@ -17,7 +17,7 @@ assert.throws(
 );
 assert.throws(
   () => validatePromotionInput({ code: "SAVE", percentOff: 101 }),
-  /no more than 100/,
+  /0-100/,
 );
 
 console.log("Store promotion simulations passed.");

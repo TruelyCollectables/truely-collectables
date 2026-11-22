@@ -144,6 +144,32 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: "Enter your email and complete shipping address before using this first-order promotion.", retryable: false }, { status: 400 });
       }
       if (storePromotion.first_order_only) {
+        const existingEmailOrders = await supabase
+          .from("orders")
+          .select("id")
+          .eq("store_id", storeId)
+          .eq("is_test", false)
+          .eq("payment_status", "paid")
+          .ilike("customer_email", String(customerEmail))
+          .limit(1);
+        if (existingEmailOrders.error) throw existingEmailOrders.error;
+        if (existingEmailOrders.data?.length) {
+          return NextResponse.json({ error: "This first-order coupon is for new customers only.", retryable: false }, { status: 409 });
+        }
+        const address = body.shippingAddress || {};
+        const existingAddressOrders = await supabase
+          .from("orders")
+          .select("id")
+          .eq("store_id", storeId)
+          .eq("is_test", false)
+          .eq("payment_status", "paid")
+          .ilike("shipping_address_line1", String(address.line1 || "").trim())
+          .ilike("shipping_postal_code", String(address.postalCode || "").trim())
+          .limit(1);
+        if (existingAddressOrders.error) throw existingAddressOrders.error;
+        if (existingAddressOrders.data?.length) {
+          return NextResponse.json({ error: "This first-order coupon was already used at this shipping address.", retryable: false }, { status: 409 });
+        }
         const emailHash = hashPromotionIdentity(customerEmail);
         const addressHash = hashPromotionIdentity(submittedAddress);
         const redemptionQuery = await supabase
@@ -152,7 +178,7 @@ export async function POST(request: Request) {
           .eq("promotion_id", storePromotion.id)
           .or(`email_hash.eq.${emailHash},address_hash.eq.${addressHash}`)
           .limit(1);
-        if (redemptionQuery.error && redemptionQuery.error.code !== "42P01") throw redemptionQuery.error;
+        if (redemptionQuery.error) throw redemptionQuery.error;
         if (redemptionQuery.data?.length) {
           return NextResponse.json({ error: "That first-order promotion was already redeemed for this email or mailing address.", retryable: false }, { status: 409 });
         }
@@ -518,7 +544,7 @@ export async function POST(request: Request) {
     const requestFingerprint = checkoutRequestFingerprint({
       mode: "payment",
       payment_method_types: ["card"],
-      allow_promotion_codes: !storePromotion,
+      allow_promotion_codes: false,
       customer_creation: "always",
       customer_email: customerEmail || null,
       line_items: lineItems,
@@ -645,7 +671,7 @@ export async function POST(request: Request) {
       {
         mode: "payment",
         payment_method_types: ["card"],
-        allow_promotion_codes: !storePromotion,
+        allow_promotion_codes: false,
         customer_creation: "always",
         ...(account?.email ? { customer_email: account.email } : {}),
         client_reference_id: checkoutAttemptId,
