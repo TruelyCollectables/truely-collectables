@@ -9,7 +9,8 @@ const menu = read("src/app/kingmaker/KingmakerShell.tsx");
 for (const text of ["@cf/qwen/qwen3.8-27b","@cf/google/gemma-4-26b-a4b-it","getCloudflareContext","chat_template_kwargs","image_url","backNormalized"]) {
   assert(vision.includes(text), "Cloudflare direct-vision fallback contract: "+text);
 }
-assert(vision.indexOf("for (const model of models)") < vision.indexOf("const key = process.env.OPENAI_API_KEY"), "Cloudflare must run before exhausted OpenAI API");
+const providerOrder = vision.slice(vision.indexOf("const providers = ["));
+assert.match(providerOrder, /geminiDirectVision[\s\S]*cloudflareDirectVision[\s\S]*openAIDirectVision[\s\S]*for \(const provider of providers\)/);
 for (const text of ["getAuthenticatedAccountFromRequest","ensureAccountStoreMembership","obbfbSellerAccountId","account.id","manualIdentityLocked","sellerPriceOverride","fetchInstaCompAiLocalScanImage","identifyOBBFBVision","researchOBBFBComps","updateMacKingmakerDraft","published: false",'folder: "pending"','pendingQueue: "listings"']) {
   assert(retry.includes(text),"Saved image retry security and integrity contract: "+text);
 }
@@ -20,4 +21,4 @@ assert(page.includes('listMacMasterListingRows({ folder: "pending", pendingQueue
 assert(page.includes("OBBFBOperatorForm"),"Recovered scans must remain seller editable");
 assert(form.includes("RETRY VISION USING SAVED PHOTOS"),"Operator must be able to reprocess without reupload");
 assert(menu.includes("/kingmaker/obbfb-recovery"),"Recovery page must be accessible from Kingmaker navigation");
-console.log("PASS: archived-image recovery, secure seller ownership, Cloudflare-first models, no auto-publish and no duplicates");
+console.log("PASS: archived-image recovery, secure seller ownership, Gemini-first paired vision, no auto-publish and no duplicates");
