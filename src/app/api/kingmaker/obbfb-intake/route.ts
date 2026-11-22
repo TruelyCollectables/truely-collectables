@@ -90,6 +90,7 @@ export async function POST(request: NextRequest) {
     const duplicate = await findMacDuplicateByImagePair(pairHash, 10_000);
     if (duplicate) return respond({
       success: true, stage: "review_required", identityComplete: false,
+      intakeEngine: "obbfb_direct_vision_v1",
       code: "DUPLICATE_SCAN", inventoryItemId: duplicate.inventoryItemId,
       title: duplicate.title, duplicate,
       reviewHref: "/kingmaker/need-to-merge",
@@ -104,6 +105,7 @@ export async function POST(request: NextRequest) {
     const already = await getMacMasterListingRow(archived.card_uuid, 10_000);
     if (already) return respond({
       success: true, stage: "review_required", code: "DUPLICATE_SCAN",
+      intakeEngine: "obbfb_direct_vision_v1",
       inventoryItemId: archived.card_uuid, title: already.title,
       error: "Existing inventory record found for the archived image pair. No mutation performed.",
     }, 202);

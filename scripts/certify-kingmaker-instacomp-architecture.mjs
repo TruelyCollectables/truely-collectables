@@ -267,7 +267,7 @@ for (const route of [
 ]) {
   requireText(shell, route, "KINGMAKER navigation");
 }
-requireText(shell, "Registry controls identity", "KINGMAKER shell");
+requireText(shell, "OBBFB reads both card photos directly", "KINGMAKER shell direct-vision authority");
 requireText(shell, "Seller approval controls execution", "KINGMAKER shell");
 
 const capabilityRegistry = read("src/lib/instacomp-capabilities.ts");
