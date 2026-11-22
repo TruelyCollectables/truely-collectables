@@ -28,6 +28,8 @@ async function run() {
   let locked = false;
   let partial = false;
   let noSold = false;
+  let clearance = false;
+  let clearanceWrites = 0;
   let created = 0;
   let archived = 0;
   let lockableDraft: Record<string, unknown> | null = null;
@@ -72,14 +74,18 @@ async function run() {
         case "find_image_pair":
           return Response.json({ ok: true, items: [] });
         case "create":
-          assert.equal(body.items[0].price, 12.99);
+          assert.equal(body.items[0].price, clearance ? 0 : 12.99);
           created++;
           lockableDraft = body.items[0];
           return Response.json({ ok: true, items: body.items });
         case "project_master":
           return Response.json({ ok: true });
         case "master_update":
-          assert.equal(body.items[0].price, 1);
+          assert.equal(body.items[0].price, clearance ? 1.25 : 1);
+          if (clearance) {
+            assert.equal(body.items[0].obbfbOperatorSave, false);
+            clearanceWrites++;
+          }
           assert.equal(body.items[0].updateEbay, false);
           assert.equal(body.items[0].metadata.instacomp.sellerPriceOverride, true);
           return Response.json({ ok: true, results: [{ success: true, item: body.items[0] }] });
@@ -98,7 +104,7 @@ async function run() {
       researchCalls++;
       if (noSold) return Response.json({ sold: [] });
       assert.equal(body.identity.player, identity.player);
-      return Response.json({ sold: [12, 8].map((price, index) => ({
+      return Response.json({ sold: (clearance ? [1.50, 1.55] : [12, 8]).map((price, index) => ({
         title: "Lane Hutson #229", source: "mac_130point_exact_sold", sourceCategory: "sold",
         url: "https://www.ebay.com/itm/" + (222222222221 + index),
         price, soldAt: new Date(Date.now() - 86_400_000).toISOString(),
@@ -179,6 +185,19 @@ async function run() {
     assert.equal(saved.published, false);
     assert.equal(created, 1);
     assert.equal(archived, 3);
+    lockableDraft = null;
+    clearance = true;
+    const stagedLow = await (await scanPair()).json();
+    assert.equal(stagedLow.pricing.suggestedPrice, 0);
+    const bulkLock = () => lockDraft(new NextRequest("https://truelycollectables.com/api/kingmaker/obbfb-lock", {
+      method: "POST", headers: { cookie, "Content-Type": "application/json" },
+      body: JSON.stringify({ confirmed: true, inventoryItemId: scanId, price: 1.25, mode: "bulk_clearance" }),
+    }));
+    const bulkSaved = await (await bulkLock()).json();
+    assert.equal(bulkSaved.price, 1.25);
+    lockableDraft = { ...lockableDraft as unknown as Record<string, unknown>, price: 1.25 };
+    assert.equal((await bulkLock()).status, 409);
+    assert.equal(clearanceWrites, 1);
     console.log("PASS: paired Gemini, quota fallback, seller review, live-ask boundaries, price locks and read-only re-comp");
   } finally {
     globalThis.fetch = original;

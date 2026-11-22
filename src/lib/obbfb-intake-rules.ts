@@ -134,6 +134,13 @@ export function buildDirectDescription(identity: DirectCardIdentity, isTcCoa = f
 export function identitySufficient(identity: DirectCardIdentity): boolean {
   return Boolean(identity.year && identity.player && identity.brandSet && identity.cardNumber && identity.confidence >= 0.7);
 }
+export function isOBBFBClearanceDraft(price: unknown, status: unknown, info: Record<string, unknown>) {
+  return status === "draft" && price === 0 && info.intakeEngine === "obbfb_direct_vision_v1" &&
+    info.identityComplete === true && info.pricingStatus === "comped" &&
+    typeof info.medianComp === "number" && info.medianComp > 0 && info.medianComp <= 2 &&
+    info.suggestedPrice === 0 && !info.sellerPriceOverride && !info.manualIdentityLocked &&
+    !info.manualListingTitleLocked && !info.humanVerified;
+}
 export function isValidOBBFBSellerPrice(price: number): boolean {
   const cents = price * 100;
   return Number.isFinite(price) && price >= 0.01 &&
@@ -237,7 +244,7 @@ export function select365DayComps(
   const med = median(sales.map(s => s.price));
   return {
     status: "comped", medianComp: Math.round(med * 100) / 100,
-    suggestedPrice: Math.max(2.99, Math.floor(med * 1.25) + 0.99),
+    suggestedPrice: med < 2 ? 0 : Math.floor(med * 1.25) + 0.99,
     accepted: sales, rejected,
   };
 }

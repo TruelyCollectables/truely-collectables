@@ -155,6 +155,7 @@ type PendingCard = {
     scanId?: string | null;
   } | null;
   instaComp: {
+    clearanceUnpriced?: boolean;
     verifiedCsvLocked?: boolean;
     scanId?: string | null;
     cardUuid?: string | null;
@@ -836,6 +837,8 @@ export default function KingmakerPendingPage({
   const [bulkCategory, setBulkCategory] = useState("");
   const [bulkCondition, setBulkCondition] = useState("");
   const [bulkEbayCardCondition, setBulkEbayCardCondition] = useState("");
+  const [clearanceOnly, setClearanceOnly] = useState(false);
+  const [bulkClearancePrice, setBulkClearancePrice] = useState("1.25");
   const [manualPrices, setManualPrices] = useState<Record<string, string>>({});
   const [mergeEbayStrategy, setMergeEbayStrategy] =
     useState<MergeEbayStrategy>("increase_existing");
@@ -2517,7 +2520,52 @@ export default function KingmakerPendingPage({
     }
   }
 
-  const visibleCards = cards.filter((card) => cardMatchesSport(card, sportFilter));
+  const sportCards = cards.filter((card) => cardMatchesSport(card, sportFilter));
+  const clearanceCount = sportCards.filter(card => card.instaComp.clearanceUnpriced).length;
+  const visibleCards = clearanceOnly && folder === "pending"
+    ? sportCards.filter(card => card.instaComp.clearanceUnpriced) : sportCards;
+
+  async function applyClearancePrice() {
+    const targets = visibleCards.filter(card => selectedIds.has(card.inventoryItemId) && card.instaComp.clearanceUnpriced);
+    const value = bulkClearancePrice.trim();
+    if (!targets.length || !/^\d+(?:\.\d{1,2})?$/.test(value) || Number(value) <= 0) {
+      setPageError("Select $0 cards and enter a positive price with up to two decimal places.");
+      return;
+    }
+    const price = Number(value);
+    if (!window.confirm(`Save and lock the current card details and ${money(price)} for ${targets.length} selected drafts?`)) return;
+    setBusyId("bulk-clearance");
+    setPageError("");
+    setNotice("");
+    const saved: string[] = [];
+    const failures: string[] = [];
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      if (!session?.access_token) throw new Error("Seller login is required.");
+      await runWithConcurrency(targets, BULK_PRICE_CONCURRENCY, async card => {
+        try {
+          const response = await fetch("/api/kingmaker/obbfb-lock", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${session.access_token}` },
+            body: JSON.stringify({ inventoryItemId: card.inventoryItemId, price, confirmed: true, mode: "bulk_clearance" }),
+          });
+          const result = await response.json().catch(() => ({}));
+          if (!response.ok || !result.success) throw new Error(result.error || "Price could not be saved.");
+          saved.push(card.inventoryItemId);
+        } catch (error) {
+          failures.push(`${card.title}: ${message(error)}`);
+        }
+      });
+      setSelectedIds(current => new Set([...current].filter(id => !saved.includes(id))));
+      await load(queue || queueFromLocation(), "pending");
+      if (saved.length) setNotice(`${money(price)} saved and locked on ${saved.length} drafts.`);
+      if (failures.length) setPageError(`${failures.length} drafts skipped. ${failures.slice(0, 3).join(" ")}`);
+    } catch (error) {
+      setPageError(message(error));
+    } finally {
+      setBusyId(null);
+    }
+  }
   const renderedCards = visibleCards.slice(0, renderLimit);
 
   function toggleSaleChannel(channel: "website" | "ebay" | "mercari") {
@@ -2678,6 +2726,30 @@ export default function KingmakerPendingPage({
   return (
     <main className="min-h-screen bg-neutral-100 px-4 py-6 text-neutral-950">
       <div className="mx-auto max-w-6xl">
+        {folder === "pending" && (
+          <section className="mb-4 flex flex-wrap items-end gap-3 rounded-xl border-2 border-neutral-900 bg-white p-4">
+            <label className="flex items-center gap-2 self-center text-sm font-black">
+              <input type="checkbox" checked={clearanceOnly} disabled={Boolean(busyId)} onChange={event => {
+                setClearanceOnly(event.target.checked);
+                setSelectedIds(new Set());
+              }} />
+              Under-$2 sold comps · $0 drafts ({clearanceCount})
+            </label>
+            {clearanceOnly && <>
+              <button type="button" disabled={!visibleCards.length || Boolean(busyId)}
+                onClick={() => setSelectedIds(new Set(visibleCards.map(card => card.inventoryItemId)))}
+                className="rounded-lg border-2 border-neutral-900 px-4 py-2 text-sm font-black disabled:opacity-40">
+                Select all shown
+              </button>
+              <Field label="Price for selected drafts" value={bulkClearancePrice} onChange={setBulkClearancePrice} placeholder="1.25 or 1.50" />
+              <button type="button" disabled={!selectedIds.size || Boolean(busyId)}
+                onClick={() => void applyClearancePrice()}
+                className="rounded-lg bg-emerald-800 px-4 py-2 text-sm font-black text-white disabled:opacity-40">
+                Save &amp; lock selected prices
+              </button>
+            </>}
+          </section>
+        )}
         <div className="flex flex-wrap items-end justify-between gap-3">
           <Link href="/kingmaker/bulk-recomp" className="order-last rounded-lg bg-emerald-800 px-4 py-2 font-bold text-white">
             Bulk Re-Comp
