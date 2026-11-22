@@ -51,6 +51,7 @@ export async function GET(request: Request) {
     .from("store_promotions")
     .select("*")
     .eq("store_id", getActiveStoreId())
+    .is("archived_at", null)
     .order("created_at", { ascending: false });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json({ promotions: data || [] });
@@ -115,6 +116,9 @@ export async function PATCH(request: Request) {
       .eq("store_id", storeId)
       .single();
     if (error || !promotion) return NextResponse.json({ error: "Promotion not found." }, { status: 404 });
+    if (promotion.archived_at) {
+      return NextResponse.json({ error: "This promotion has been removed from Kingmaker." }, { status: 409 });
+    }
 
     if (body.action === "set-active") {
       const active = body.active === true;
@@ -166,11 +170,31 @@ export async function DELETE(request: Request) {
     if (error || !promotion) {
       return NextResponse.json({ error: "Promotion not found." }, { status: 404 });
     }
-    if (Number(promotion.times_redeemed || 0) > 0) {
-      return NextResponse.json({
-        error: "This code has redemption history. Deactivate it instead of deleting it.",
-      }, { status: 409 });
+    if (promotion.archived_at) {
+      return NextResponse.json({ error: "Coupon has already been removed." }, { status: 409 });
     }
+    // Check recorded redemptions *and* paid orders; preserving those links is
+    // more important than trusting a possibly stale times_redeemed counter.
+    const [redemptionCount, paidOrderLookup] = await Promise.all([
+      supabase
+        .from("store_promotion_redemptions")
+        .select("id", { head: true, count: "exact" })
+        .eq("promotion_id", promotion.id),
+      supabase
+        .from("orders")
+        .select("id", { head: true, count: "exact" })
+        .eq("store_id", storeId)
+        .ilike("discount_code", promotion.code)
+        .eq("payment_status", "paid"),
+    ]);
+    if (redemptionCount.error || paidOrderLookup.error) {
+      throw redemptionCount.error || paidOrderLookup.error;
+    }
+    const preserveHistory =
+      promotion.active === true ||
+      Number(promotion.times_redeemed || 0) > 0 ||
+      (redemptionCount.count || 0) > 0 ||
+      (paidOrderLookup.count || 0) > 0;
 
     // Disabling a coupon must remain possible even when the live-checkout
     // launch gate is closed. Use only the credential for its recorded Stripe mode.
@@ -191,13 +215,28 @@ export async function DELETE(request: Request) {
       }
     }
 
+    if (preserveHistory) {
+      const { error: archiveError } = await supabase
+        .from("store_promotions")
+        .update({ active: false, archived_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+        .eq("id", id)
+        .eq("store_id", storeId)
+        .is("archived_at", null)
+        .select("id")
+        .single();
+      if (archiveError) throw archiveError;
+      return NextResponse.json({ ok: true, removed: true, archived: true });
+    }
     const { error: deleteError } = await supabase
       .from("store_promotions")
       .delete()
       .eq("id", id)
-      .eq("store_id", storeId);
+      .eq("store_id", storeId)
+      .select("id")
+      .single();
     if (deleteError) throw deleteError;
-    return NextResponse.json({ ok: true, removed: true, stripeDisabled: Boolean(promotion.stripe_promotion_code_id) });
+    return NextResponse.json({ ok: true, removed: true, archived: false });
+
   } catch (error) {
     return NextResponse.json({
       error: error instanceof Error ? error.message : "Coupon could not be removed.",
