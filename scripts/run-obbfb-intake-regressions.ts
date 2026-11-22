@@ -98,3 +98,18 @@ assert(marketAdapter.includes('prefix="/v1/obbfb-market-comp"'));
 assert(marketAdapter.includes("_search_130point"));
 assert(marketAdapter.includes("_search_fanatics"));
 console.log("OBBFB rules PASS: title/serial, autograph, verified 365-day comps, +25%/.99, 0 comps, owner locks and publish blockers.");
+
+
+const cechova = normalizeDirectIdentity({
+  year: "2026", brandSet: "Panini Prizm WNBA", player: "Emma Cechova", cardNumber: "172", parallel: "Base",
+});
+const cechovaSales = [
+  { ...sale(6.79), title: "2026 Panini Prizm WNBA RC Lot x23 Emma Cechova #172 Minnesota Lynx" },
+  { ...sale(2.36), title: "2026 Panini WNBA Prizm-EMMA CECHOVA- Rookie- WNBA Logo (RC)-Minnesota Lynx #172" },
+  { ...sale(7.75), title: "2026 #172 Emma Cechova Panini Prizm WNBA Logo Prizm RC Minnesota Lynx" },
+  { ...sale(4.06), title: "2026 Panini Prizm WNBA Emma Cechova WNBA Logo Prizm RC #172 Minnesota Lynx" },
+  { ...sale(3.11), title: "Panini WNBA Prizm 2026 Emma Cechova RC Rookie #172 Minnesota Lynx" },
+];
+const cleanedCechova = select365DayComps(cechovaSales, cechova, now);
+assert.deepEqual(cleanedCechova.accepted.map(row => row.price), [3.11]);
+assert.equal(cleanedCechova.rejected.length, 4);

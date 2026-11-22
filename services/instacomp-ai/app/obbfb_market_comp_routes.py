@@ -23,7 +23,7 @@ _CHALLENGE_RE = re.compile(r"captcha|verify you are human|access denied|challeng
 _MONEY_RE = re.compile(r"\$\s*([0-9][0-9,]*(?:\.\d{1,2})?)")
 _EBAY_ITEM_RE = re.compile(r"/itm/(?:[^/]+/)?(\d{9,15})(?:[/?#]|$)", re.I)
 _MERCARI_ITEM_RE = re.compile(r"/item/(m\d+)(?:[/?#]|$)", re.I)
-_LOT_RE = re.compile(r"\b(?:lot of|pick your|pick choose|choose your|u pick|you pick|complete your set|2 card minimum|multi[- ]?card|bundle)\b", re.I)
+_LOT_RE = re.compile(r"\b(?:lot|pick your|pick choose|choose your|u pick|you pick|complete your set|2 card minimum|multi[- ]?card|bundle)\b", re.I)
 _GRADER_RE = re.compile(r"\b(?:PSA|BGS|SGC|CGC|CSG|HGA|TAG)\b(?:\s*(?:AUTH|AUTHENTIC|[0-9](?:\.5)?))?", re.I)
 _AUTO_RE = re.compile(r"\b(?:auto(?:graph)?|autographed|signature|signed|au)\b", re.I)
 _RELIC_RE = re.compile(r"\b(?:relic|patch|memorabilia|game[- ]used|jersey)\b", re.I)
@@ -222,7 +222,11 @@ def _strong_exact_title(title: str, identity: dict[str, Any]) -> tuple[bool, lis
     if target_parallel in {"", "base", "base set"}:
         title_words = set(normalized.split())
         suspicious = title_words.intersection(_PARALLEL_WORDS - {"prizm", "prizms"})
-        if suspicious:
+        other_finish = re.search(
+            r"\b(?:wnba logo|logo prizm|image variation|snakes?kin|checkerboard|pulsar|mosaic|swirl|lattice|cherry blossom|lotus flower)\b",
+            normalized,
+        )
+        if suspicious or other_finish:
             reasons.append("parallel_present_on_base")
     else:
         patterns = _parallel_patterns(identity["parallel"])
