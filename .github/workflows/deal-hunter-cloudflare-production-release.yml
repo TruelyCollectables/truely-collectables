@@ -6,6 +6,7 @@ on:
     paths:
       - ".github/workflows/deal-hunter-cloudflare-production-release.yml"
       - "scripts/run-wrangler-deploy-redacted.mjs"
+      - "scripts/run-kingmaker-bulk-recomp-integration.ts"
       - "src/**"
       - "public/**"
       - "package.json"
@@ -22,6 +23,7 @@ on:
     paths:
       - ".github/workflows/deal-hunter-cloudflare-production-release.yml"
       - "scripts/run-wrangler-deploy-redacted.mjs"
+      - "scripts/run-kingmaker-bulk-recomp-integration.ts"
       - "src/**"
       - "public/**"
       - "package.json"
@@ -63,6 +65,9 @@ jobs:
 
       - name: Install Cloudflare deployment tooling without changing the lockfile
         run: npm install --no-save --package-lock=false @opennextjs/cloudflare@1.20.2 wrangler@latest
+
+      - name: Verify Kingmaker scan and re-comp integration
+        run: NODE_PATH="$PWD/node_modules/next/dist/compiled" node --conditions=react-server --import tsx scripts/run-kingmaker-bulk-recomp-integration.ts
 
       - name: Verify Wrangler output containment guard
         run: node scripts/run-wrangler-deploy-redacted.mjs --self-test
@@ -171,7 +176,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: node scripts/run-wrangler-deploy-redacted.mjs --config wrangler.production-route.jsonc --label "routed production Worker"
 
-      - name: Synchronize recovered Supabase runtime credentials to Cloudflare
+      - name: Synchronize runtime credentials to Cloudflare
         shell: bash
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -189,6 +194,8 @@ jobs:
           if (!service) throw new Error('Recovered Supabase service-role key is empty.');
           fs.writeFileSync('/tmp/runtime-supabase-anon-key', anon, { mode: 0o600 });
           fs.writeFileSync('/tmp/runtime-supabase-service-key', service, { mode: 0o600 });
+          const gemini = String(env.GEMINI_API_KEY || env.GOOGLE_GEMINI_API_KEY || '').trim();
+          if (gemini) fs.writeFileSync('/tmp/runtime-gemini-key', gemini, { mode: 0o600 });
           console.log('Recovered Supabase runtime credentials staged for Cloudflare; values withheld.');
           NODE
           [ -n "${INSTACOMP_AI_LOCAL_KEY:-}" ] || { echo "INSTACOMP_AI_LOCAL_KEY is unavailable."; exit 2; }
@@ -196,8 +203,12 @@ jobs:
             npx --no-install wrangler secret put NEXT_PUBLIC_SUPABASE_ANON_KEY --config "$config" < /tmp/runtime-supabase-anon-key
             npx --no-install wrangler secret put SUPABASE_SERVICE_ROLE_KEY --config "$config" < /tmp/runtime-supabase-service-key
             printf '%s' "$INSTACOMP_AI_LOCAL_KEY" | npx --no-install wrangler secret put INSTACOMP_AI_LOCAL_KEY --config "$config"
+            if [ -s /tmp/runtime-gemini-key ]; then
+              npx --no-install wrangler secret put GEMINI_API_KEY --config "$config" < /tmp/runtime-gemini-key
+            fi
           done
           shred -u /tmp/runtime-supabase-anon-key /tmp/runtime-supabase-service-key
+          if [ -f /tmp/runtime-gemini-key ]; then shred -u /tmp/runtime-gemini-key; fi
           echo 'Supabase runtime credentials synchronized to both production Workers.'
 
       - name: Verify routed Worker Supabase runtime binding

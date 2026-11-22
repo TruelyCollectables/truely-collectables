@@ -1108,7 +1108,7 @@ def fetch_recent_ebay_completed_orders(lookback_days: int = 14) -> list[dict[str
     return orders
 
 
-def fetch_ebay_seller_snapshot() -> dict[str, Any]:
+def fetch_ebay_seller_snapshot(*, asking_prices_only: bool = False) -> dict[str, Any]:
     access_token = _ebay_access_token()
     namespace = {"e": "urn:ebay:apis:eBLBaseComponents"}
     now = datetime.now(timezone.utc)
@@ -1180,6 +1180,22 @@ def fetch_ebay_seller_snapshot() -> dict[str, Any]:
             category_name = str(item.findtext("e:PrimaryCategory/e:CategoryName", default="", namespaces=namespace)).strip()
             category_id = str(item.findtext("e:PrimaryCategory/e:CategoryID", default="", namespaces=namespace)).strip()
             condition = str(item.findtext("e:ConditionDisplayName", default="", namespaces=namespace)).strip()
+            if asking_prices_only:
+                current = item.find("e:SellingStatus/e:CurrentPrice", namespace)
+                price_node = current
+                listing_type = item.findtext("e:ListingType", namespaces=namespace)
+                category_kind = category_name.split(":")[-1].strip().lower()
+                card_categories = {"trading card singles", "sports trading card singles", "ccg individual cards"}
+                ask = float(price_node.text or 0) if price_node is not None else 0
+                if (
+                    snapshot_status == "active" and snapshot_quantity > 0
+                    and listing_type in {"FixedPriceItem", "StoresFixedPrice"}
+                    and (category_id in {"261328", "183454"} or category_kind in card_categories)
+                    and price_node is not None and price_node.get("currencyID") == "USD"
+                    and 0 < ask < 100_000_000
+                ):
+                    listings.append({"itemId": listing_id, "title": title, "price": round(ask, 2), "sku": native_sku})
+                continue
             listings.append({
                 "inventoryItemId": f"ebay:{listing_id}", "legacyProductId": None,
                 "ownershipScope": "store", "canEdit": True, "sku": sku,

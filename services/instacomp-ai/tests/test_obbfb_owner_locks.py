@@ -9,17 +9,14 @@ from pathlib import Path
 
 service_root = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(service_root))
-# Import the inventory layer without importing optional CV2/teacher vision runtime.
-module = types.ModuleType("app")
-module.__path__ = [str(service_root / "app")]
-sys.modules.setdefault("app", module)
-# The verified CSV parser imports optional native imaging libraries. These
-# isolated OBBFB tests exercise the SQLite owner-lock layer only; its unrelated
-# CSV image guard is a no-op in the in-memory test module, never in production.
-csv_stub = types.ModuleType("app.verified_csv_intake")
-csv_stub.install_guards = lambda db: None
-sys.modules.setdefault("app.verified_csv_intake", csv_stub)
 if os.environ.get("OBBFB_TEST_INVENTORY_MODULE"):
+    # Standalone backport verification may run without the full vision stack.
+    module = types.ModuleType("app")
+    module.__path__ = [str(service_root / "app")]
+    sys.modules.setdefault("app", module)
+    csv_stub = types.ModuleType("app.verified_csv_intake")
+    csv_stub.install_guards = lambda db: None
+    sys.modules.setdefault("app.verified_csv_intake", csv_stub)
     spec = importlib.util.spec_from_file_location(
         "app.kingmaker_commercial_inventory",
         os.environ["OBBFB_TEST_INVENTORY_MODULE"],

@@ -81,7 +81,7 @@ export default function OBBFBOperatorForm(props: Props) {
       setRetryNotice(
         (payload.identityComplete === true ? "Vision identified this card. " : "Vision returned partial details. ") +
         "Read the front/back, verify the exact identity and price, then lock. Model: " +
-        String(payload.model || "Cloudflare vision") +
+        String(payload.model || "card vision") +
         (payload.pricing?.status === "0 Comps — Seller Price Required" ? ". No valid sold comps — enter your price." : ".")
       );
     } catch (error) {
@@ -132,7 +132,7 @@ export default function OBBFBOperatorForm(props: Props) {
       {!locked ? (
         <button type="button" onClick={() => void retryArchivedVision()} disabled={retrying || busy}
           className="w-full rounded-lg border border-sky-500 bg-sky-950/60 px-4 py-3 text-sm font-black text-sky-100 disabled:opacity-50">
-          {retrying ? "Reading saved front/back with Cloudflare vision…" : "RETRY VISION USING SAVED PHOTOS — NO REUPLOAD"}
+          {retrying ? "Reading saved front/back with card vision…" : "RETRY VISION USING SAVED PHOTOS — NO REUPLOAD"}
         </button>
       ) : null}
       {retryNotice ? <p className="rounded-lg border border-sky-500/50 bg-sky-950/40 p-3 text-sm text-sky-100">{retryNotice}</p> : null}
