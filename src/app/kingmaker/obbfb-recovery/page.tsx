@@ -1,5 +1,5 @@
 import Link from "next/link";
-import OBBFBOperatorForm from "../OBBFBOperatorForm";
+import RecoveryDrafts from "./RecoveryDrafts";
 import { listMacMasterListingRows } from "../../../lib/kingmaker-mac-scan-server";
 
 export const dynamic = "force-dynamic";
@@ -43,44 +43,21 @@ export default async function OBBFBRecoveryPage() {
           No unverified OBBFB scans remain in Resale Pending.
         </p>
       ) : null}
-      <div className="mt-6 space-y-6">
-        {archived.map((row) => {
-          const meta = record(row.metadata);
-          const info = record(meta.instacomp);
-          const id = text(row.inventoryItemId || row.id || row.card_uuid);
-          const identity = record(info.ai);
-          const title = text(row.title) || "Unidentified archived card";
-          const price = Number(info.suggestedPrice || row.price);
-          return (
-            <article key={id} className="rounded-2xl border border-slate-700 bg-slate-900 p-5">
-              <h2 className="text-xl font-black">{title}</h2>
-              <p className="mt-1 text-xs text-slate-400">Private draft ID: {id}</p>
-              <div className="mt-4 flex flex-wrap gap-4">
-                {(["frontImageUrl", "backImageUrl"] as const).map((key, index) => {
-                  const src = text(info[key]);
-                  return src ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img key={key} src={src} alt={index ? "Archived back" : "Archived front"}
-                      className="h-52 w-36 rounded-lg border border-slate-600 bg-slate-950 object-contain" />
-                  ) : null;
-                })}
-              </div>
-              {info.visualFailure ? (
-                <p className="mt-4 rounded-lg border border-amber-600/40 bg-amber-950/30 p-3 text-sm text-amber-200">
-                  Previous vision error: {text(info.visualFailure)}
-                </p>
-              ) : null}
-              <OBBFBOperatorForm
-                key={id} inventoryItemId={id} identity={identity}
-                originalTitle={title}
-                originalDescription={text(row.description)}
-                suggestedPrice={Number.isFinite(price) && price > 0 ? price : null}
-                pricingStatus={text(info.pricingStatus)}
-              />
-            </article>
-          );
-        })}
-      </div>
+      <RecoveryDrafts drafts={archived.map((row) => {
+        const info = record(record(row.metadata).instacomp);
+        const price = Number(info.suggestedPrice || row.price);
+        return {
+          id: text(row.inventoryItemId || row.id || row.card_uuid),
+          title: text(row.title) || "Unidentified archived card",
+          description: text(row.description),
+          identity: record(info.ai),
+          suggestedPrice: Number.isFinite(price) && price > 0 ? price : null,
+          pricingStatus: text(info.pricingStatus),
+          front: text(info.frontImageUrl),
+          back: text(info.backImageUrl),
+          visualFailure: text(info.visualFailure),
+        };
+      })} />
       <Link href="/kingmaker/scan" className="mt-6 inline-flex rounded-lg border border-slate-500 px-4 py-2 font-bold text-slate-200">
         Return to InstaComp Intake
       </Link>
