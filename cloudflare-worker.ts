@@ -594,6 +594,12 @@ const worker = {
     // Mark the native Worker runtime so image normalization never imports Sharp.
     (globalThis as Record<string, unknown>).__TRUELY_CLOUDFLARE_NATIVE_FETCH__ = fetch;
     const url = new URL(request.url);
+    if ((request.method === "HEAD" || request.method === "GET") && url.pathname === "/__edge-health") {
+      return new Response(
+        request.method === "HEAD" ? null : JSON.stringify({ ok: true, edge: "cloudflare-worker" }),
+        { status: 200, headers: { "content-type": "application/json", "cache-control": "no-store" } },
+      );
+    }
     if (url.protocol === "http:") {
       url.protocol = "https:";
       return Response.redirect(url.toString(), 308);
