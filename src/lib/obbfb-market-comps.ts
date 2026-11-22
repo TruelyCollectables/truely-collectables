@@ -123,13 +123,22 @@ export async function researchOBBFBComps(identity: DirectCardIdentity, title: st
     }));
     providerCoverage.push(...(Array.isArray(market.providerCoverage) ? market.providerCoverage.map(record) : []));
     const raw = Array.isArray(market.sold) ? market.sold.map(record) : [];
-    const sales: VerifiedSale[] = raw.map(row => ({
-      source: str(row.source), title: str(row.title), url: str(row.url),
-      price: Number(row.price), soldAt: str(row.soldAt), verified: Array.isArray(row.flags)
-        && row.flags.includes("pricing eligible") && row.sourceCategory === "sold",
-      realized: row.priceIncludesShipping === true
-        || str(row.source).includes("fanatics"),
-    }));
+    const sales: VerifiedSale[] = raw.map(row => {
+      const source = str(row.source);
+      // 130point is a recorded *accepted* sold price even when the separate
+      // shipping charge was not provided. eBay sold best-offer unknowns are
+      // different and remain excluded unless the actual accepted amount is known.
+      const exact130pointRealized = source === "mac_130point_exact_sold";
+      const fanaticsRealized = source === "mac_fanatics_exact_sold";
+      const rawEligible = Array.isArray(row.flags) && row.flags.includes("pricing eligible");
+      return {
+        source, title: str(row.title), url: str(row.url),
+        price: Number(row.price), soldAt: str(row.soldAt),
+        verified: row.sourceCategory === "sold"
+          && (rawEligible || exact130pointRealized),
+        realized: row.priceIncludesShipping === true || fanaticsRealized || exact130pointRealized,
+      };
+    });
     const selected = select365DayComps(sales, identity);
     return {
       ...selected, providerCoverage, priceGuide: Object.keys(record(market.priceGuide)).length ? record(market.priceGuide) : null,
