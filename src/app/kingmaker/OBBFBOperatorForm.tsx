@@ -40,6 +40,9 @@ export default function OBBFBOperatorForm(props: Props) {
   const [busy, setBusy] = useState(false);
   const [locked, setLocked] = useState(false);
   const [error, setError] = useState("");
+  const [retrying, setRetrying] = useState(false);
+  const [retryNotice, setRetryNotice] = useState("");
+  const [visionComplete, setVisionComplete] = useState(Boolean(props.identity.year && props.identity.player && props.identity.cardNumber));
 
   function setField(key: string, value: unknown) {
     setValues(current => ({ ...current, [key]: value }));
@@ -51,6 +54,41 @@ export default function OBBFBOperatorForm(props: Props) {
     setDescription(buildDirectDescription(updated));
     setConfirmed(false);
   }
+  async function retryArchivedVision() {
+    if (retrying || busy || locked) return;
+    setRetrying(true);
+    setError("");
+    setRetryNotice("");
+    try {
+      const session = await getFreshAccountSession(5 * 60, false)
+        || await getKingmakerLocalSession(5 * 60, false);
+      if (!session?.access_token) throw new Error("Kingmaker login required.");
+      const response = await fetch("/api/kingmaker/obbfb-retry", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: "Bearer " + session.access_token },
+        body: JSON.stringify({ inventoryItemId: props.inventoryItemId }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload.success !== true) throw new Error(payload.error || "Archived-photo vision retry failed.");
+      const identity = payload.ai || {};
+      setValues(identity);
+      setTitle(String(payload.title || ""));
+      setDescription(String(payload.description || ""));
+      const suggested = Number(payload.pricing?.suggestedPrice);
+      setPrice(Number.isFinite(suggested) && suggested > 0 ? suggested.toFixed(2) : "");
+      setVisionComplete(payload.identityComplete === true);
+      setConfirmed(false);
+      setRetryNotice(
+        (payload.identityComplete === true ? "Vision identified this card. " : "Vision returned partial details. ") +
+        "Read the front/back, verify the exact identity and price, then lock. Model: " +
+        String(payload.model || "Cloudflare vision") +
+        (payload.pricing?.status === "0 Comps — Seller Price Required" ? ". No valid sold comps — enter your price." : ".")
+      );
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Retry from archived photos failed.");
+    } finally { setRetrying(false); }
+  }
+
   async function save() {
     if (!confirmed || locked || busy) return;
     setBusy(true);
@@ -87,9 +125,17 @@ export default function OBBFBOperatorForm(props: Props) {
     <section className="mt-4 space-y-3 rounded-xl border border-emerald-700/60 bg-slate-950 p-4">
       <h3 className="text-lg font-black text-emerald-300">OBBFB — Verify & lock this physical card</h3>
       <p className="text-xs leading-5 text-slate-300">
-        Direct front/back vision provided an editable draft. Sold comps are raw transaction evidence only.
+        {visionComplete ? "Direct front/back vision supplied an editable draft. " : "The front/back photos are safely archived; vision has not yet completed. "}
+        Sold comps are raw transaction evidence only.
         Saving locks your title, identity and price against automatic repricing. It does not publish.
       </p>
+      {!locked ? (
+        <button type="button" onClick={() => void retryArchivedVision()} disabled={retrying || busy}
+          className="w-full rounded-lg border border-sky-500 bg-sky-950/60 px-4 py-3 text-sm font-black text-sky-100 disabled:opacity-50">
+          {retrying ? "Reading saved front/back with Cloudflare vision…" : "RETRY VISION USING SAVED PHOTOS — NO REUPLOAD"}
+        </button>
+      ) : null}
+      {retryNotice ? <p className="rounded-lg border border-sky-500/50 bg-sky-950/40 p-3 text-sm text-sky-100">{retryNotice}</p> : null}
       {props.pricingStatus === "0 Comps — Seller Price Required" ? (
         <p className="rounded-lg border border-amber-500/40 bg-amber-950/40 p-3 text-sm font-bold text-amber-200">
           0 Comps — Seller Price Required. No fabricated sales or pricing.
@@ -108,6 +154,7 @@ export default function OBBFBOperatorForm(props: Props) {
               value={truth(values[key])}
               onChange={event => setField(key, event.target.value)}
               disabled={locked || busy}
+              style={{ backgroundColor: "#0f172a", color: "#f8fafc" }}
               className="mt-1 w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-white disabled:opacity-60"
             />
           </label>
@@ -127,12 +174,14 @@ export default function OBBFBOperatorForm(props: Props) {
         <input value={truth(values.autographEvidence)}
           onChange={event => setField("autographEvidence", event.target.value)}
           disabled={locked || busy}
+          style={{ backgroundColor: "#0f172a", color: "#f8fafc" }}
           className="mt-1 w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-white" />
       </label>
       <label className="block text-xs font-bold text-slate-300">Relic proof (visible swatch/patch/jersey)
         <input value={truth(values.relicEvidence)}
           onChange={event => setField("relicEvidence", event.target.value)}
           disabled={locked || busy}
+          style={{ backgroundColor: "#0f172a", color: "#f8fafc" }}
           className="mt-1 w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-white" />
       </label>
       <button type="button" onClick={regenerate} disabled={locked || busy}
@@ -142,18 +191,21 @@ export default function OBBFBOperatorForm(props: Props) {
       <label className="block text-xs font-bold text-slate-300">Listing title (under 80 chars; denominator only, e.g. /99)
         <input value={title} maxLength={79} onChange={event => { setTitle(event.target.value); setConfirmed(false); }}
           disabled={locked || busy}
+          style={{ backgroundColor: "#0f172a", color: "#f8fafc" }}
           className="mt-1 w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-white" />
         <span className="text-slate-500">{title.length}/79 characters</span>
       </label>
       <label className="block text-xs font-bold text-slate-300">Description (full XX/YY serial, autograph, inscription and memorabilia)
         <textarea value={description} rows={5} onChange={event => { setDescription(event.target.value); setConfirmed(false); }}
           disabled={locked || busy}
+          style={{ backgroundColor: "#0f172a", color: "#f8fafc" }}
           className="mt-1 w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-white" />
       </label>
       <label className="block text-xs font-bold text-slate-300">Operator listing price (USD)
         <input value={price} type="number" min="2" step="0.01"
           onChange={event => { setPrice(event.target.value); setConfirmed(false); }}
           disabled={locked || busy}
+          style={{ backgroundColor: "#0f172a", color: "#f8fafc" }}
           className="mt-1 w-full rounded-lg border border-slate-600 bg-slate-900 px-3 py-2 text-white" />
       </label>
       <label className="flex gap-3 text-sm font-semibold text-slate-300">

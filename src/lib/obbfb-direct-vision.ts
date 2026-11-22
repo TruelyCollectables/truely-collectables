@@ -53,15 +53,67 @@ const INSTRUCTIONS = [
   "Use null for any unsupported text field and false for unproven Boolean flags. confidence in [0,1] should reflect *exact card* confidence, not image quality. Return JSON.",
 ].join("\n");
 
-export async function identifyOBBFBVision(front: File, back: File): Promise<VisionReceipt> {
-  const apiKey = process.env.OPENAI_API_KEY?.trim();
-  if (!apiKey) throw new Error("Direct vision unavailable: OPENAI_API_KEY not configured in this environment.");
+// Deterministic JSON parser shared by cloud-hosted vision providers. Do not
+// replace missing visible evidence with guesses when a model omits fields.
+export function parseOBBFBVisionJson(raw: string): DirectCardIdentity {
+  const cleaned = raw.trim().replace(/^`{3}(?:json)?\s*/i, "").replace(/\s*`{3}$/, "");
+  const start = cleaned.indexOf("{");
+  const end = cleaned.lastIndexOf("}");
+  if (start < 0 || end <= start) throw new Error("Vision provider returned no structured card identity.");
+  const data = JSON.parse(cleaned.slice(start, end + 1)) as unknown;
+  if (!data || typeof data !== "object" || Array.isArray(data)) {
+    throw new Error("Vision provider returned an invalid identity.");
+  }
+  return normalizeDirectIdentity(data as Record<string, unknown>);
+}
+
+type WorkersAIBinding = {
+  run(model: string, input: Record<string, unknown>): Promise<unknown>;
+};
+function findModelText(value: unknown): string {
+  const result = value && typeof value === "object" ? value as Record<string, unknown> : {};
+  const choices = Array.isArray(result.choices) ? result.choices as Array<Record<string, unknown>> : [];
+  const choice = choices[0] || {};
+  const message = choice.message && typeof choice.message === "object"
+    ? choice.message as Record<string, unknown> : {};
+  const content = message.content ?? result.response;
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content.map(part => part && typeof part === "object"
+      ? String((part as Record<string, unknown>).text || "") : "").join("");
+  }
+  return "";
+}
+async function cloudflareDirectVision(frontNormalized: string, backNormalized: string, model: string) {
+  // This binding already exists in the production routed Cloudflare Worker.
+  // It needs no OpenAI key and makes no call to local Ollama or checklists.
+  const { getCloudflareContext } = await import("@opennextjs/cloudflare");
+  const env = getCloudflareContext().env as Record<string, unknown>;
+  const ai = env.AI as WorkersAIBinding | undefined;
+  if (!ai || typeof ai.run !== "function") throw new Error("Cloudflare Workers AI vision binding unavailable.");
+  const result = await ai.run(model, {
+    messages: [{
+      role: "user",
+      content: [
+        { type: "text", text: INSTRUCTIONS + "\nReturn a single JSON object with fields year, brandSet, manufacturer, player, cardNumber, parallel, subset, serialNumber, isRookie, isAutograph, isRelic, inscription, autographEvidence, relicEvidence, serialEvidence, notes, confidence. No Markdown." },
+        { type: "text", text: "FRONT CARD PHOTO" },
+        { type: "image_url", image_url: { url: frontNormalized } },
+        { type: "text", text: "BACK CARD PHOTO" },
+        { type: "image_url", image_url: { url: backNormalized } },
+      ],
+    }],
+    temperature: 0,
+    max_completion_tokens: 1600,
+    chat_template_kwargs: { enable_thinking: false },
+  });
+  return { identity: parseOBBFBVisionJson(findModelText(result)), model };
+}
+async function openAIDirectVision(frontNormalized: string, backNormalized: string, key: string) {
   const model = String(process.env.OBBFB_VISION_MODEL || "gpt-4.1").trim();
-  const [frontNormalized, backNormalized] = await Promise.all([prepareCardPhoto(front), prepareCardPhoto(back)]);
   const response = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     signal: AbortSignal.timeout(90_000),
-    headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       model, temperature: 0,
       response_format: { type: "json_schema", json_schema: { name: "obbfb_direct_card_identity", strict: true, schema } },
@@ -79,13 +131,50 @@ export async function identifyOBBFBVision(front: File, back: File): Promise<Visi
   });
   const raw = await response.text();
   if (!response.ok) {
-    // Do not leak response bodies: provider error details can contain sensitive metadata.
-    throw new Error(`Direct multimodal vision HTTP ${response.status}`);
+    // The response may contain provider account details. Only emit a category
+    // for safe diagnostics, never provider raw error text or authentication data.
+    let kind = "request_error";
+    if (response.status === 429) {
+      try {
+        const body = JSON.parse(raw) as { error?: { code?: string; type?: string } };
+        kind = body.error?.code === "insufficient_quota" || body.error?.type === "insufficient_quota"
+          ? "insufficient_quota" : "rate_limited";
+      } catch { kind = "rate_limited"; }
+    }
+    throw new Error(`OpenAI direct vision HTTP ${response.status} (${kind})`);
   }
   const payload = JSON.parse(raw) as { choices?: Array<{ message?: { content?: string; refusal?: string } }> };
-  if (payload.choices?.[0]?.message?.refusal) throw new Error("Direct multimodal vision refused the image pair.");
-  const data = JSON.parse(String(payload.choices?.[0]?.message?.content || "null"));
-  if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("Direct visual identity did not return a JSON object.");
-  const identity = normalizeDirectIdentity(data);
-  return { identity, model, frontNormalized, backNormalized, source: "direct_front_back_multimodal_vision" };
+  if (payload.choices?.[0]?.message?.refusal) throw new Error("OpenAI vision refused the image pair.");
+  return { identity: parseOBBFBVisionJson(String(payload.choices?.[0]?.message?.content || "")), model };
+}
+
+export async function identifyOBBFBVision(front: File, back: File): Promise<VisionReceipt> {
+  const [frontNormalized, backNormalized] = await Promise.all([prepareCardPhoto(front), prepareCardPhoto(back)]);
+  const failures: string[] = [];
+  // The production Worker already has AI bound. Prefer its working vision
+  // models instead of consuming/retrying an exhausted external OpenAI quota.
+  // Both models were exercised with archived front/back photographs.
+  const models = [
+    "@cf/qwen/qwen3.8-27b",
+    "@cf/google/gemma-4-26b-a4b-it",
+  ];
+  for (const model of models) {
+    try {
+      const identified = await cloudflareDirectVision(frontNormalized, backNormalized, model);
+      return { ...identified, frontNormalized, backNormalized, source: "direct_front_back_multimodal_vision" };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "inference unavailable";
+      failures.push(`${model}: ${message.slice(0,90)}`);
+    }
+  }
+  const key = process.env.OPENAI_API_KEY?.trim();
+  if (key) {
+    try {
+      const identified = await openAIDirectVision(frontNormalized, backNormalized, key);
+      return { ...identified, frontNormalized, backNormalized, source: "direct_front_back_multimodal_vision" };
+    } catch (error) {
+      failures.push(error instanceof Error ? error.message : "OpenAI direct vision unavailable");
+    }
+  }
+  throw new Error(`Direct vision unavailable from all configured providers: ${failures.join("; ")}`.slice(0,300));
 }

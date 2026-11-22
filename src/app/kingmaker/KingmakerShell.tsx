@@ -14,6 +14,7 @@ const navigation = [
   { href: "/kingmaker", label: "Command Center", exact: true },
   { href: "/kingmaker/listings", label: "Master Listings", exact: false },
   { href: "/kingmaker/scan", label: "InstaComp Intake (OBBFB)", exact: false },
+  { href: "/kingmaker/obbfb-recovery", label: "Recover Saved Scans", exact: false },
   { href: "/kingmaker/need-to-merge", label: "Need to Merge", exact: false },
   { href: "/kingmaker/intelligence", label: "Intelligence", exact: false },
   { href: "/kingmaker/sourcing", label: "Sourcing", exact: false },
