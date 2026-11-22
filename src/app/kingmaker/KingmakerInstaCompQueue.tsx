@@ -13,6 +13,7 @@ import {
 type IntakeResult = {
   success?: boolean;
   code?: string;
+  photosArchived?: boolean;
   error?: string;
   stage?: string;
   identityComplete?: boolean;
@@ -119,14 +120,15 @@ function identityRows(result: IntakeResult | null) {
   const identity = result?.ai || result?.scan?.trusted_identity || {};
   const parallel =
     identity.checklistParallel || identity.parallelName || identity.parallel;
-  const setName = identity.setName || identity.set_name;
+  const setName = identity.brandSet || identity.setName || identity.set_name;
   const displaySetName = isBase(setName) && parallel && !isBase(parallel)
     ? null
     : setName;
   return [
     ["Year", identity.year],
     ["Product", identity.manufacturer || identity.brand],
-    ["Set / Insert", displaySetName],
+    ["Set", displaySetName],
+    ["Insert", identity.subset],
     ["Player", identity.player || identity.playerName],
     ["Card #", identity.cardNumber || identity.card_number],
     ["Parallel", parallel],
@@ -138,10 +140,15 @@ function statusText(card: QueueCard) {
   if (card.status === "queued") return "Queued";
   if (card.status === "working") return "OBBFB direct vision + verified 365-day sold comps";
   if (card.status === "pending" && card.result?.intakeEngine === "obbfb_direct_vision_v1") {
-    return suggestedPrice(card.result) ? "Direct vision + 365-day comps — seller verification needed" : "0 Comps — Seller Price Required";
+    if (card.result.pricing?.status === "comped") {
+      return card.result.pricing.suggestedPrice === 0
+        ? "Exact sold comps found · ready for bulk pricing"
+        : "Direct vision + 365-day comps — seller verification needed";
+    }
+    return "0 Comps — Seller Price Required";
   }
   if (card.status === "pending") return suggestedPrice(card.result) ? "Identified & comped — ready to price" : "Identity saved — pricing queued";
-  if (card.result?.code === "OBBFB_NOT_SAVED") return "Photos archived · inventory save held";
+  if (card.result?.photosArchived) return "Photos archived · inventory save held";
   if (card.result?.code === "DUPLICATE_RECOVERABLE") return "Existing draft · saved-photo retry available";
   if (card.status === "review" && card.result?.resumedExisting)
     return "Existing scan resumed — saved for review";
@@ -217,7 +224,7 @@ export default function KingmakerInstaCompQueue() {
       });
       const result = (await response.json().catch(() => ({}))) as IntakeResult;
       const hasDraft = Boolean(result.inventoryItemId);
-      if (!response.ok && response.status !== 202 && response.status !== 207 && !hasDraft) {
+      if (!response.ok && !hasDraft && !result.photosArchived) {
         if (result.duplicate?.inventoryItemId) {
           patch(card.id, {
             status: "review",
@@ -227,7 +234,9 @@ export default function KingmakerInstaCompQueue() {
           });
           return;
         }
-        throw new Error(result.error || "InstaComp intake failed.");
+        throw new Error(result.error || (result.code
+          ? `InstaComp stopped (${result.code}, HTTP ${response.status}).`
+          : `InstaComp returned HTTP ${response.status} before confirming the result. Retry this card from its loaded photos.`));
       }
 
       const nextFrontPreview =
@@ -671,8 +680,11 @@ export default function KingmakerInstaCompQueue() {
                       ))}
                     </div>
                   ) : null}
-                  {card.result?.code === "OBBFB_NOT_SAVED" && card.front && card.back ? (
-                    <button type="button" disabled={card.status === "working"} onClick={() => void processCard(card)}
+                  {card.status === "review" && card.result?.photosArchived && typeof card.result.ai?.notes === "string" ? (
+                    <p className="mt-3 text-sm text-slate-300">{card.result.ai.notes}</p>
+                  ) : null}
+                  {(card.status === "error" || (card.status === "review" && card.result?.photosArchived)) && card.front && card.back ? (
+                    <button type="button" onClick={() => void processCard(card)}
                       className="mt-3 rounded-lg border border-sky-500 px-4 py-2 text-sm font-bold text-sky-100">
                       Retry identification and comps
                     </button>

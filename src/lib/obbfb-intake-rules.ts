@@ -175,7 +175,10 @@ const median = (values: number[]) => {
 // The source can verify a sale while misclassifying its card. Check the actual
 // title before allowing the transaction to influence the sold median.
 function soldVariantMismatch(title: string, identity: DirectCardIdentity): string | null {
-  if (/\b(?:lot|bundle|pick your|choose your|you pick|complete your set|multi[- ]?card|[x×]\s*\d+|\d+\s*[x×]\b)\b/i.test(title)) {
+  const cardNumbers = new Set(Array.from(title.matchAll(/#\s*([a-z0-9][a-z0-9-]*[0-9]|[0-9]+)\b/gi),
+    match => match[1].toLowerCase()));
+  if (cardNumbers.size > 1 ||
+      /\b(?:lot|bundle|pick your|choose your|you pick|complete your set|multi[- ]?card|[x×]\s*\d+|\d+\s*[x×]\b)\b/i.test(title)) {
     return "multi_card_or_variant_listing";
   }
   const variantMarkers = /\b(?:wnba logo|logo prizm|image variation|snakes?kin|silver|green|red|blue|purple|pink|orange|gold|black|white|ice|velocity|seismic|wave|shimmer|flash|mojo|pandora|refractor|holo|hyper|scope|disco|choice|sparkle|cracked|checkerboard|mosaic|pulsar|swirl|lattice|cherry blossom|lotus flower|premium box set)\b/gi;
