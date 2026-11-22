@@ -165,6 +165,25 @@ app.include_router(
         checklist_gateway,
     )
 )
+# The Cloudflare Tunnel's /v1/kingmaker/* public hostname route returns 502
+# before reaching the Mac, although its localhost route is healthy. Mirror
+# only the authenticated commercial inventory handler outside that prefix.
+# Reuse the original FastAPI dependency objects so this is never an open API.
+_commercial_route = next(
+    (route for route in app.routes
+     if getattr(route, "path", None) == "/v1/kingmaker/accounting/commercial-inventory"),
+    None,
+)
+if _commercial_route is None:
+    raise RuntimeError("Kingmaker commercial inventory bridge route missing")
+app.add_api_route(
+    "/v1/obbfb-inventory/commercial",
+    _commercial_route.endpoint,
+    methods=["POST"],
+    dependencies=list(_commercial_route.dependencies),
+    include_in_schema=False,
+)
+
 app.include_router(
     build_training_router(
         require_api_key,

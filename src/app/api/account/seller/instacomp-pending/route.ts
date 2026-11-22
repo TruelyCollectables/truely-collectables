@@ -273,8 +273,8 @@ async function loadMacMasterListingProjection(params: {
 
   const localOrigin = "ht" + "tp://127.0.0.1:8796";
   const candidateUrls = [
-    baseUrl ? `${baseUrl}/v1/kingmaker/accounting/commercial-inventory` : null,
-    `${localOrigin}/v1/kingmaker/accounting/commercial-inventory`,
+    baseUrl ? `${baseUrl}/v1/obbfb-inventory/commercial` : null,
+    `${localOrigin}/v1/obbfb-inventory/commercial`,
   ].filter((u): u is string => Boolean(u));
 
   for (let attempt = 0; attempt < 3; attempt++) {
@@ -315,8 +315,8 @@ async function loadExactMacPendingTruth() {
 
   const localOrigin = "ht" + "tp://127.0.0.1:8796";
   const candidateUrls = [
-    baseUrl ? `${baseUrl}/v1/kingmaker/accounting/commercial-inventory` : null,
-    `${localOrigin}/v1/kingmaker/accounting/commercial-inventory`,
+    baseUrl ? `${baseUrl}/v1/obbfb-inventory/commercial` : null,
+    `${localOrigin}/v1/obbfb-inventory/commercial`,
   ].filter((u): u is string => Boolean(u));
 
   for (let attempt = 0; attempt < 3; attempt++) {
