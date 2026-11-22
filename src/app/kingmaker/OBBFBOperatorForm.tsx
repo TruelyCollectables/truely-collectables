@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { forwardRef, useImperativeHandle, useRef, useState } from "react";
 import { getKingmakerLocalSession } from "./kingmaker-session";
 import { getFreshAccountSession } from "../account/account-session";
 import {
@@ -28,7 +28,12 @@ const fields = [
 ] as const;
 const truth = (value: unknown) => String(value ?? "");
 
-export default function OBBFBOperatorForm(props: Props) {
+export type OBBFBOperatorHandle = {
+  canSave: boolean;
+  save: () => Promise<boolean>;
+};
+
+export default forwardRef<OBBFBOperatorHandle, Props>(function OBBFBOperatorForm(props, ref) {
   const [values, setValues] = useState<Identity>({
     ...props.identity,
     brandSet: props.identity.brandSet || props.identity.setName || "",
@@ -38,6 +43,7 @@ export default function OBBFBOperatorForm(props: Props) {
   const [price, setPrice] = useState(props.suggestedPrice ? props.suggestedPrice.toFixed(2) : "");
   const [confirmed, setConfirmed] = useState(false);
   const [busy, setBusy] = useState(false);
+  const saving = useRef(false);
   const [locked, setLocked] = useState(false);
   const [error, setError] = useState("");
   const [retrying, setRetrying] = useState(false);
@@ -106,8 +112,12 @@ export default function OBBFBOperatorForm(props: Props) {
     } finally { setRetrying(false); }
   }
 
+  const canSave = confirmed && !locked && !busy && !retrying;
+  useImperativeHandle(ref, () => ({ canSave, save }));
+
   async function save() {
-    if (!confirmed || locked || busy || retrying) return;
+    if (!canSave || saving.current) return false;
+    saving.current = true;
     setBusy(true);
     setError("");
     try {
@@ -131,9 +141,12 @@ export default function OBBFBOperatorForm(props: Props) {
       if (!response.ok || payload.success !== true) throw new Error(payload.error || "Owner lock not saved.");
       setLocked(true);
       setPrice(Number(payload.price).toFixed(2));
+      return true;
     } catch (error) {
       setError(error instanceof Error ? error.message : "Owner lock failed.");
+      return false;
     } finally {
+      saving.current = false;
       setBusy(false);
     }
   }
@@ -232,10 +245,10 @@ export default function OBBFBOperatorForm(props: Props) {
         I verified the actual front/back, exact card and serial, listing description and final price. Lock my edits.
       </label>
       {error ? <p className="rounded-lg border border-red-600 bg-red-950 p-3 text-red-200">{error}</p> : null}
-      <button type="button" disabled={!confirmed || locked || busy} onClick={() => void save()}
+      <button type="button" disabled={!canSave} onClick={() => void save()}
         className="w-full rounded-xl bg-emerald-400 px-4 py-3 font-black text-slate-950 disabled:opacity-40">
         {locked ? "Verified & Locked" : busy ? "Saving verified edits…" : "SAVE & LOCK — NO PUBLISH"}
       </button>
     </section>
   );
-}
+});
