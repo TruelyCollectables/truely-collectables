@@ -69,12 +69,22 @@ export default function OBBFBOperatorForm(props: Props) {
         body: JSON.stringify({ inventoryItemId: props.inventoryItemId }),
       });
       const payload = await response.json().catch(() => ({}));
-      if (!response.ok || payload.success !== true) throw new Error(payload.error || "Archived-photo vision retry failed.");
+      const previewOnly = response.status === 422 && payload.previewOnly === true;
+      if (!previewOnly && (!response.ok || payload.success !== true)) {
+        throw new Error(payload.error || "Archived-photo vision retry failed.");
+      }
       const identity = payload.ai || {};
       setValues(identity);
       setTitle(String(payload.title || ""));
       setDescription(String(payload.description || ""));
       const suggested = Number(payload.pricing?.suggestedPrice);
+      if (previewOnly) {
+        setVisionComplete(false);
+        setConfirmed(false);
+        setError(String(payload.error));
+        setRetryNotice(identity.notes ? String(identity.notes) : "Review the card details read from the saved photos.");
+        return;
+      }
       setPrice(Number.isFinite(suggested) && suggested > 0 ? suggested.toFixed(2) : "");
       setVisionComplete(payload.identityComplete === true);
       setConfirmed(false);
@@ -90,7 +100,7 @@ export default function OBBFBOperatorForm(props: Props) {
   }
 
   async function save() {
-    if (!confirmed || locked || busy) return;
+    if (!confirmed || locked || busy || retrying) return;
     setBusy(true);
     setError("");
     try {

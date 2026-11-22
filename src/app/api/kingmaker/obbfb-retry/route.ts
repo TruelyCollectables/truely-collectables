@@ -52,9 +52,18 @@ export async function POST(request: NextRequest) {
     }
     const blockers = finalPublicationBlockers(identity, title, description, String(insta.frontImageUrl || ""), String(insta.backImageUrl || ""));
     if (!complete || blockers.length || comps?.status !== "comped" || !comps.accepted.length) {
-      return fail(!complete || blockers.length
-        ? "The saved photos could not establish the exact card identity. The draft was left untouched."
-        : "Verified sold comps were unavailable. The draft was left untouched.", 422);
+      return NextResponse.json({
+        success: false,
+        previewOnly: true,
+        identityComplete: complete,
+        ai: identity,
+        title,
+        description,
+        model: vision.model,
+        error: !complete || blockers.length
+          ? "Check the uncertain card details below. Inventory is still awaiting verified identity and sold comps."
+          : "Verified sold comps were unavailable. The suggested identity is shown below for review.",
+      }, { status: 422, headers: { "Cache-Control": "no-store" } });
     }
     const updated = {
       ...metadata,
