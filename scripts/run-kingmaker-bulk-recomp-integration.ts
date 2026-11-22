@@ -70,7 +70,7 @@ async function run() {
       const parts = body.contents[0].parts;
       if (webFinish && parts[1].text === "TARGET BACK") {
         return Response.json({ candidates: [{ finishReason: "STOP", content: { parts: [{ text: JSON.stringify({
-          printedProductLine: "2026 PANINI – WNBA PRIZM BASKETBALL", player: "Paige Bueckers", cardNumber: "57",
+          printedProductLine: "2024 PANINI – WNBA PRIZM BASKETBALL", player: "Paige Bueckers", cardNumber: "57",
           matchedReferenceIds: webFinish === "match" ? ["ebay:111111111111"] : ["ebay:111111111111", "ebay:222222222222"],
           visiblePattern: "Large angular shards", confidence: 0.96,
         }) }] } }] });
@@ -186,7 +186,9 @@ async function run() {
     assert.ok(ambiguous.confidence < 0.7);
     blueFinish = null;
     webFinish = "match";
-    assert.equal((await identifyOBBFBVision(front, back)).identity.parallel, "Ice Prizm");
+    const webCompared = (await identifyOBBFBVision(front, back)).identity;
+    assert.equal(webCompared.year, "2026");
+    assert.equal(webCompared.parallel, "Ice Prizm");
     webFinish = "conflict";
     assert.equal((await identifyOBBFBVision(front, back)).identity.parallel, null);
     webFinish = null;
