@@ -154,7 +154,7 @@ export async function POST(request: NextRequest) {
         imagePairSha256: archived.image_pair_sha256 || pairHash,
         frontSha256: archived.front_sha256, backSha256: archived.back_sha256,
         frontImageUrl, backImageUrl, imagePersistenceVerified: true,
-        imageOrientation: { status: "completed", source: "sharp_exif_normalized_multimodal_vision" },
+        imageOrientation: { status: "model_visual_orientation", source: "direct_cloudflare_multimodal_vision" },
         imageOrientationPersisted: true,
         ai, identityComplete, trustedForIdentity: identityComplete,
         humanVerified: false, manualIdentityLocked: false, sellerPriceOverride: false,
