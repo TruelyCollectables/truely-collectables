@@ -1,5 +1,7 @@
 // Run with NODE_PATH="$PWD/node_modules/next/dist/compiled" node --conditions=react-server --import tsx
 import assert from "node:assert/strict";
+import { NextRequest } from "next/server";
+import { POST as intake } from "../src/app/api/kingmaker/obbfb-intake/route";
 import { ADMIN_SESSION_COOKIE_NAME, createAdminSessionValue } from "../src/lib/admin-session";
 import { identifyOBBFBVision } from "../src/lib/obbfb-direct-vision";
 import { GET, POST } from "../src/app/api/kingmaker/bulk-recomp/route";
@@ -24,6 +26,10 @@ async function run() {
   let cloudflareCalls = 0;
   let locked = false;
   let partial = false;
+  let noSold = false;
+  let created = 0;
+  let archived = 0;
+  const scanId = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee";
   Reflect.set(globalThis, Symbol.for("__cloudflare-context__"), {
     env: { AI: { run: async () => {
       cloudflareCalls++;
@@ -34,6 +40,11 @@ async function run() {
   globalThis.fetch = async (input, init) => {
     const url = new URL(String(input));
     assert.equal(init?.method, "POST");
+    if (url.pathname === "/v1/scans/supervised-archive") {
+      assert.ok(init?.body instanceof FormData);
+      archived++;
+      return Response.json({ scan_id: scanId, card_uuid: scanId, status: "supervised_archive_pending_lesson", front_sha256: "a".repeat(64), back_sha256: "b".repeat(64), image_pair_sha256: "c".repeat(64) });
+    }
     const body = JSON.parse(String(init?.body));
     if (url.hostname === "generativelanguage.googleapis.com") {
       assert.equal(new Headers(init?.headers).get("x-goog-api-key"), "test-only-gemini-key");
@@ -56,8 +67,18 @@ async function run() {
             { itemId: "222222222222", title: "Unlinked", price: 999.99 },
             { itemId: "333333333333", title: "Threshold", price: 1000 },
           ] });
-        case "master_list":
+        case "find_image_pair":
+          return Response.json({ ok: true, items: [] });
+        case "create":
+          assert.equal(body.items[0].price, 12.99);
+          created++;
+          return Response.json({ ok: true, items: body.items });
+        case "project_master":
+          return Response.json({ ok: true });
         case "master_get":
+          if (body.items[0].inventoryItemId === scanId) return Response.json({ ok: true, items: [] });
+        // falls through: both fixture paths return the same active card
+        case "master_list":
           return Response.json({ ok: true, items: [{
             ...row, sellerPriceOverride: locked ? 42 : false,
           }] });
@@ -65,6 +86,7 @@ async function run() {
     }
     if (url.pathname === "/v1/obbfb-market-comp/search") {
       researchCalls++;
+      if (noSold) return Response.json({ sold: [] });
       assert.equal(body.identity.player, identity.player);
       return Response.json({ sold: [12, 8].map((price, index) => ({
         title: "Lane Hutson #229", source: "mac_130point_exact_sold", sourceCategory: "sold",
@@ -110,6 +132,25 @@ async function run() {
     assert.equal(result.suggestedPrice, 12.99);
     assert.equal(result.evidence.length, 2);
     assert.equal(researchCalls, 1);
+    geminiStatus = 200;
+    const scanPair = () => {
+      const form = new FormData();
+      form.set("front", front);
+      form.set("back", back);
+      return intake(new NextRequest("https://truelycollectables.com/api/kingmaker/obbfb-intake",
+        { method: "POST", headers: { cookie }, body: form }));
+    };
+    partial = true;
+    assert.equal((await (await scanPair()).json()).code, "OBBFB_NOT_SAVED");
+    assert.equal(created, 0);
+    partial = false;
+    noSold = true;
+    assert.equal((await (await scanPair()).json()).code, "OBBFB_NOT_SAVED");
+    assert.equal(created, 0);
+    noSold = false;
+    assert.equal((await (await scanPair()).json()).pricingSucceeded, true);
+    assert.equal(created, 1);
+    assert.equal(archived, 3);
     console.log("PASS: paired Gemini, quota fallback, seller review, live-ask boundaries, price locks and read-only re-comp");
   } finally {
     globalThis.fetch = original;
