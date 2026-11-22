@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server";
 import { hasValidAdminRequest } from "../../../../lib/admin-request-auth";
-import { getStripePaymentRuntime } from "../../../../lib/live-payment-launch";
 import { getStripeLiveSecretKey, getStripeTestSecretKey } from "../../../../lib/stripe-credentials";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
 import { getActiveStoreId } from "../../../../lib/stores";
@@ -65,44 +64,13 @@ export async function POST(request: Request) {
     const body = await request.json();
     const input = validatePromotionInput(body);
     const firstOrderOnly = body.firstOrderOnly === true;
-    if (input.freeShipping || input.category) {
-      return NextResponse.json({
-        error: "Category-specific and free-shipping coupon codes are not supported in this form yet.",
-      }, { status: 400 });
+    if (input.percentOff <= 0) {
+      return NextResponse.json({ error: "Enter a positive discount percent." }, { status: 400 });
     }
     const supabase = createSupabaseServerClient({ admin: true });
     const storeId = getActiveStoreId();
-    const runtime = await getStripePaymentRuntime({ storeId, supabase });
-    if (!runtime.allowed || !runtime.stripeKey) {
-      return NextResponse.json({ error: runtime.reason }, { status: 503 });
-    }
-    const idempotencyStem = `${storeId}_${input.code.toLowerCase()}_${input.percentOff}`;
-    const coupon = await stripeRequest(runtime.stripeKey, "coupons", {
-      name: `${input.code} - ${input.percentOff}% off`,
-      percent_off: input.percentOff,
-      duration: "once",
-      "metadata[store_id]": storeId,
-      "metadata[managed_by]": "tcos_admin",
-    }, `tcos_coupon_${idempotencyStem}`);
-
-    let promotionCode: StripeObject;
-    try {
-      promotionCode = await stripeRequest(runtime.stripeKey, "promotion_codes", {
-        "promotion[type]": "coupon",
-        "promotion[coupon]": coupon.id,
-        code: input.code,
-        active: true,
-        ...(input.maxRedemptions ? { max_redemptions: input.maxRedemptions } : {}),
-        ...(input.expiresAt ? { expires_at: Math.floor(input.expiresAt.getTime() / 1000) } : {}),
-        "restrictions[first_time_transaction]": firstOrderOnly,
-        "metadata[store_id]": storeId,
-        "metadata[managed_by]": "tcos_admin",
-      }, `tcos_promotion_${idempotencyStem}_${firstOrderOnly}`);
-    } catch (error) {
-      await stripeRequest(runtime.stripeKey, `coupons/${coupon.id}`, {}, undefined, "DELETE").catch(() => undefined);
-      throw error;
-    }
-
+    // TC applies coupon savings to server-priced Stripe Checkout line items.
+    // The code does not need a separate Stripe promotion-code object.
     const { data: promotion, error: insertError } = await supabase
       .from("store_promotions")
       .insert({
@@ -110,19 +78,18 @@ export async function POST(request: Request) {
         code: input.code,
         percent_off: input.percentOff,
         first_order_only: firstOrderOnly,
+        free_shipping: input.freeShipping,
+        category_scope: input.category,
         active: true,
         expires_at: input.expiresAt?.toISOString() || null,
         max_redemptions: input.maxRedemptions,
-        stripe_coupon_id: coupon.id,
-        stripe_promotion_code_id: promotionCode.id,
-        stripe_livemode: promotionCode.livemode,
+        stripe_coupon_id: null,
+        stripe_promotion_code_id: null,
+        stripe_livemode: false,
       })
       .select("*")
       .single();
-    if (insertError || !promotion) {
-      await stripeRequest(runtime.stripeKey, `promotion_codes/${promotionCode.id}`, { active: false }).catch(() => undefined);
-      throw insertError || new Error("Promotion record was not saved.");
-    }
+    if (insertError || !promotion) throw insertError || new Error("Promotion record was not saved.");
 
     return NextResponse.json({ promotion }, { status: 201 });
   } catch (error) {
@@ -151,11 +118,13 @@ export async function PATCH(request: Request) {
 
     if (body.action === "set-active") {
       const active = body.active === true;
-      const runtime = await getStripePaymentRuntime({ storeId, supabase });
-      if (!runtime.allowed || !runtime.stripeKey) {
-        return NextResponse.json({ error: runtime.reason }, { status: 503 });
+      if (promotion.stripe_promotion_code_id) {
+        const stripeKey = promotion.stripe_livemode ? getStripeLiveSecretKey() : getStripeTestSecretKey();
+        if (!stripeKey) {
+          return NextResponse.json({ error: "Stripe credentials unavailable for this historical coupon." }, { status: 503 });
+        }
+        await stripeRequest(stripeKey, `promotion_codes/${promotion.stripe_promotion_code_id}`, { active });
       }
-      await stripeRequest(runtime.stripeKey, `promotion_codes/${promotion.stripe_promotion_code_id}`, { active });
       const { error: updateError } = await supabase
         .from("store_promotions")
         .update({ active, updated_at: new Date().toISOString() })
@@ -205,19 +174,21 @@ export async function DELETE(request: Request) {
 
     // Disabling a coupon must remain possible even when the live-checkout
     // launch gate is closed. Use only the credential for its recorded Stripe mode.
-    const stripeKey = promotion.stripe_livemode
-      ? getStripeLiveSecretKey()
-      : getStripeTestSecretKey();
-    if (!stripeKey) {
-      return NextResponse.json({ error: "Stripe credentials are unavailable for this coupon." }, { status: 503 });
-    }
-    const stripePromotion = await stripeRequest(
-      stripeKey,
-      "promotion_codes/" + promotion.stripe_promotion_code_id,
-      { active: false },
-    );
-    if (stripePromotion.id !== promotion.stripe_promotion_code_id || stripePromotion.active !== false) {
-      throw new Error("Stripe did not confirm the promotion code was disabled.");
+    if (promotion.stripe_promotion_code_id) {
+      const stripeKey = promotion.stripe_livemode
+        ? getStripeLiveSecretKey()
+        : getStripeTestSecretKey();
+      if (!stripeKey) {
+        return NextResponse.json({ error: "Stripe credentials are unavailable for this coupon." }, { status: 503 });
+      }
+      const stripePromotion = await stripeRequest(
+        stripeKey,
+        "promotion_codes/" + promotion.stripe_promotion_code_id,
+        { active: false },
+      );
+      if (stripePromotion.id !== promotion.stripe_promotion_code_id || stripePromotion.active !== false) {
+        throw new Error("Stripe did not confirm the promotion code was disabled.");
+      }
     }
 
     const { error: deleteError } = await supabase
@@ -226,7 +197,7 @@ export async function DELETE(request: Request) {
       .eq("id", id)
       .eq("store_id", storeId);
     if (deleteError) throw deleteError;
-    return NextResponse.json({ ok: true, removed: true, stripeDisabled: true });
+    return NextResponse.json({ ok: true, removed: true, stripeDisabled: Boolean(promotion.stripe_promotion_code_id) });
   } catch (error) {
     return NextResponse.json({
       error: error instanceof Error ? error.message : "Coupon could not be removed.",

@@ -12,6 +12,7 @@ type Promotion = {
   max_redemptions: number | null;
   times_redeemed: number;
   stripe_livemode: boolean;
+  stripe_promotion_code_id: string | null;
   free_shipping: boolean;
   category_scope: string | null;
 };
@@ -48,6 +49,8 @@ export default function PromotionsClient() {
         body: JSON.stringify({
           code: form.get("code"), percentOff: form.get("percentOff"),
           firstOrderOnly: form.get("firstOrderOnly") === "on",
+          freeShipping: form.get("freeShipping") === "on",
+          category: form.get("category"),
           maxRedemptions: form.get("maxRedemptions"),
           expiresAt: form.get("expiresAt")
             ? new Date(String(form.get("expiresAt"))).toISOString()
@@ -56,7 +59,7 @@ export default function PromotionsClient() {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "Coupon could not be created.");
-      setMessage("Coupon created and ready for Stripe Checkout.");
+      setMessage("Coupon created and ready for TC checkout.");
       formElement.reset();
       await load();
     } catch (error) {
@@ -80,7 +83,7 @@ export default function PromotionsClient() {
 
 
   async function removePromotion(id: string) {
-    if (!window.confirm("Remove this coupon? It will be deactivated in Stripe before its TC record is removed.")) return;
+    if (!window.confirm("Remove this coupon? It will be disabled in Stripe if necessary before its TC record is removed.")) return;
     setBusy(true);
     setMessage("");
     try {
@@ -91,7 +94,7 @@ export default function PromotionsClient() {
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "Coupon could not be removed.");
-      setMessage("Coupon disabled in Stripe and removed.");
+      setMessage("Coupon removed.");
       await load();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : String(error));
@@ -104,13 +107,15 @@ export default function PromotionsClient() {
     <main className="mx-auto max-w-6xl px-4 py-8 text-neutral-950 sm:px-6">
       <p className="text-xs font-black uppercase tracking-[0.18em] text-cyan-700">Store checkout</p>
       <h1 className="mt-2 text-4xl font-black">Coupons</h1>
-      <p className="mt-3 max-w-3xl text-neutral-600">Create Stripe-backed coupon codes and restrict them to first-time buyers when needed.</p>
+      <p className="mt-3 max-w-3xl text-neutral-600">Create checkout discount codes, with optional free shipping and first-order restrictions. Payments are securely processed by Stripe.</p>
 
       {message ? <div className="mt-5 rounded border border-amber-300 bg-amber-50 p-4 font-bold text-amber-950">{message}</div> : null}
 
       <form onSubmit={createPromotion} className="mt-7 grid gap-4 rounded-2xl border border-neutral-200 bg-white p-6 text-neutral-950 shadow-sm sm:grid-cols-2">
         <label className="font-bold">Coupon code<input name="code" placeholder="SAVE15" required className="mt-2 min-h-12 w-full rounded border border-neutral-300 bg-white px-3 text-neutral-950 placeholder:text-neutral-500 focus:border-emerald-600 focus:outline-2 focus:outline-offset-1 focus:outline-emerald-600" /></label>
         <label className="font-bold">Percent off<input name="percentOff" type="number" min="0.01" max="100" step="0.01" defaultValue="10" required className="mt-2 min-h-12 w-full rounded border border-neutral-300 bg-white px-3 text-neutral-950 placeholder:text-neutral-500 focus:border-emerald-600 focus:outline-2 focus:outline-offset-1 focus:outline-emerald-600" /></label>
+        <label className="font-bold">Category (optional)<input name="category" placeholder="Leave blank for entire store" className="mt-2 min-h-12 w-full rounded border border-neutral-300 bg-white px-3 text-neutral-950 placeholder:text-neutral-500 focus:border-emerald-600 focus:outline-2 focus:outline-offset-1 focus:outline-emerald-600" /></label>
+        <label className="flex items-center gap-3 font-bold"><input name="freeShipping" type="checkbox" className="h-5 w-5 accent-emerald-600" />Free shipping for eligible orders</label>
         <label className="font-bold">Maximum redemptions (optional)<input name="maxRedemptions" type="number" min="1" step="1" className="mt-2 min-h-12 w-full rounded border border-neutral-300 bg-white px-3 text-neutral-950 placeholder:text-neutral-500 focus:border-emerald-600 focus:outline-2 focus:outline-offset-1 focus:outline-emerald-600" /></label>
         <label className="font-bold">Expiration (optional)<input name="expiresAt" type="datetime-local" className="mt-2 min-h-12 w-full rounded border border-neutral-300 bg-white px-3 text-neutral-950 placeholder:text-neutral-500 focus:border-emerald-600 focus:outline-2 focus:outline-offset-1 focus:outline-emerald-600" /></label>
         <label className="flex items-center gap-3 font-bold"><input name="firstOrderOnly" type="checkbox" className="h-5 w-5 accent-emerald-600" />First successful order only</label>
@@ -130,7 +135,7 @@ export default function PromotionsClient() {
         {promotions.filter((promotion) => showInactive || promotion.active).map((promotion) => (
           <article key={promotion.id} className="rounded-2xl border border-neutral-200 bg-white p-5 text-neutral-950 shadow-sm">
             <div className="flex flex-wrap items-start justify-between gap-4">
-              <div><h2 className="text-2xl font-black">{promotion.code}</h2><p className="mt-1 font-semibold text-neutral-600">{promotion.percent_off}% off{promotion.free_shipping ? " + free shipping" : ""}{promotion.category_scope ? ` - ${promotion.category_scope}` : ""}{promotion.first_order_only ? " - first order only" : ""} - {promotion.stripe_livemode ? "LIVE Stripe" : "TEST Stripe"}</p></div>
+              <div><h2 className="text-2xl font-black">{promotion.code}</h2><p className="mt-1 font-semibold text-neutral-600">{promotion.percent_off}% off{promotion.free_shipping ? " + free shipping" : ""}{promotion.category_scope ? ` - ${promotion.category_scope}` : ""}{promotion.first_order_only ? " - first order only" : ""} - {promotion.stripe_promotion_code_id ? (promotion.stripe_livemode ? "LIVE Stripe" : "TEST Stripe") : "TC checkout"}</p></div>
               <span className={`rounded-full px-3 py-1 text-sm font-black ${promotion.active ? "bg-emerald-100 text-emerald-800" : "bg-neutral-200"}`}>{promotion.active ? "ACTIVE" : "INACTIVE"}</span>
             </div>
             <div className="mt-4 flex flex-wrap gap-3">
