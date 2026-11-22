@@ -50,6 +50,11 @@ async function run() {
   globalThis.fetch = async (input, init) => {
     const url = new URL(String(input));
     if (url.hostname === "i.ebayimg.com") return new Response(new Uint8Array([255, 216, 255, 3]));
+    if (url.pathname.startsWith(`/v1/scans/${scanId}/images/`)) {
+      const bytes = new Uint8Array(1100);
+      bytes.set([255, 216, 255, url.pathname.endsWith("/front") ? 1 : 2]);
+      return new Response(bytes, { headers: { "Content-Type": "image/jpeg" } });
+    }
     assert.equal(init?.method, "POST");
     if (url.pathname === "/v1/scans/supervised-archive") {
       assert.ok(init?.body instanceof FormData);
@@ -57,6 +62,14 @@ async function run() {
       return Response.json({ scan_id: scanId, card_uuid: scanId, status: "supervised_archive_pending_lesson", front_sha256: "a".repeat(64), back_sha256: "b".repeat(64), image_pair_sha256: "c".repeat(64) });
     }
     const body = JSON.parse(String(init?.body));
+    if (url.pathname === "/v1/obbfb-market-comp/recovery") {
+      assert.equal(body.owner, "kingmaker-local-owner");
+      if (body.action === "get" && body.scanId !== scanId) return Response.json({}, { status: 404 });
+      return Response.json({ scans: [{
+        scan_id: scanId, card_uuid: scanId, front_sha256: "a".repeat(64),
+        back_sha256: "b".repeat(64), image_pair_sha256: "c".repeat(64),
+      }] });
+    }
     if (url.pathname === "/v1/obbfb-market-comp/parallel-photos") {
       assert.equal(body.identity.cardNumber, "57");
       return Response.json({ photos: [
@@ -239,7 +252,13 @@ async function run() {
     assert.equal((await (await scanPair()).json()).code, "OBBFB_NOT_SAVED");
     assert.equal(created, 0);
     noSold = false;
-    const staged = await (await scanPair()).json();
+    const retryPair = (id: string) => intake(new NextRequest("https://truelycollectables.com/api/kingmaker/obbfb-intake", {
+      method: "POST", headers: { cookie, "Content-Type": "application/json" }, body: JSON.stringify({ scanId: id }),
+    }));
+    assert.equal((await retryPair("aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeef")).status, 404);
+    const archiveCount = archived;
+    const staged = await (await retryPair(scanId)).json();
+    assert.equal(archived, archiveCount);
     assert.equal(staged.pricingSucceeded, true);
     assert.deepEqual(staged.pricing.activeCompetition, [{ title: "Lane Hutson #229", price: 11 }]);
     const save = await lockDraft(new NextRequest("https://truelycollectables.com/api/kingmaker/obbfb-lock", {
@@ -254,7 +273,7 @@ async function run() {
     assert.equal(saved.price, 1);
     assert.equal(saved.published, false);
     assert.equal(created, 1);
-    assert.equal(archived, 3);
+    assert.equal(archived, 2);
     lockableDraft = null;
     clearance = true;
     const stagedLow = await (await scanPair()).json();

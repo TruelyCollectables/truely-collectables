@@ -5,6 +5,7 @@ import base64
 import os
 import json
 import re
+import sqlite3
 import statistics
 import subprocess
 from datetime import datetime, timezone
@@ -839,6 +840,44 @@ def _prizm_reference_finish(title: str) -> str | None:
 
 def build_market_comp_router(require_api_key: Callable[..., None], database_path: Path | None = None) -> APIRouter:
     router = APIRouter(prefix="/v1/obbfb-market-comp", tags=["market-comp"], dependencies=[Depends(require_api_key)])
+
+    @router.post("/recovery")
+    async def recovery(request: dict[str, Any]):
+        if database_path is None:
+            raise HTTPException(status_code=503, detail="Scan archive unavailable")
+        owner = _text(request.get("owner"))
+        action = request.get("action")
+        scan_id = _text(request.get("scanId"))
+        if not re.fullmatch(r"[a-zA-Z0-9_-]{1,128}", owner) or action not in {"remember", "list", "get", "complete"}:
+            raise HTTPException(status_code=400, detail="Invalid recovery request")
+
+        def query():
+            with sqlite3.connect(database_path, timeout=5) as db:
+                db.row_factory = sqlite3.Row
+                db.execute("""CREATE TABLE IF NOT EXISTS obbfb_recovery_owner (
+                    scan_id TEXT PRIMARY KEY, owner TEXT NOT NULL, title TEXT, completed INTEGER NOT NULL DEFAULT 0
+                )""")
+                if action == "remember":
+                    db.execute("""INSERT INTO obbfb_recovery_owner (scan_id, owner, title)
+                        SELECT scan_id, ?, ? FROM scans
+                        WHERE scan_id = ? AND status = 'supervised_archive_pending_lesson'
+                        ON CONFLICT(scan_id) DO UPDATE SET title = COALESCE(excluded.title, obbfb_recovery_owner.title)
+                        WHERE obbfb_recovery_owner.owner = excluded.owner""",
+                        (owner, _text(request.get("title"))[:160] or None, scan_id))
+                if action == "complete":
+                    db.execute("UPDATE obbfb_recovery_owner SET completed = 1 WHERE scan_id = ? AND owner = ?", (scan_id, owner))
+                    return []
+                rows = db.execute("""SELECT s.scan_id, s.card_uuid, s.created_at, s.front_sha256, s.back_sha256,
+                    s.image_pair_sha256, o.title FROM obbfb_recovery_owner o JOIN scans s ON s.scan_id = o.scan_id
+                    WHERE o.owner = ? AND (? = 'list' OR s.scan_id = ?)
+                    AND s.status = 'supervised_archive_pending_lesson' AND o.completed = 0
+                    ORDER BY s.created_at DESC LIMIT 500""", (owner, action, scan_id)).fetchall()
+                return [dict(row) for row in rows]
+
+        rows = await asyncio.to_thread(query)
+        if action in {"remember", "get"} and not rows:
+            raise HTTPException(status_code=404, detail="Saved scan not found")
+        return {"scans": rows}
 
     @router.post("/parallel-photos")
     async def parallel_photos(request: MarketCompRequest):
