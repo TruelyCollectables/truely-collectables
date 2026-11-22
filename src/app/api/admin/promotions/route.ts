@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { hasValidAdminRequest } from "../../../../lib/admin-request-auth";
 import { getStripePaymentRuntime } from "../../../../lib/live-payment-launch";
+import { getStripeLiveSecretKey, getStripeTestSecretKey } from "../../../../lib/stripe-credentials";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
 import { getActiveStoreId } from "../../../../lib/stores";
 import {
@@ -202,12 +203,16 @@ export async function DELETE(request: Request) {
       }, { status: 409 });
     }
 
-    const runtime = await getStripePaymentRuntime({ storeId, supabase });
-    if (!runtime.allowed || !runtime.stripeKey) {
-      return NextResponse.json({ error: runtime.reason }, { status: 503 });
+    // Disabling a coupon must remain possible even when the live-checkout
+    // launch gate is closed. Use only the credential for its recorded Stripe mode.
+    const stripeKey = promotion.stripe_livemode
+      ? getStripeLiveSecretKey()
+      : getStripeTestSecretKey();
+    if (!stripeKey) {
+      return NextResponse.json({ error: "Stripe credentials are unavailable for this coupon." }, { status: 503 });
     }
     const stripePromotion = await stripeRequest(
-      runtime.stripeKey,
+      stripeKey,
       "promotion_codes/" + promotion.stripe_promotion_code_id,
       { active: false },
     );
