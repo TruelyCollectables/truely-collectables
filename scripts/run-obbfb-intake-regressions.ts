@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { obbfbPublicationBlockers } from "../src/lib/obbfb-publication-guard";
 import {
   buildDirectDescription, finalPublicationBlockers, formatDirectTitle,
@@ -83,4 +84,12 @@ assert(obbfbPublicationBlockers({ ...publication, price: 2.99 }).includes("opera
 assert(obbfbPublicationBlockers({ ...publication, metadata: {...sellerMetadata, listingWorkflow: {queue: "need_to_merge"}} }).includes("need_to_merge_must_be_resolved"));
 assert(obbfbPublicationBlockers({ ...publication, title: "2024 Jane Doe #94 09/99" }).includes("copy_serial_forbidden_in_title"));
 assert(obbfbPublicationBlockers({ ...publication, back: "/front" }).includes("distinct_front_back_required"));
+const ownerRoute = readFileSync("src/app/api/kingmaker/obbfb-lock/route.ts", "utf8");
+const intakeRoute = readFileSync("src/app/api/kingmaker/obbfb-intake/route.ts", "utf8");
+assert(ownerRoute.includes("metadata.obbfbSellerAccountId"), "Owner lock must use the persisted draft creator ID");
+assert(intakeRoute.includes("obbfbSellerAccountId: account.id"), "Draft intake must persist owner ID in metadata");
+const marketAdapter = readFileSync("services/instacomp-ai/app/obbfb_market_comp_routes.py", "utf8");
+assert(marketAdapter.includes('prefix="/v1/obbfb-market-comp"'));
+assert(marketAdapter.includes("_search_130point"));
+assert(marketAdapter.includes("_search_fanatics"));
 console.log("OBBFB rules PASS: title/serial, autograph, verified 365-day comps, +25%/.99, 0 comps, owner locks and publish blockers.");

@@ -506,6 +506,9 @@ def _master_listing_folder(row: dict[str, Any]) -> str:
 
 
 _MASTER_LISTING_COMPACT_METADATA_KEYS = {
+    # OBBFB owner identity and duplicate review must survive compact projections.
+    "obbfbSellerAccountId",
+    "merge",
     "verifiedCsv",
     "listingReviewRequired",
     "identity",
@@ -528,6 +531,17 @@ _MASTER_LISTING_COMPACT_METADATA_KEYS = {
 }
 
 _MASTER_LISTING_COMPACT_INSTACOMP_KEYS = {
+    # OBBFB seller approvals, price lock and comp provenance cannot be dropped.
+    "intakeEngine",
+    "sellerPriceOverride",
+    "medianComp",
+    "soldCompEvidence",
+    "providerCoverage",
+    "pricingSource",
+    "publishReadinessBlockers",
+    "activeCompetition",
+    "visualFailure",
+    "model",
     "acquisition",
     "ai",
     "backImageSource",

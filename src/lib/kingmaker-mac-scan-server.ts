@@ -192,7 +192,9 @@ export async function searchMacMarketForIdentity(params: {
   const cardNumber = text(identity.cardNumber || identity.card_number, 80);
   if (!year || !player || !cardNumber) return null;
 
-  const response = await fetch(`${macBaseUrl()}/v1/market-comp/search`, {
+  const marketPath = params.include130point === true || params.includeFanatics === true
+    ? "/v1/obbfb-market-comp/search" : "/v1/market-comp/search";
+  const response = await fetch(`${macBaseUrl()}${marketPath}`, {
     method: "POST",
     headers: macHeaders(true),
     body: JSON.stringify({

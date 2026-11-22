@@ -168,6 +168,7 @@ export async function POST(request: NextRequest) {
         publishReadinessBlockers: [...blockers, "operator_review_required"],
         possibleDuplicatePhysicalPhotoId: matching?.inventoryItemId || matching?.id || null,
       },
+      obbfbSellerAccountId: account.id,
       listingWorkflow: { queue, publishAllowed: false, mergeStatus: needToMerge ? "NEED_TO_MERGE" : null },
       merge: needToMerge ? {
         status: "NEED_TO_MERGE", existingInventoryItemId: matching?.inventoryItemId || matching?.id,

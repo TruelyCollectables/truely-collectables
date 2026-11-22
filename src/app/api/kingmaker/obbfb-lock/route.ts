@@ -29,14 +29,11 @@ export async function POST(request: NextRequest) {
     if (!existing || existing.status !== "draft") {
       return NextResponse.json({ error: "OBBFB draft not found or not editable." }, { status: 409 });
     }
-    const ownerEmail = String(account.email || "").toLowerCase();
-    const isStoreOwner = ownerEmail === "sales@truelycollectables.com"
-      || ownerEmail === "sales@trulycollectables.com";
-    const itemSellerId = String(existing.seller_account_id || existing.sellerAccountId || "");
-    if (!isStoreOwner && (!itemSellerId || itemSellerId !== account.id)) {
-      return NextResponse.json({ error: "OBBFB draft not found." }, { status: 404 });
-    }
     const metadata = record(existing.metadata);
+    const draftSellerAccountId = String(metadata.obbfbSellerAccountId || "").trim();
+    if (!draftSellerAccountId || draftSellerAccountId !== account.id) {
+      return NextResponse.json({ error: "OBBFB draft not found or seller mismatch." }, { status: 404 });
+    }
     const instacomp = record(metadata.instacomp);
     if (instacomp.intakeEngine !== "obbfb_direct_vision_v1") {
       return NextResponse.json({ error: "This card is not in OBBFB intake." }, { status: 409 });

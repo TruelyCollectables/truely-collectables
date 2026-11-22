@@ -53,6 +53,7 @@ class OBBFBOwnerLockTests(unittest.TestCase):
                 "manualIdentityLocked": False,
                 "sellerPriceOverride": False,
             },
+            "obbfbSellerAccountId": "kingmaker-local-owner",
             "listingWorkflow": {"queue": "pending_listings", "publishAllowed": False},
             "seller_review": {"identity_confirmed": False},
         }
@@ -66,8 +67,11 @@ class OBBFBOwnerLockTests(unittest.TestCase):
         })
 
     def test_create_projects_pending_without_registry(self):
-        self.make_draft()
+        created = self.make_draft()
+        self.assertEqual(created["metadata"]["obbfbSellerAccountId"], "kingmaker-local-owner")
         self.catalog.project_master_listings([self.catalog.get_item(self.identifier)])
+        projected = self.catalog.get_master_listing_projection(self.identifier)
+        self.assertEqual(projected["metadata"]["obbfbSellerAccountId"], "kingmaker-local-owner")
         pending = self.catalog.list_master_listing_projection(folder="pending", pending_queue="listings")
         self.assertTrue(any(str(i.get("id") or i.get("inventoryItemId")) == self.identifier for i in pending["items"]))
 

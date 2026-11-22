@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { getKingmakerLocalSession } from "./kingmaker-session";
+import { getFreshAccountSession } from "../account/account-session";
 import {
   buildDirectDescription, formatDirectTitle, normalizeDirectIdentity,
 } from "../../lib/obbfb-intake-rules";
@@ -55,7 +56,10 @@ export default function OBBFBOperatorForm(props: Props) {
     setBusy(true);
     setError("");
     try {
-      const session = await getKingmakerLocalSession(5 * 60, false);
+      // Same form supports both Kingmaker's HttpOnly admin cookie and a real
+      // authenticated seller account on /seller/instacomp-scan.
+      const session = await getFreshAccountSession(5 * 60, false)
+        || await getKingmakerLocalSession(5 * 60, false);
       if (!session?.access_token) throw new Error("Kingmaker seller login required.");
       const response = await fetch("/api/kingmaker/obbfb-lock", {
         method: "POST",
