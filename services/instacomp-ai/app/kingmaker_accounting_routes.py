@@ -908,4 +908,15 @@ def build_kingmaker_accounting_router(
         except Exception as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    return router
+    # Expose the same protected inventory handler outside the /v1/kingmaker
+    # tunnel prefix. Register directly so deferred router inclusion is supported.
+    bridge = APIRouter()
+    bridge.include_router(router)
+    bridge.add_api_route(
+        "/v1/obbfb-inventory/commercial",
+        commercial_inventory_route,
+        methods=["POST"],
+        dependencies=[Depends(require_api_key)],
+        include_in_schema=False,
+    )
+    return bridge
