@@ -1,3 +1,4 @@
+import { isOBBFBClearanceDraft } from "../../../../../lib/obbfb-intake-rules";
 import { readFileSync, statSync } from "node:fs";
 import {
   ensureAccountStoreMembership,
@@ -1687,6 +1688,8 @@ export async function GET(request: Request) {
           scanId: textValue(recordValue(metadata.inventory_lifecycle).scanId),
         },
         instaComp: {
+          clearanceUnpriced: isOBBFBClearanceDraft(row.price, row.status, instaComp) &&
+            !sellerReview.price_confirmed && !sellerReview.identity_confirmed && recordValue(metadata.merge).status !== "NEED_TO_MERGE",
           source: textValue(instaComp.source) || textValue(row.sourceOfTruth),
           scanId:
             textValue(instaComp.scanId) ||

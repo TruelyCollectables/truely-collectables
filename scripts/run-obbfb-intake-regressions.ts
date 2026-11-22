@@ -57,7 +57,10 @@ const noComps = select365DayComps([sale(20, "2025-11-01T00:00:00Z")], identity, 
 assert.equal(noComps.status, "0 Comps — Seller Price Required");
 assert.equal(noComps.suggestedPrice, null);
 const low = select365DayComps([sale(1)], normalizeDirectIdentity({ ...base, serialNumber: null }), now);
-assert.equal(low.suggestedPrice, 2.99);
+assert.equal(low.suggestedPrice, 0);
+assert.equal(low.status, "comped");
+assert.equal(select365DayComps([sale(1.99)], normalizeDirectIdentity({ ...base, serialNumber: null }), now).suggestedPrice, 0);
+assert.equal(select365DayComps([sale(2)], normalizeDirectIdentity({ ...base, serialNumber: null }), now).suggestedPrice, 2.99);
 const unverified = select365DayComps([{...sale(100), verified: false}], identity, now);
 assert.equal(unverified.suggestedPrice, null, "Never synthesize or price unverified sales");
 assert.equal(select365DayComps([{...sale(100), realized: false}], identity, now).suggestedPrice, null, "Do not price asking prices");

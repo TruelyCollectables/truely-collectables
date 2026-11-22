@@ -6,7 +6,7 @@ import {
   getMacMasterListingRow, updateMacKingmakerDraft,
 } from "../../../../lib/kingmaker-mac-scan-server";
 import {
-  normalizeDirectIdentity, finalPublicationBlockers, identitySufficient, isValidOBBFBSellerPrice, sameCardVariant, select365DayComps,
+  normalizeDirectIdentity, finalPublicationBlockers, identitySufficient, isValidOBBFBSellerPrice, isOBBFBClearanceDraft, sameCardVariant, select365DayComps,
   type VerifiedSale,
 } from "../../../../lib/obbfb-intake-rules";
 
@@ -42,9 +42,14 @@ export async function POST(request: NextRequest) {
     if (instacomp.intakeEngine !== "obbfb_direct_vision_v1") {
       return NextResponse.json({ error: "This card is not in OBBFB intake." }, { status: 409 });
     }
-    const identity = normalizeDirectIdentity(record(body.identity));
-    const title = String(body.title || "").trim();
-    const description = String(body.description || "").trim();
+    const clearance = body.mode === "bulk_clearance";
+    if (clearance && (!isOBBFBClearanceDraft(existing.price, existing.status, instacomp) ||
+      record(metadata.seller_review).price_confirmed || record(metadata.seller_review).identity_confirmed)) {
+      return NextResponse.json({ error: "This card is no longer an unlocked $0 pricing draft." }, { status: 409 });
+    }
+    const identity = normalizeDirectIdentity(record(clearance ? instacomp.ai : body.identity));
+    const title = String((clearance ? existing.title : body.title) || "").trim();
+    const description = String((clearance ? existing.description : body.description) || "").trim();
     const price = Number(body.price);
     if (!identity.parallel || !identitySufficient({ ...identity, confidence: 1 })) {
       return NextResponse.json({ error: "Verify year, brand/set, player and card number before locking." }, { status: 400 });
@@ -70,6 +75,9 @@ export async function POST(request: NextRequest) {
     const validStored = sameCardVariant(previousIdentity, identity) && previousIdentity.serialNumber === identity.serialNumber
       && instacomp.pricingStatus === "comped" && storedEvidence.length > 0
       ? select365DayComps(storedEvidence, identity) : null;
+    if (clearance && (validStored?.status !== "comped" || validStored.suggestedPrice !== 0)) {
+      return NextResponse.json({ error: "Current exact sold comps no longer qualify for under-$2 pricing." }, { status: 422 });
+    }
     const comps = validStored?.status === "comped" ? validStored : await researchOBBFBComps(identity, title);
     if (comps.status !== "comped" || !comps.accepted.length) {
       return NextResponse.json({ error: "Verified sold comps for this exact identity are required before saving and locking the card." }, { status: 422 });
@@ -108,7 +116,7 @@ export async function POST(request: NextRequest) {
     };
     const item = await updateMacKingmakerDraft(inventoryItemId, {
       title, description, price, metadata: nextMetadata, status: "draft",
-      obbfbOperatorSave: true,
+      obbfbOperatorSave: !clearance,
     });
     if (!item) throw new Error("Mac-local OBBFB save returned no record.");
     return NextResponse.json({

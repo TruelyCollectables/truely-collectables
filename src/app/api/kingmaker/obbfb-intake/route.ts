@@ -172,7 +172,7 @@ export async function POST(request: NextRequest) {
         ai, identityComplete, trustedForIdentity: identityComplete,
         humanVerified: false, manualIdentityLocked: false, sellerPriceOverride: false,
         manualListingTitleLocked: false,
-        suggestedPrice: market?.suggestedPrice || null, medianComp: market?.medianComp || null,
+        suggestedPrice: market?.suggestedPrice ?? null, medianComp: market?.medianComp || null,
         pricingStatus: market?.status || (identityComplete ? "0 Comps — Seller Price Required" : "identity_review_required"),
         soldCompEvidence: market?.accepted || [], rejectedSoldComps: market?.rejected || [],
         activeCompetition: market?.activeListings || [], providerCoverage: market?.providerCoverage || [],
