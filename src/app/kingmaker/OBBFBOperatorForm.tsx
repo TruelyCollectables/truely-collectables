@@ -4,7 +4,7 @@ import { forwardRef, useImperativeHandle, useRef, useState } from "react";
 import { getKingmakerLocalSession } from "./kingmaker-session";
 import { getFreshAccountSession } from "../account/account-session";
 import {
-  buildDirectDescription, formatDirectTitle, marketVariantMismatch, normalizeDirectIdentity,
+  buildDirectDescription, formatDirectTitle, isSoldPricingExclusion, marketVariantMismatch, normalizeDirectIdentity,
 } from "../../lib/obbfb-intake-rules";
 
 type Identity = Record<string, unknown>;
@@ -17,7 +17,8 @@ type Props = {
   pricingStatus: string | null;
   marketEvidence?: MarketEvidence;
 };
-type MarketEvidence = {
+export type MarketEvidence = {
+  rejectedSoldComps?: Array<{ sale: Record<string, unknown>; reason: unknown }>;
   soldCompEvidence?: Array<Record<string, unknown>>;
   activeCompetition?: Array<Record<string, unknown>>;
 };
@@ -270,6 +271,8 @@ export default forwardRef<OBBFBOperatorHandle, Props>(function OBBFBOperatorForm
       {marketEvidence ? (
         <>
           <MarketRows label="Exact sold comps" rows={marketEvidence.soldCompEvidence} identity={values} />
+          <MarketRows label="Other exact sales excluded by pricing rules"
+            rows={marketEvidence.rejectedSoldComps?.filter(row => isSoldPricingExclusion(row.reason)).map(row => row.sale)} identity={values} />
           <MarketRows label="Current eBay asking prices" rows={marketEvidence.activeCompetition} identity={values} />
         </>
       ) : null}

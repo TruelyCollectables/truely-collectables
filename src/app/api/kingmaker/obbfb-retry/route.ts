@@ -61,7 +61,7 @@ export async function POST(request: NextRequest) {
         description,
         model: vision.model,
         pricing: comps ? { status: comps.status, suggestedPrice: comps.suggestedPrice, medianComp: comps.medianComp,
-          soldCompEvidence: comps.accepted, activeCompetition: comps.activeListings, providerCoverage: comps.providerCoverage } : null,
+          soldCompEvidence: comps.accepted, rejectedSoldComps: comps.rejected, activeCompetition: comps.activeListings, providerCoverage: comps.providerCoverage } : null,
         error: !complete || blockers.length
           ? "Check the uncertain card details below. Inventory is still awaiting verified identity and sold comps."
           : "Verified sold comps were unavailable. The suggested identity is shown below for review.",
@@ -93,7 +93,7 @@ export async function POST(request: NextRequest) {
       success: true, inventoryItemId: id, title, description, ai: identity,
       identityComplete: complete, model: vision.model, archivedImagesReused: true,
       pricing: comps
-        ? { status: comps.status, suggestedPrice: comps.suggestedPrice, medianComp: comps.medianComp, soldCompEvidence: comps.accepted, activeCompetition: comps.activeListings, providerCoverage: comps.providerCoverage }
+        ? { status: comps.status, suggestedPrice: comps.suggestedPrice, medianComp: comps.medianComp, soldCompEvidence: comps.accepted, rejectedSoldComps: comps.rejected, activeCompetition: comps.activeListings, providerCoverage: comps.providerCoverage }
         : { status: complete ? "0 Comps — Seller Price Required" : "identity_review_required", suggestedPrice: null },
       published: false, folder: "pending", pendingQueue: "listings", requiresSellerReview: true,
     }, { status: complete ? 200 : 202, headers: { "Cache-Control": "no-store" } });

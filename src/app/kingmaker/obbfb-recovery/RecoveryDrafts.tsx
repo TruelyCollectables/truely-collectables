@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import OBBFBOperatorForm, { type OBBFBOperatorHandle } from "../OBBFBOperatorForm";
+import OBBFBOperatorForm, { type MarketEvidence, type OBBFBOperatorHandle } from "../OBBFBOperatorForm";
 
 type Draft = {
   id: string;
@@ -14,7 +14,7 @@ type Draft = {
   back: string;
   visualFailure: string;
   priceNeedsRecomp: boolean;
-  marketEvidence: { soldCompEvidence: Array<Record<string, unknown>>; activeCompetition: Array<Record<string, unknown>> };
+  marketEvidence: MarketEvidence;
 };
 
 export default function RecoveryDrafts({ drafts }: { drafts: Draft[] }) {
