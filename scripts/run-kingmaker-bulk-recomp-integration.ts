@@ -27,6 +27,7 @@ async function run() {
   let cloudflareCalls = 0;
   let locked = false;
   let partial = false;
+  let webFinish: "match" | "conflict" | null = null;
   let blueFinish: "match" | "ambiguous" | null = null;
   let noSold = false;
   let clearance = false;
@@ -48,6 +49,7 @@ async function run() {
   const original = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     const url = new URL(String(input));
+    if (url.hostname === "i.ebayimg.com") return new Response(new Uint8Array([255, 216, 255, 3]));
     assert.equal(init?.method, "POST");
     if (url.pathname === "/v1/scans/supervised-archive") {
       assert.ok(init?.body instanceof FormData);
@@ -55,10 +57,24 @@ async function run() {
       return Response.json({ scan_id: scanId, card_uuid: scanId, status: "supervised_archive_pending_lesson", front_sha256: "a".repeat(64), back_sha256: "b".repeat(64), image_pair_sha256: "c".repeat(64) });
     }
     const body = JSON.parse(String(init?.body));
+    if (url.pathname === "/v1/obbfb-market-comp/parallel-photos") {
+      assert.equal(body.identity.cardNumber, "57");
+      return Response.json({ photos: [
+        { id: "ebay:111111111111", parallel: "Ice Prizm", imageUrl: "https://i.ebayimg.com/images/ice.jpg" },
+        { id: "ebay:222222222222", parallel: "Silver Prizm", imageUrl: "https://i.ebayimg.com/images/silver.jpg" },
+      ] });
+    }
     if (url.hostname === "generativelanguage.googleapis.com") {
       assert.equal(new Headers(init?.headers).get("x-goog-api-key"), "test-only-gemini-key");
       assert.equal(url.search, "");
       const parts = body.contents[0].parts;
+      if (webFinish && parts[1].text === "TARGET BACK") {
+        return Response.json({ candidates: [{ finishReason: "STOP", content: { parts: [{ text: JSON.stringify({
+          printedProductLine: "2024 PANINI – WNBA PRIZM BASKETBALL", player: "Paige Bueckers", cardNumber: "57",
+          matchedReferenceIds: webFinish === "match" ? ["ebay:111111111111"] : ["ebay:111111111111", "ebay:222222222222"],
+          visiblePattern: "Large angular shards", confidence: 0.96,
+        }) }] } }] });
+      }
       if (blueFinish && parts[1].text === "TARGET BACK") {
         assert.equal(parts[3].text, "TARGET FRONT");
         assert.equal(parts.filter((part: { inlineData?: object }) => part.inlineData).length, 5);
@@ -76,7 +92,11 @@ async function run() {
       assert.notEqual(parts[2].inlineData.data, parts[4].inlineData.data);
       return Response.json({
         candidates: [{ finishReason: "STOP", content: { parts: [{
-          text: JSON.stringify(blueFinish ? {
+          text: JSON.stringify(webFinish ? {
+            ...identity, year: "2026", printedReleaseYear: "2026", copyrightYear: "2026",
+            player: "Paige Bueckers", cardNumber: "57", brandSet: "WNBA Prizm Basketball",
+            parallel: "Silver Prizm",
+          } : blueFinish ? {
             ...identity, year: "2024", printedReleaseYear: "2024", copyrightYear: "2024",
             player: "Napheesa Collier", cardNumber: "41", brandSet: "WNBA Prizm Basketball",
             parallel: null, notes: "Blue crossed foil",
@@ -165,6 +185,13 @@ async function run() {
     assert.equal(ambiguous.parallel, null);
     assert.ok(ambiguous.confidence < 0.7);
     blueFinish = null;
+    webFinish = "match";
+    const webCompared = (await identifyOBBFBVision(front, back)).identity;
+    assert.equal(webCompared.year, "2026");
+    assert.equal(webCompared.parallel, "Ice Prizm");
+    webFinish = "conflict";
+    assert.equal((await identifyOBBFBVision(front, back)).identity.parallel, null);
+    webFinish = null;
     partial = true;
     assert.ok((await identifyOBBFBVision(front, back)).identity.confidence < 0.7);
     assert.equal(cloudflareCalls, 0);
