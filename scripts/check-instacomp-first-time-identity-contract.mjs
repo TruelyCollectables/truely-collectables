@@ -122,7 +122,7 @@ for (const required of [
   requireText(intake, required, `OBBFB direct front/back intake missing: ${required}`);
 }
 for (const required of [
-  "prepareCardPhoto(front)", "prepareCardPhoto(back)",
+  'forVision(front, "front")', 'forVision(back, "back")', "prepareCardPhoto(upright || file)",
   "https://api.openai.com/v1/chat/completions",
   'detail: "high"', "ZERO AUTOGRAPH ASSUMPTION",
 ]) {
