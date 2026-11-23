@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field
 from .teacher_comp_learning import record_exact_market_history
 
 _BROWSER_LOCK = asyncio.Lock()
-_CHROME_TIMEOUT_SECONDS = 35
+_CHROME_TIMEOUT_SECONDS = 14
 _FANATICS_API = "https://sales-history-api.services.fanaticscollect.com/api/v1/pub/sales"
 _CHALLENGE_RE = re.compile(r"captcha|verify you are human|access denied|challenge required|unusual traffic", re.I)
 _MONEY_RE = re.compile(r"\$\s*([0-9][0-9,]*(?:\.\d{1,2})?)")
@@ -421,7 +421,7 @@ async def _search_ebay_price_guide(listing_url: str, identity: dict[str, Any]) -
     if not listing_url:
         return None, {"source": "ebay_price_guide", "label": "eBay Price Guide", "status": "no_matches", "resultCount": 0, "message": "No exact eBay listing was available to open Price Guide."}
     try:
-        raw = await asyncio.to_thread(_run_osascript, _chrome_price_guide_script(listing_url), 45)
+        raw = await asyncio.to_thread(_run_osascript, _chrome_price_guide_script(listing_url), 18)
         payload = json.loads(raw)
         if payload.get("ok") is not True:
             return None, {"source": "ebay_price_guide", "label": "eBay Price Guide", "status": "no_matches", "resultCount": 0, "searchUrl": listing_url, "message": _text(payload.get("error") or "Price Guide did not return a dataset.")}
@@ -656,7 +656,7 @@ async def _search_ebay_active(query: str) -> tuple[list[dict[str, Any]], dict[st
 
 async def _search_130point(query: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     try:
-        raw = await asyncio.to_thread(_run_osascript, _chrome_130point_script(query), 35)
+        raw = await asyncio.to_thread(_run_osascript, _chrome_130point_script(query), 18)
         payload = json.loads(raw)
         probe = f"{payload.get('title', '')} {payload.get('body', '')}"[:5000]
         if _CHALLENGE_RE.search(probe):
@@ -1187,7 +1187,7 @@ def build_market_comp_router(require_api_key: Callable[..., None], database_path
                 price_guide, price_guide_coverage = await _search_ebay_price_guide_candidates(
                     exact_listing_candidates,
                     identity,
-                    max_attempts=3,
+                    max_attempts=1,
                 )
 
         photo_finishes = await _audit_wnba_base_photos(point_rows + ebay_rows, identity) if wnba_base else {}
