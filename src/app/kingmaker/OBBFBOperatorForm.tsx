@@ -188,6 +188,11 @@ export default forwardRef<OBBFBOperatorHandle, Props>(function OBBFBOperatorForm
     }
   }
 
+  const referenceQuery = [values.year, values.brandSet, values.player, values.cardNumber ? `#${values.cardNumber}` : null, values.parallel]
+    .filter(Boolean).join(" ");
+  const hasToppsChecklist = String(values.year) === "2026" && /\btopps\b/i.test(`${values.manufacturer || ""} ${values.brandSet || ""}`)
+    && /\bchrome\b/i.test(String(values.brandSet)) && /\bfootball\b/i.test(String(values.brandSet));
+
   return (
     <section className="mt-4 space-y-3 rounded-xl border border-emerald-700/60 bg-slate-950 p-4">
       <h3 className="text-lg font-black text-emerald-300">OBBFB — Verify & lock this physical card</h3>
@@ -202,10 +207,20 @@ export default forwardRef<OBBFBOperatorHandle, Props>(function OBBFBOperatorForm
           {retrying ? "Reading saved front/back with card vision…" : "RETRY VISION USING SAVED PHOTOS — NO REUPLOAD"}
         </button>
       ) : null}
+      {values.player && values.cardNumber ? (
+        <div className="flex flex-wrap gap-3 text-sm text-sky-200">
+          <a href={`https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(referenceQuery)}`}
+            target="_blank" rel="noreferrer" className="underline">Compare card photos on eBay</a>
+          {hasToppsChecklist ? (
+            <a href="https://www.topps.com/pages/topps-chrome-football" target="_blank" rel="noreferrer"
+              className="underline">Official Topps checklist</a>
+          ) : null}
+        </div>
+      ) : null}
       {retryNotice ? <p className="rounded-lg border border-sky-500/50 bg-sky-950/40 p-3 text-sm text-sky-100">{retryNotice}</p> : null}
       {props.pricingStatus === "0 Comps — Seller Price Required" ? (
         <p className="rounded-lg border border-amber-500/40 bg-amber-950/40 p-3 text-sm font-bold text-amber-200">
-          0 Comps — Seller Price Required. No fabricated sales or pricing.
+          No verified sold comps found. Enter your own price to lock this draft.
         </p>
       ) : null}
       {locked ? (

@@ -47,7 +47,7 @@ export default async function OBBFBRecoveryPage() {
       <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-300">
         These card fronts and backs were already saved on your Mac. Retry both sides with
         Gemini vision with Cloudflare backup. No photography or uploads are needed.
-        Scans waiting on identification or sold comps stay here. Verified cards with exact sold comps can move to Resale Pending.
+        Scans waiting on identification stay here. Identified cards move to Resale Pending, where you can review pricing.
       </p>
       <p className="mt-4 font-bold text-sky-200">{archived.length} unverified OBBFB scans saved</p>
       {error ? <p className="mt-4 rounded-xl border border-red-700 bg-red-950/50 p-4 text-red-200">{error}</p> : null}

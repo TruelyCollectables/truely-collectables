@@ -666,6 +666,7 @@ export default function KingmakerInstaCompQueue() {
                         originalDescription={card.result.description || ""}
                         suggestedPrice={basePrice}
                         pricingStatus={String(card.result.pricing?.status || "")}
+                        marketEvidence={card.result.pricing || undefined}
                       />
                     ) : null}
                   {choices.length ? (

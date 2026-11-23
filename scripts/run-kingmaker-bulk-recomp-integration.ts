@@ -134,7 +134,11 @@ async function run() {
         case "find_image_pair":
           return Response.json({ ok: true, items: [] });
         case "create":
-          assert.equal(body.items[0].price, clearance ? 0 : 12.99);
+          assert.equal(body.items[0].price, clearance || noSold ? 0 : 12.99);
+          if (noSold) {
+            assert.equal(body.items[0].metadata.listingWorkflow.publishAllowed, false);
+            assert.deepEqual(body.items[0].metadata.instacomp.soldCompEvidence, []);
+          }
           created++;
           lockableDraft = body.items[0];
           return Response.json({ ok: true, items: body.items });
@@ -269,8 +273,20 @@ async function run() {
     assert.equal(created, 0);
     partial = false;
     noSold = true;
-    assert.equal((await (await scanPair()).json()).code, "OBBFB_NOT_SAVED");
-    assert.equal(created, 0);
+    const unpriced = await (await scanPair()).json();
+    assert.equal(unpriced.stage, "complete");
+    assert.equal(unpriced.pricingSucceeded, false);
+    assert.equal(unpriced.pricing.suggestedPrice, null);
+    assert.equal(created, 1);
+    const manualWithoutComps = await lockDraft(new NextRequest("https://truelycollectables.com/api/kingmaker/obbfb-lock", {
+      method: "POST", headers: { cookie, "Content-Type": "application/json" },
+      body: JSON.stringify({ confirmed: true, inventoryItemId: scanId, price: 1,
+        identity: unpriced.ai, title: unpriced.title, description: unpriced.description }),
+    }));
+    assert.equal(manualWithoutComps.status, 200);
+    assert.equal((await manualWithoutComps.json()).published, false);
+    lockableDraft = null;
+    created = 0;
     noSold = false;
     const retryPair = (id: string) => intake(new NextRequest("https://truelycollectables.com/api/kingmaker/obbfb-intake", {
       method: "POST", headers: { cookie, "Content-Type": "application/json" }, body: JSON.stringify({ scanId: id }),

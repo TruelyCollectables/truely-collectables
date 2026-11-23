@@ -146,7 +146,7 @@ export async function POST(request: NextRequest) {
     } catch (error) {
       visionError = error instanceof Error ? error.message.slice(0, 240) : "Direct vision unavailable.";
     }
-    const identityComplete = Boolean(identity && identitySufficient(identity));
+    const identityComplete = Boolean(identity?.parallel && identitySufficient(identity));
     const title = identity ? formatDirectTitle(identity) : "Unidentified card — seller vision review required";
     const description = identity ? buildDirectDescription(identity) : "Front/back images archived. Seller must identify and price this item before publishing.";
     const frontImageUrl = kingmakerScanImageUrl(archived.scan_id, "front");
@@ -160,21 +160,17 @@ export async function POST(request: NextRequest) {
       return respond({ success: true, stage: "identified", title, ai: identity });
     }
 
-    let market: Awaited<ReturnType<typeof researchOBBFBComps>> | null = null;
-    if (identityComplete && identity) market = await researchOBBFBComps(identity, title);
-    if (!identityComplete || blockers.length || market?.status !== "comped" || !market.accepted.length) {
+    if (!identityComplete || !identity || blockers.length) {
       if (identity) await macRecoveryScans("remember", account.id, archived.scan_id, title).catch(() => {});
       return respond({
         success: false, stage: "review_required", code: "OBBFB_NOT_SAVED",
         photosArchived: true, scanId: archived.scan_id, ai: identity, identityComplete,
         title: identity ? title : undefined, normalizedImages: { frontImageUrl, backImageUrl },
-        error: !identityComplete || blockers.length
-          ? "Photos archived. Card identity needs verification before inventory can be saved."
-          : market?.providerCoverage.some(provider => provider.source === "mac_direct_market" && provider.status === "error")
-            ? "The comp search could not reach the market service. Your identification is saved."
-            : "Identification saved. No verified exact sold comps were found.",
+        error: "Photos archived. Card identity needs verification before inventory can be saved.",
       }, 202);
     }
+    const market = await researchOBBFBComps(identity, title);
+    const pricingBlocked = market.status !== "comped";
     let matching: Record<string, unknown> | null = null;
     if (identityComplete && identity) {
       try {
@@ -212,7 +208,7 @@ export async function POST(request: NextRequest) {
         pricingCheckedAt: new Date().toISOString(),
         visualFailure: visionError,
         listingPublishBlocked: true, publicationStatus: "pending_operator_review",
-        publishReadinessBlockers: [...blockers, "operator_review_required"],
+        publishReadinessBlockers: ["operator_review_required", ...(pricingBlocked ? ["seller_price_required"] : [])],
         possibleDuplicatePhysicalPhotoId: matching?.inventoryItemId || matching?.id || null,
       },
       obbfbSellerAccountId: account.id,
@@ -240,7 +236,7 @@ export async function POST(request: NextRequest) {
       identityComplete, cardUuid: archived.card_uuid, inventoryItemId: item.inventoryItemId || archived.card_uuid,
       title, description, ai, code: needToMerge ? "NEED_TO_MERGE" : undefined,
       pricing: market ? { suggestedPrice: market.suggestedPrice, medianComp: market.medianComp, status: market.status, soldCompEvidence: market.accepted, rejectedSoldComps: market.rejected, activeCompetition: market.activeListings, providerCoverage: market.providerCoverage } : { suggestedPrice: null, status: identityComplete ? "0 Comps — Seller Price Required" : "identity_review_required" },
-      pricingSucceeded: Boolean(market?.accepted.length),
+      pricingSucceeded: !pricingBlocked,
       reviewHref: needToMerge ? "/kingmaker/need-to-merge" : "/kingmaker/listings?folder=pending",
       normalizedImages: { frontImageUrl, backImageUrl },
       exactMatch: matching ? { found: true, existingInventoryItemId: matching.inventoryItemId || matching.id, existingTitle: matching.title, isLive: true } : null,

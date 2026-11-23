@@ -144,10 +144,14 @@ def _query_ladder(identity: dict[str, Any], fallback: str) -> list[str]:
         identity["year"], identity["manufacturer"], base_product, logical_set,
         joined_player, card, "Base", *features,
     ]))
+    compact_query = " ".join(_unique_search_parts([
+        identity["year"], base_product, joined_player, identity["card_number"],
+    ]))
     candidates = [
         _text(fallback),
         base_query if _norm(identity["parallel"]) in {"base", "base set"} else "",
         " ".join(_unique_search_parts([identity["year"], product, joined_player, card, logical_set, parallel, f"/{denominator}" if denominator else "", *features])) if joined_player != identity["player"] else "",
+        compact_query,
         " ".join(_unique_search_parts([identity["year"], identity["manufacturer"], identity["product"] or identity["brand"], logical_set, identity["player"], card, parallel, f"/{denominator}" if denominator else "", *features])),
         " ".join(_unique_search_parts([identity["year"], identity["product"] or identity["brand"], logical_set, identity["player"], card, parallel, f"/{denominator}" if denominator else ""])),
         " ".join(_unique_search_parts([identity["player"], card, logical_set, parallel, f"/{denominator}" if denominator else "", *features])),
@@ -183,6 +187,8 @@ def _parallel_patterns(parallel: str) -> list[re.Pattern[str]]:
     value = _norm(parallel)
     if value in {"", "base", "base set"}:
         return []
+    if value in {"red white and blue refractor", "red white blue refractor", "rwb refractor"}:
+        return [re.compile(r"\b(?:rwb|red[\s,&+/_-]+white[\s,&+/_-]+(?:and[\s,&+/_-]+)?blue)\b", re.I)]
     aliases = {value.replace(" prizm", "").replace(" prism", "").strip()}
     if value in {"orange ice", "orange ice prizm", "orange cracked ice", "orange cracked ice prizm"}:
         aliases.update({"orange ice", "orange cracked ice", "ice orange"})
@@ -760,6 +766,25 @@ async def _search_mercari(query: str) -> tuple[list[dict[str, Any]], dict[str, A
         return [], {"source": "mac_chrome_mercari_active", "label": "Mercari Active · Mac Chrome", "status": "challenge" if "challenge" in str(exc) else "error", "resultCount": 0, "searchUrl": url, "message": str(exc)[:300]}
 
 
+async def _search_130point_queries(queries: list[str]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    merged = {}
+    attempts = []
+    for query in dict.fromkeys(queries):
+        rows, coverage = await _search_130point(query)
+        attempts.append({**coverage, "query": query})
+        for row in rows:
+            if key := _item_id(_text(row.get("url"))):
+                merged.setdefault(key, row)
+    status = "live" if merged else (
+        "no_matches" if any(attempt.get("status") == "no_matches" for attempt in attempts)
+        else attempts[-1].get("status", "error")
+    )
+    return list(merged.values()), {
+        **attempts[0], "status": status, "resultCount": len(merged), "attempts": attempts,
+        "message": f"{len(merged)} unique sold results across {len(attempts)} 130point searches.",
+    }
+
+
 async def _search_fanatics(query: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     try:
@@ -841,6 +866,7 @@ _PRIZM_REFERENCE_FINISHES = (
 
 
 _CHROME_REFERENCE_FINISHES = (
+    ("Red White and Blue Refractor", r"\b(?:rwb|red white(?: and)? blue)\b"),
     ("Football Leather Refractor", r"\b(?:football )?leather(?: border| refractor)?\b"),
     ("RayWave Refractor", r"\bray\s*wave\b"),
     ("Wave Refractor", r"\bwave refractor\b"),
@@ -855,7 +881,11 @@ _CHROME_REFERENCE_FINISHES = (
 
 def _chrome_reference_finish(title: str) -> str | None:
     normalized = _norm(title)
-    if _serial_denominators(title) or re.search(
+    if _serial_denominators(title):
+        return None
+    if re.search(_CHROME_REFERENCE_FINISHES[0][1], normalized):
+        return "Red White and Blue Refractor"
+    if re.search(
         r"\b(?:green|orange|blue|purple|gold|black|red|pink|negative|camo|pulsar|lightboard|first day|lava|neon)\b",
         normalized,
     ):
@@ -1023,7 +1053,12 @@ def build_market_comp_router(require_api_key: Callable[..., None], database_path
         candidates: dict[str, dict] = {}
         async with _BROWSER_LOCK:
             notes = _norm(request.identity.get("notes"))
-            chrome_target = " Football Leather" if re.search(r"\b(?:leather|pebbled|pigskin)\b", notes) else " Etch"
+            if re.search(r"\b(?:leather|pebbled|pigskin)\b", notes):
+                chrome_target = " Football Leather"
+            elif re.search(r"\bred\b.*\bblue\b|\bblue\b.*\bred\b", notes):
+                chrome_target = " Red White Blue"
+            else:
+                chrome_target = " Etch"
             suffixes = (" Base", " Refractor", " RayWave", chrome_target) if chrome else (
                 " Ice", " White Seismic", " White Sparkle", " Silver Prizm",
             )
@@ -1085,6 +1120,9 @@ def build_market_comp_router(require_api_key: Callable[..., None], database_path
         point_query = " ".join(_unique_search_parts([
             identity["year"], "Prizm WNBA", identity["player"], identity["card_number"], identity["subset"],
         ])) if wnba_base else query
+        compact_point_query = " ".join(_unique_search_parts([
+            identity["year"], identity["product"], identity["player"], identity["card_number"],
+        ]))
         async with _BROWSER_LOCK:
             ebay_task = asyncio.create_task(_search_ebay_ladder(queries, identity))
             fanatics_task = (
@@ -1105,7 +1143,7 @@ def build_market_comp_router(require_api_key: Callable[..., None], database_path
                 })
             )
             point = (
-                await _search_130point(point_query)
+                await _search_130point_queries([point_query] if wnba_base else [point_query, compact_point_query])
                 if request.include_130point
                 else ([], {
                     "source": "mac_chrome_130point_sold",
