@@ -237,6 +237,16 @@ def _strong_exact_title(title: str, identity: dict[str, Any]) -> tuple[bool, lis
     if set_tokens and not all(t in normalized.split() for t in set_tokens):
         reasons.append("set_or_insert_mismatch")
     target_parallel = _norm(identity["parallel"])
+    if "chrome" in _norm(identity["product"]).split() and "topps" in _norm(
+        identity["manufacturer"] + " " + identity["product"]
+    ).split():
+        if target_parallel in {"", "base", "base set", "refractor"} and re.search(
+            r"\b(?:parallel|etch(?:ed)?|leather|ray\s*wave|x\s*fractor|negative|geometric|lightboard|camo|first day|short print|ssp)\b",
+            normalized,
+        ):
+            reasons.append("chrome_parallel_mismatch")
+        if target_parallel == "wave refractor" and re.search(r"\bray\s*wave\b", normalized):
+            reasons.append("chrome_parallel_mismatch")
     if target_parallel in {"", "base", "base set"}:
         title_words = set(normalized.split())
         suspicious = title_words.intersection(_PARALLEL_WORDS - {"prizm", "prizms"})
@@ -829,6 +839,29 @@ _PRIZM_REFERENCE_FINISHES = (
 )
 
 
+_CHROME_REFERENCE_FINISHES = (
+    ("Football Leather Refractor", r"\b(?:football )?leather(?: border| refractor)?\b"),
+    ("RayWave Refractor", r"\bray\s*wave\b"),
+    ("Wave Refractor", r"\bwave refractor\b"),
+    ("X-Fractor", r"\bx\s*fractor\b"),
+    ("Geometric Refractor", r"\bgeometric(?: refractor)?\b"),
+    ("Prism Refractor", r"\bprism refractor\b"),
+    ("Chrome Etch Variation", r"\b(?:etch|etched)\b"),
+    ("Refractor", r"\brefractor\b"),
+    ("Base", r"\bbase(?: set)?\b"),
+)
+
+
+def _chrome_reference_finish(title: str) -> str | None:
+    normalized = _norm(title)
+    if _serial_denominators(title) or re.search(
+        r"\b(?:green|orange|blue|purple|gold|black|red|pink|negative|camo|pulsar|lightboard|first day|lava|neon)\b",
+        normalized,
+    ):
+        return None
+    return next((name for name, pattern in _CHROME_REFERENCE_FINISHES if re.search(pattern, normalized)), None)
+
+
 def _prizm_reference_finish(title: str) -> str | None:
     norm = _norm(title)
     if re.search(r"\b(?:green|orange|blue|purple|gold|black|red|pink|mojo|variation|logo)\b", norm):
@@ -885,13 +918,17 @@ def build_market_comp_router(require_api_key: Callable[..., None], database_path
         if (identity["year"] != "2026" or not identity["player"] or not identity["card_number"]
                 or len(identity["player"]) > 80 or not re.fullmatch(r"[0-9]{1,3}", identity["card_number"])):
             raise HTTPException(status_code=400, detail="A 2026 WNBA Prizm player and card number are required.")
-        query = f"2026 Panini Prizm WNBA {identity['player']} #{identity['card_number']}"
+        chrome = "chrome" in _norm(identity["product"]).split()
+        product = "Topps Chrome Football" if chrome else "Panini Prizm WNBA"
+        query = f"2026 {product} {identity['player']} #{identity['card_number']}"
+        finishes = _CHROME_REFERENCE_FINISHES if chrome else _PRIZM_REFERENCE_FINISHES
         candidates: dict[str, dict] = {}
         async with _BROWSER_LOCK:
-            for suffix in (" Ice", " White Sparkle", " Silver Prizm"):
+            suffixes = (" Base", " Refractor", " RayWave", " Etch") if chrome else (" Ice", " White Sparkle", " Silver Prizm")
+            for suffix in suffixes:
                 rows, _coverage = await _search_ebay_active(query + suffix)
                 for row in rows:
-                    finish = _prizm_reference_finish(row["title"])
+                    finish = _chrome_reference_finish(row["title"]) if chrome else _prizm_reference_finish(row["title"])
                     item = _item_id(row["url"])
                     photo = urlparse(_text(row.get("image_url")))
                     if not finish or not item or photo.scheme != "https" or photo.netloc != "i.ebayimg.com":
@@ -899,12 +936,18 @@ def build_market_comp_router(require_api_key: Callable[..., None], database_path
                     check = {**identity, "parallel": finish, "serial_number": "/35" if finish == "White Ice Prizm" else ""}
                     if finish == "Ice Prizm":
                         check["parallel"] = "Ice"
+                    if chrome and finish not in {"Base", "Refractor"}:
+                        # The finish classifier already checked the distinct label and excludes colors and numbered versions.
+                        check["parallel"] = {"X-Fractor": "X Fractor", "Football Leather Refractor": "Leather",
+                            "Chrome Etch Variation": "Etch", "RayWave Refractor": "Raywave"}.get(finish, finish)
                     if not _strong_exact_title(row["title"], check)[0]:
                         continue
                     candidates.setdefault(item, {"id": item, "parallel": finish, "imageUrl": photo.geturl(), "url": row["url"]})
         photos = []
         seen_images = set()
-        for finish, _ in _PRIZM_REFERENCE_FINISHES:
+        preferred = ("Base", "Refractor") if chrome else ()
+        ordered_finishes = (*preferred, *(name for name, _ in finishes if name not in preferred))
+        for finish in ordered_finishes:
             for candidate in [row for row in candidates.values() if row["parallel"] == finish][:2]:
                 if candidate["imageUrl"] not in seen_images:
                     photos.append(candidate)
@@ -925,7 +968,7 @@ def build_market_comp_router(require_api_key: Callable[..., None], database_path
                     return {**reference, "dataUrl": f"data:{mime};base64," + base64.b64encode(data).decode()} if data else reference
                 except httpx.HTTPError:
                     return reference
-            return {"photos": await asyncio.gather(*(attach_photo(photo) for photo in photos))}
+            return {"photos": await asyncio.gather(*(attach_photo(photo) for photo in photos[:10]))}
 
     @router.post("/search")
     async def search_market_comps(request: MarketCompRequest):

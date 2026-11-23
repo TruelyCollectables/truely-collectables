@@ -137,3 +137,14 @@ const cleanedJohnson = select365DayComps([
 ], johnson, now);
 assert.deepEqual(cleanedJohnson.accepted.map(row => row.price), [1.75]);
 assert.equal(cleanedJohnson.suggestedPrice, 0);
+
+const toppsBase = normalizeDirectIdentity({
+  year: "2026", brandSet: "Chrome Football", manufacturer: "Topps", player: "Caleb Downs",
+  cardNumber: "328", parallel: "Base",
+});
+const toppsComps = select365DayComps([
+  { ...sale(4.78), title: "Caleb Downs; RC; Leather Border; Topps Chrome 2026; Football; Cowboys; #328" },
+  { ...sale(15), title: "Topps Chrome 2026 Caleb Downs Parallel Football Card #328" },
+  { ...sale(2.27), title: "2026 Topps Chrome Caleb Downs #328 RC Cowboys" },
+], toppsBase, now);
+assert.deepEqual(toppsComps.accepted.map(row => row.price), [2.27]);

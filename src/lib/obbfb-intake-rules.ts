@@ -185,6 +185,17 @@ export function marketVariantMismatch(title: string, identity: DirectCardIdentit
   const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
   const finish = normalize(identity.parallel || "");
   if (!finish) return "target_parallel_unverified";
+  const isChrome = /\bchrome\b/.test(normalize(identity.brandSet || "")) &&
+    /\btopps\b/.test(normalize([identity.manufacturer, identity.brandSet].join(" ")));
+  const chromeVariant = /\b(?:parallel|etch(?:ed)?|leather|ray\s*wave|x[ -]?fractor|negative|geometric|lightboard|camo|first day|short print|ssp)\b/i;
+  const chromeFinish = normalize(finish).replace(/\bray wave\b/g, "raywave").replace(/\bx fractor\b/g, "xfractor");
+  const chromeTitle = normalize(title).replace(/\bray wave\b/g, "raywave").replace(/\bx fractor\b/g, "xfractor");
+  if (isChrome && /^(?:base|base set|refractor)$/.test(chromeFinish) && chromeVariant.test(title)) {
+    return "sold_parallel_mismatch";
+  }
+  if (isChrome && chromeFinish === "wave refractor" && /\braywave\b/.test(chromeTitle)) {
+    return "sold_parallel_mismatch";
+  }
   const setWords = new Set(normalize([identity.brandSet, identity.subset, identity.player].filter(Boolean).join(" ")).split(" "));
   const expectedWords = new Set(finish.split(" "));
   if (/\bwnba\b/.test(normalize(identity.brandSet || "")) &&
@@ -200,10 +211,10 @@ export function marketVariantMismatch(title: string, identity: DirectCardIdentit
   const unexpected = Array.from(title.matchAll(variantMarkers), match => normalize(match[0]))
     .some(marker => marker.split(" ").some(word => !expectedWords.has(word) && !setWords.has(word)));
   if (unexpected) return "sold_parallel_mismatch";
-  const requiredWords = finish.split(" ").filter(word =>
+  const requiredWords = (isChrome ? chromeFinish : finish).split(" ").filter(word =>
     !/^(?:base|set|card|parallel|variant|prizm|prizms|prism|cracked|\d+)$/.test(word)
   );
-  const titleWords = new Set(normalize(title).split(" "));
+  const titleWords = new Set((isChrome ? chromeTitle : normalize(title)).split(" "));
   return requiredWords.every(word => titleWords.has(word)) ? null : "sold_parallel_unconfirmed";
 }
 
