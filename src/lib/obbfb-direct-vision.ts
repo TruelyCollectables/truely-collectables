@@ -1,7 +1,7 @@
 import "server-only";
 
 import { fetchInstaCompAiLocalScanImage } from "./instacomp-ai-local";
-import { readMacPrintedHockeySeason, searchMacParallelPhotos } from "./kingmaker-mac-scan-server";
+import { fetchMacCardBackFooter, searchMacParallelPhotos } from "./kingmaker-mac-scan-server";
 import { readValidatedInstaCompImage } from "./instacomp-image-safety";
 import { identitySufficient, normalizeDirectIdentity, type DirectCardIdentity } from "./obbfb-intake-rules";
 
@@ -94,6 +94,9 @@ export function parseOBBFBVisionJson(raw: string, printedHockeySeason: string | 
   const hockeyBackConfirmed = printedHockeySeason && fields.frontBackAgreement === "same_card"
     && /\bhockey\b/i.test(identity.brandSet || "") && /\bseries (?:1|one)\b/i.test(identity.brandSet || "");
   if (hockeyBackConfirmed) {
+    if (identity.year !== printedHockeySeason) {
+      identity.notes = `Verified the ${printedHockeySeason} product line on the enlarged back footer.`;
+    }
     identity.year = printedHockeySeason;
     identity.brandSet = "Upper Deck Series 1 Hockey";
     identity.manufacturer = "Upper Deck";
@@ -139,6 +142,12 @@ export function parseOBBFBVisionJson(raw: string, printedHockeySeason: string | 
     identity.parallel = null;
     identity.confidence = Math.min(identity.confidence, 0.69);
     identity.notes = ["Base is unconfirmed. Compare the visible Prizm finish with exact-card references.", identity.notes].filter(Boolean).join(" ");
+  }
+  if (/\bseries (?:1|one)\b.*\bhockey\b/i.test(identity.brandSet || "") &&
+      /^outburst$/i.test(identity.parallel || "") && !identity.serialNumber &&
+      /^outburst$/i.test(String(fields.printedFinish || "").trim()) &&
+      !/\b(?:red|gold|numbered)\b/i.test(identity.notes || "")) {
+    identity.parallel = "Outburst Silver";
   }
   if (fields.frontBackAgreement === "different_card" || fields.frontBackAgreement === "unreadable") {
     identity.confidence = Math.min(identity.confidence, 0.69);
@@ -199,13 +208,32 @@ async function geminiVision(parts: Array<{ text: string } | ReturnType<typeof ge
   return { raw: raw || "", model };
 }
 
-async function geminiDirectVision(front: string, back: string, key: string, printedHockeySeason: string | null) {
+async function geminiDirectVision(front: string, back: string, key: string, scanId?: string) {
   const result = await geminiVision([
-    { text: INSTRUCTIONS + "\nFor Upper Deck hockey, zoom in on the back footer and read the full season before the words UPPER DECK SERIES 1 HOCKEY. The player stats and older design cues can show earlier seasons. Outburst, Dazzlers color, Speckle, Clear Cut, and Canvas Black & White are distinct finishes." },
+    { text: INSTRUCTIONS + "\nFor Upper Deck hockey, zoom in on the back footer and read the full season before the words UPPER DECK SERIES 1 HOCKEY. The player stats and older design cues can show earlier seasons. Outburst, Dazzlers color, Speckle, Clear Cut, and Canvas Black & White are distinct finishes. In Series 1 Hockey, ordinary Repping cards can have a uniform team-color tint and normal metallic finish. The Speckle parallel requires separately visible scattered foil flecks. Evaluate the upper field and background apart from the team color." },
     { text: "FRONT CARD PHOTO" }, geminiImage(front),
     { text: "BACK CARD PHOTO" }, geminiImage(back),
   ], schema, key);
-  return { identity: parseOBBFBVisionJson(result.raw, printedHockeySeason), model: result.model };
+  let identity = parseOBBFBVisionJson(result.raw);
+  if (scanId && /\bseries (?:1|one)\b/i.test(identity.brandSet || "") &&
+      /\bhockey\b/i.test(identity.brandSet || "") && identity.player && identity.cardNumber) {
+    try {
+      const footer = await fetchMacCardBackFooter(scanId);
+      if (footer) {
+        const witness = await geminiVision([
+          { text: "Copy the exact printed product line from the card footer, including the complete season before UPPER DECK SERIES 1 HOCKEY. Copy the visible digits and hyphen. Ignore statistics, copyright and other dates. Return null if any season digit is unreadable." },
+          geminiImage(await prepareCardPhoto(footer)),
+        ], { type: "object", properties: { productLine: nullableString }, required: ["productLine"] }, key);
+        const line = JSON.parse(witness.raw).productLine;
+        const season = typeof line === "string" &&
+          /\b(20\d{2})\s*[-–/]\s*(\d{2})\s+upper\s+deck\s+series\s+(?:1|one)\s+hockey\b/i.exec(line);
+        if (season && Number(season[2]) === (Number(season[1]) + 1) % 100) {
+          identity = parseOBBFBVisionJson(result.raw, `${season[1]}-${season[2]}`);
+        }
+      }
+    } catch { /* Keep the original paired-photo evidence if the footer check fails. */ }
+  }
+  return { identity, model: result.model };
 }
 
 const wnbaBlueReferences = [
@@ -478,14 +506,11 @@ export async function identifyOBBFBVision(front: File, back: File, scanId?: stri
     const upright = scanId ? await fetchInstaCompAiLocalScanImage({ scanId, side, upright: true, timeoutMs: 9_000 }).catch(() => null) : null;
     return prepareCardPhoto(upright || file);
   };
-  const [frontNormalized, backNormalized, printedHockeySeason] = await Promise.all([
-    forVision(front, "front"), forVision(back, "back"),
-    scanId ? readMacPrintedHockeySeason(scanId).catch(() => null) : null,
-  ]);
+  const [frontNormalized, backNormalized] = await Promise.all([forVision(front, "front"), forVision(back, "back")]);
   const failures: string[] = [];
   const geminiKey = process.env.GEMINI_API_KEY?.trim() || process.env.GOOGLE_GEMINI_API_KEY?.trim();
   const providers = [
-    ...(geminiKey ? [{ name: "Gemini", run: () => geminiDirectVision(frontNormalized, backNormalized, geminiKey, printedHockeySeason) }] : []),
+    ...(geminiKey ? [{ name: "Gemini", run: () => geminiDirectVision(frontNormalized, backNormalized, geminiKey, scanId) }] : []),
     ...["@cf/qwen/qwen3.8-27b", "@cf/google/gemma-4-26b-a4b-it"].map(model => ({
       name: model,
       run: () => cloudflareDirectVision(frontNormalized, backNormalized, model),

@@ -6,6 +6,7 @@ import os
 import json
 import re
 import sqlite3
+from io import BytesIO
 import statistics
 import subprocess
 from datetime import datetime, timezone
@@ -16,6 +17,7 @@ from urllib.parse import quote, urlparse
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
+from PIL import Image, ImageOps
 
 from .teacher_comp_learning import record_exact_market_history
 
@@ -171,18 +173,6 @@ def _query_ladder(identity: dict[str, Any], fallback: str) -> list[str]:
 
 def _query(identity: dict[str, Any], fallback: str) -> str:
     return _query_ladder(identity, fallback)[0]
-
-
-def _upper_deck_printed_season(text: str) -> str | None:
-    seasons = {
-        f"{year}-{end[-2:]}"
-        for year, end in re.findall(
-            r"\b(20\d{2})\s*[-–/−]\s*(\d{2}|20\d{2})\s+UPPER\s+DECK\s+SERIES\s+(?:1|ONE)\s+HOCKEY\b",
-            text, flags=re.I,
-        )
-        if int(end[-2:]) == (int(year) + 1) % 100
-    }
-    return next(iter(seasons)) if len(seasons) == 1 else None
 
 
 def _card_number_pattern(value: str) -> re.Pattern[str] | None:
@@ -960,23 +950,24 @@ def build_market_comp_router(require_api_key: Callable[..., None], database_path
             raise HTTPException(status_code=404, detail="Saved scan not found")
         return {"rotation": applied}
 
-    @router.get("/printed-hockey-season/{scan_id}")
-    async def printed_hockey_season(scan_id: str):
+    @router.get("/card-back-footer/{scan_id}")
+    async def card_back_footer(scan_id: str):
         from . import main as service
 
         archived = await service.archived_scan_image(scan_id, "back")
 
-        def read_season():
-            observations, _errors = service.image_orientation_reader.recognize(
-                Path(archived.path).read_bytes(), side="back"
-            )
-            lines = " ".join(observation.text for observation in observations)
-            return _upper_deck_printed_season(lines)
+        def crop_footer():
+            with Image.open(archived.path) as source:
+                image = ImageOps.exif_transpose(source).convert("RGB")
+                footer = image.crop((0, int(image.height * 0.62), image.width, image.height))
+                factor = min(3, max(1, 1400 / footer.width))
+                footer = footer.resize((round(footer.width * factor), round(footer.height * factor)), Image.Resampling.LANCZOS)
+                buffer = BytesIO()
+                footer.save(buffer, format="JPEG", quality=95)
+                return buffer.getvalue()
 
-        try:
-            return {"season": await asyncio.to_thread(read_season)}
-        except Exception:
-            return {"season": None}
+        return Response(await asyncio.to_thread(crop_footer), media_type="image/jpeg",
+                        headers={"Cache-Control": "private, no-store"})
 
     @router.get("/upright-scan/{scan_id}/{side}")
     async def upright_scan(scan_id: str, side: str, manual_only: bool = False):

@@ -188,9 +188,7 @@ async def test_second_130point_search_adds_sales_and_deduplicates(monkeypatch):
     assert [attempt["query"] for attempt in coverage["attempts"]] == ["full", "compact"]
 
 
-def test_hockey_season_is_read_from_product_footer_and_comp_titles_allow_slashes():
-    assert market._upper_deck_printed_season("2024-25 10 goals 2026–27 UPPER DECK SERIES 1 HOCKEY ©") == "2026-27"
-    assert market._upper_deck_printed_season("2024-25 10 goals © 2026 Upper Deck") is None
+def test_hockey_comp_titles_accept_slashes_but_reject_other_seasons_and_finishes():
     identity = market._canonical_identity({
         "year": "2026-27", "manufacturer": "Upper Deck", "product": "Upper Deck Series 1 Hockey",
         "player": "Brett Pesce", "cardNumber": "104", "parallel": "Base",
