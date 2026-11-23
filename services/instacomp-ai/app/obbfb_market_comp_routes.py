@@ -876,12 +876,53 @@ def _prizm_reference_finish(title: str) -> str | None:
 def build_market_comp_router(require_api_key: Callable[..., None], database_path: Path | None = None) -> APIRouter:
     router = APIRouter(prefix="/v1/obbfb-market-comp", tags=["market-comp"], dependencies=[Depends(require_api_key)])
 
+    def saved_rotation(scan_id, side, owner=None, angle=None):
+        if database_path is None:
+            return None
+        with sqlite3.connect(database_path, timeout=5) as db:
+            db.execute("""CREATE TABLE IF NOT EXISTS obbfb_recovery_rotation (
+                scan_id TEXT NOT NULL, side TEXT NOT NULL, angle INTEGER NOT NULL,
+                PRIMARY KEY (scan_id, side)
+            )""")
+            if owner is not None:
+                matches_owner = db.execute(
+                    "SELECT 1 FROM obbfb_recovery_owner WHERE scan_id=? AND owner=?", (scan_id, owner)
+                ).fetchone()
+                if not matches_owner:
+                    return None
+                db.execute("""INSERT INTO obbfb_recovery_rotation (scan_id, side, angle)
+                    VALUES (?, ?, ?) ON CONFLICT(scan_id, side) DO UPDATE SET angle=excluded.angle""",
+                    (scan_id, side, angle))
+            result = db.execute("SELECT angle FROM obbfb_recovery_rotation WHERE scan_id=? AND side=?",
+                (scan_id, side)).fetchone()
+            return result[0] if result else None
+
+    @router.post("/recovery-rotation")
+    async def remember_rotation(request: dict[str, Any]):
+        scan_id, side, owner = (_text(request.get(key)) for key in ("scanId", "side", "owner"))
+        angle = request.get("angle")
+        if not scan_id or not owner or side not in {"front", "back"} or type(angle) is not int or angle not in {0, 90, 180, 270}:
+            raise HTTPException(status_code=400, detail="Invalid saved rotation")
+        applied = await asyncio.to_thread(saved_rotation, scan_id, side, owner, angle)
+        if applied is None:
+            raise HTTPException(status_code=404, detail="Saved scan not found")
+        return {"rotation": applied}
+
     @router.get("/upright-scan/{scan_id}/{side}")
-    async def upright_scan(scan_id: str, side: str):
+    async def upright_scan(scan_id: str, side: str, manual_only: bool = False):
         from . import main as service
 
         archived = await service.archived_scan_image(scan_id, side)
+        manual_rotation = await asyncio.to_thread(saved_rotation, scan_id, side)
+        if manual_rotation == 0 or (manual_rotation is None and manual_only):
+            return archived
         source = await asyncio.to_thread(Path(archived.path).read_bytes)
+        if manual_rotation in {90, 180, 270}:
+            image = await asyncio.to_thread(service.validate_and_normalize_image, source,
+                service.settings.max_image_bytes, rotation=manual_rotation)
+            return Response(image.content, media_type=image.media_type, headers={
+                "Cache-Control": "private, no-store", "X-Scan-Vision-Rotation": str(manual_rotation),
+            })
         try:
             rotation, confidence, _evidence = await asyncio.to_thread(
                 service.image_orientation_reader.detect_upright_rotation, source, side=side
