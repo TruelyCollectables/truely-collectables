@@ -86,6 +86,8 @@ type QueueCard = {
 };
 
 
+const CONCURRENCY = 1;
+
 function numberFrom(value: unknown): number | null {
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed * 100) / 100 : null;
@@ -329,7 +331,7 @@ export default function KingmakerInstaCompQueue() {
 
   function enqueueQueue(queue: QueueCard[]) {
     const archived = archiveTailRef.current.then(() =>
-      runInstaCompBatchQueue({ items: queue, concurrency: 1, worker: archiveCard }));
+      runInstaCompBatchQueue({ items: queue, concurrency: CONCURRENCY, worker: archiveCard }));
     archiveTailRef.current = archived.then(() => undefined, () => undefined);
     const next = queueTailRef.current.catch(() => undefined).then(async () => {
       for (const outcome of await archived) {
