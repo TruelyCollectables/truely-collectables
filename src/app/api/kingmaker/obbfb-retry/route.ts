@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
       fetchInstaCompAiLocalScanImage({ scanId, side: "back", timeoutMs: 20_000 }),
     ]);
     let vision;
-    try { vision = await identifyOBBFBVision(front, back); }
+    try { vision = await identifyOBBFBVision(front, back, scanId); }
     catch (error) { return fail(error instanceof Error ? error.message.slice(0, 240) : "Vision providers unavailable.", 503); }
     const identity = vision.identity;
     const complete = identitySufficient(identity);
