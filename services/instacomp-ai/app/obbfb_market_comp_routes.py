@@ -243,7 +243,7 @@ def _strong_exact_title(title: str, identity: dict[str, Any]) -> tuple[bool, lis
         identity["manufacturer"] + " " + identity["product"]
     ).split():
         if target_parallel in {"", "base", "base set", "refractor"} and re.search(
-            r"\b(?:parallel|etch(?:ed)?|leather|ray\s*wave|x\s*fractor|negative|geometric|lightboard|camo|first day|short print|ssp)\b",
+            r"\b(?:parallel|etch(?:ed)?|leather|ray\s*wave|x\s*fractor|negative|geometric|lightboard|camo|first day|neon(?: burst| explosion)?|short print|ssp)\b",
             normalized,
         ):
             reasons.append("chrome_parallel_mismatch")

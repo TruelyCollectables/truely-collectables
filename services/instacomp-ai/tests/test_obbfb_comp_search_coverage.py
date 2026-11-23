@@ -126,6 +126,8 @@ def test_chrome_base_rejects_labeled_parallel_and_leather_border():
     assert market._strong_exact_title(title, identity)[0]
     assert not market._strong_exact_title(title + " Leather Border", identity)[0]
     assert not market._strong_exact_title(title + " Parallel", identity)[0]
+    assert not market._strong_exact_title(title + " Neon Explosion SP Rookie", identity)[0]
+    assert not market._strong_exact_title(title + " Neon Burst Refractor", {**identity, "parallel": "Refractor"})[0]
 
 
 @pytest.mark.asyncio
