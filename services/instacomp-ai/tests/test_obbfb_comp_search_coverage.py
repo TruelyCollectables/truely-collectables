@@ -115,3 +115,14 @@ async def test_recovery_is_owner_scoped_and_completion_hides_scan(tmp_path):
         assert (await recover("list", "owner")).json()["scans"][0]["title"] == "Paige Bueckers #57"
         assert (await recover("complete", "owner")).status_code == 200
         assert (await recover("list", "owner")).json()["scans"] == []
+
+
+def test_chrome_base_rejects_labeled_parallel_and_leather_border():
+    identity = market._canonical_identity({
+        "year": "2026", "product": "Chrome Football", "manufacturer": "Topps", "player": "Caleb Downs",
+        "cardNumber": "328", "parallel": "Base",
+    })
+    title = "2026 Topps Chrome Football Caleb Downs #328"
+    assert market._strong_exact_title(title, identity)[0]
+    assert not market._strong_exact_title(title + " Leather Border", identity)[0]
+    assert not market._strong_exact_title(title + " Parallel", identity)[0]

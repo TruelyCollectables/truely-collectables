@@ -180,6 +180,11 @@ async function run() {
     assert.equal(parseOBBFBVisionJson(JSON.stringify({
       ...identity, year: "2026", printedReleaseYear: "2026", copyrightYear: "2026",
     })).year, "2026");
+    const chrome = { ...identity, year: "2026", printedReleaseYear: "2026", copyrightYear: "2026",
+      manufacturer: "Topps", brandSet: "Chrome Football", player: "George Kittle", cardNumber: "260" };
+    assert.equal(parseOBBFBVisionJson(JSON.stringify({ ...chrome, chromeSurface: "patterned" })).parallel, null);
+    assert.equal(parseOBBFBVisionJson(JSON.stringify({ ...chrome, chromeSurface: "plain", printedFinish: "REFRACTOR" })).parallel, null);
+    assert.equal(parseOBBFBVisionJson(JSON.stringify({ ...chrome, chromeSurface: "plain", printedFinish: null })).parallel, "Base");
     const collier = parseOBBFBVisionJson(JSON.stringify({
       ...identity, year: null, printedReleaseYear: null, copyrightYear: null,
       player: "Napheesa Collier", cardNumber: "41", brandSet: "WNBA Prizm Basketball",
