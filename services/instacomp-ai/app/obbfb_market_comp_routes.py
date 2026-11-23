@@ -968,22 +968,43 @@ def build_market_comp_router(require_api_key: Callable[..., None], database_path
                 db.execute("""CREATE TABLE IF NOT EXISTS obbfb_recovery_owner (
                     scan_id TEXT PRIMARY KEY, owner TEXT NOT NULL, title TEXT, completed INTEGER NOT NULL DEFAULT 0
                 )""")
+                db.execute("""CREATE TABLE IF NOT EXISTS obbfb_recovery_identity (
+                    scan_id TEXT PRIMARY KEY, identity TEXT NOT NULL, model TEXT, seller_corrected INTEGER NOT NULL
+                )""")
                 if action == "remember":
                     db.execute("""INSERT INTO obbfb_recovery_owner (scan_id, owner, title)
                         SELECT scan_id, ?, ? FROM scans
                         WHERE scan_id = ? AND status = 'supervised_archive_pending_lesson'
                         ON CONFLICT(scan_id) DO UPDATE SET title = COALESCE(excluded.title, obbfb_recovery_owner.title)
-                        WHERE obbfb_recovery_owner.owner = excluded.owner""",
-                        (owner, _text(request.get("title"))[:160] or None, scan_id))
+                        WHERE obbfb_recovery_owner.owner = excluded.owner AND
+                            (? OR NOT EXISTS (SELECT 1 FROM obbfb_recovery_identity
+                                WHERE scan_id = excluded.scan_id AND seller_corrected = 1))""",
+                        (owner, _text(request.get("title"))[:160] or None, scan_id, request.get("sellerCorrected") is True))
+                    identity = request.get("identity")
+                    if isinstance(identity, dict):
+                        packed = json.dumps(identity)
+                        if len(packed) <= 6000:
+                            db.execute("""INSERT INTO obbfb_recovery_identity
+                                (scan_id, identity, model, seller_corrected)
+                                SELECT scan_id, ?, ?, ? FROM obbfb_recovery_owner
+                                WHERE scan_id=? AND owner=? AND completed=0
+                                ON CONFLICT(scan_id) DO UPDATE SET identity=excluded.identity,
+                                    model=excluded.model, seller_corrected=excluded.seller_corrected
+                                WHERE excluded.seller_corrected >= obbfb_recovery_identity.seller_corrected""",
+                                (packed, _text(request.get("model"))[:120], int(request.get("sellerCorrected") is True),
+                                 scan_id, owner))
                 if action == "complete":
                     db.execute("UPDATE obbfb_recovery_owner SET completed = 1 WHERE scan_id = ? AND owner = ?", (scan_id, owner))
                     return []
                 rows = db.execute("""SELECT s.scan_id, s.card_uuid, s.created_at, s.front_sha256, s.back_sha256,
-                    s.image_pair_sha256, o.title FROM obbfb_recovery_owner o JOIN scans s ON s.scan_id = o.scan_id
+                    s.image_pair_sha256, o.title, i.identity, i.model, i.seller_corrected
+                    FROM obbfb_recovery_owner o JOIN scans s ON s.scan_id = o.scan_id
+                    LEFT JOIN obbfb_recovery_identity i ON i.scan_id = o.scan_id
                     WHERE o.owner = ? AND (? = 'list' OR s.scan_id = ?)
                     AND s.status = 'supervised_archive_pending_lesson' AND o.completed = 0
                     ORDER BY s.created_at DESC LIMIT 500""", (owner, action, scan_id)).fetchall()
-                return [dict(row) for row in rows]
+                return [{**dict(row), "identity": json.loads(row["identity"]) if row["identity"] else None}
+                        for row in rows]
 
         rows = await asyncio.to_thread(query)
         if action in {"remember", "get"} and not rows:

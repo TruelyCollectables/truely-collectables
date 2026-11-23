@@ -58,6 +58,7 @@ export default async function OBBFBRecoveryPage() {
       ) : null}
       <RecoveryHeldScans scans={held.map(scan => ({
         id: scan.scan_id, title: scan.title || "Archived card",
+        identified: Boolean(scan.identity), finish: normalizeDirectIdentity(scan.identity || {}).parallel,
         front: `${kingmakerScanImageUrl(scan.scan_id, "front")}&view=upright`, back: kingmakerScanImageUrl(scan.scan_id, "back"),
       }))} />
       <RecoveryDrafts drafts={archived.map((row) => {

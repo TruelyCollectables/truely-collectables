@@ -92,21 +92,28 @@ function existingScan(row: Awaited<ReturnType<typeof getMacMasterListingRow>>, a
 }
 
 export async function POST(request: NextRequest) {
-  let archived: Pick<MacRecoveryScan, "scan_id" | "card_uuid" | "front_sha256" | "back_sha256" | "image_pair_sha256"> | null = null;
+  let archived: Omit<MacRecoveryScan, "created_at" | "title"> | null = null;
   try {
     const account = await getAuthenticatedAccountFromRequest(request);
     if (!account) return respond({ success: false, code: "UNAUTHORIZED" }, 401);
     await ensureAccountStoreMembership({ accountId: account.id, role: "seller", status: "active" });
 
-    let front: File;
-    let back: File;
+    let front: File | undefined;
+    let back: File | undefined;
+    let identifyOnly = false;
+    let savedIdentity: DirectCardIdentity | null = null;
     if (request.headers.get("content-type")?.includes("application/json")) {
       const input = record(await request.json().catch(() => null));
       const scanId = String(input.scanId || "");
       if (!/^[0-9a-f-]{36}$/i.test(scanId)) return respond({ success: false, error: "Invalid saved scan ID." }, 400);
       [archived] = await macRecoveryScans("get", account.id, scanId);
       if (!archived) return respond({ success: false, error: "Saved scan not found." }, 404);
-      [front, back] = await Promise.all([
+      identifyOnly = input.phase === "identify";
+      savedIdentity = archived.identity ? normalizeDirectIdentity(archived.identity) : null;
+      if (input.phase === "comps" && !savedIdentity) {
+        return respond({ success: false, error: "Identification must finish before searching for comps." }, 409);
+      }
+      if (!savedIdentity) [front, back] = await Promise.all([
         fetchInstaCompAiLocalScanImage({ scanId, side: "front", timeoutMs: 20_000 }),
         fetchInstaCompAiLocalScanImage({ scanId, side: "back", timeoutMs: 20_000 }),
       ]);
@@ -130,10 +137,10 @@ export async function POST(request: NextRequest) {
       return existingScan(already, account.id);
     }
 
-    let identity: DirectCardIdentity | null = null;
+    let identity = savedIdentity;
     let visionError: string | null = null;
-    let model: string | null = null;
-    try {
+    let model = archived && "model" in archived ? String(archived.model || "") || null : null;
+    if (front && back) try {
       const receipt = await identifyOBBFBVision(front, back, archived.scan_id);
       identity = receipt.identity; model = receipt.model;
     } catch (error) {
@@ -146,17 +153,26 @@ export async function POST(request: NextRequest) {
     const backImageUrl = kingmakerScanImageUrl(archived.scan_id, "back");
     const blockers = identity ? finalPublicationBlockers(identity, title, description, frontImageUrl, backImageUrl) : ["visual_identity_review_required"];
 
+    if (!savedIdentity && identityComplete && identity && !blockers.length) {
+      await macRecoveryScans("remember", account.id, archived.scan_id, title, { identity, model });
+    }
+    if (identifyOnly && identityComplete && !blockers.length) {
+      return respond({ success: true, stage: "identified", title, ai: identity });
+    }
+
     let market: Awaited<ReturnType<typeof researchOBBFBComps>> | null = null;
     if (identityComplete && identity) market = await researchOBBFBComps(identity, title);
     if (!identityComplete || blockers.length || market?.status !== "comped" || !market.accepted.length) {
       if (identity) await macRecoveryScans("remember", account.id, archived.scan_id, title).catch(() => {});
       return respond({
         success: false, stage: "review_required", code: "OBBFB_NOT_SAVED",
-        photosArchived: true, scanId: archived.scan_id, ai: identity,
+        photosArchived: true, scanId: archived.scan_id, ai: identity, identityComplete,
         title: identity ? title : undefined, normalizedImages: { frontImageUrl, backImageUrl },
         error: !identityComplete || blockers.length
           ? "Photos archived. Card identity needs verification before inventory can be saved."
-          : "Photos archived. Verified sold comps are required before inventory can be saved.",
+          : market?.providerCoverage.some(provider => provider.source === "mac_direct_market" && provider.status === "error")
+            ? "The comp search could not reach the market service. Your identification is saved."
+            : "Identification saved. No verified exact sold comps were found.",
       }, 202);
     }
     let matching: Record<string, unknown> | null = null;
