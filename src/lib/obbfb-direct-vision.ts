@@ -1,5 +1,6 @@
 import "server-only";
 
+import { fetchInstaCompAiLocalScanImage } from "./instacomp-ai-local";
 import { searchMacParallelPhotos } from "./kingmaker-mac-scan-server";
 import { readValidatedInstaCompImage } from "./instacomp-image-safety";
 import { identitySufficient, normalizeDirectIdentity, type DirectCardIdentity } from "./obbfb-intake-rules";
@@ -23,12 +24,13 @@ const schema = {
     isRelic: { type: "boolean" }, inscription: nullableString,
     autographEvidence: nullableString, relicEvidence: nullableString,
     serialEvidence: nullableString, printedFinish: nullableString,
+    frontBackAgreement: { type: "string", enum: ["same_card", "different_card", "unreadable"] },
     chromeSurface: { type: "string", enum: ["plain", "smooth_reflective", "patterned", "unknown"] }, notes: nullableString, confidence: { type: "number" },
   },
   required: [
     "year", "printedReleaseYear", "copyrightYear", "brandSet", "manufacturer", "player", "cardNumber", "parallel",
     "subset", "serialNumber", "isRookie", "isAutograph", "isRelic",
-    "inscription", "autographEvidence", "relicEvidence", "serialEvidence", "printedFinish", "chromeSurface", "notes", "confidence",
+    "inscription", "autographEvidence", "relicEvidence", "serialEvidence", "printedFinish", "frontBackAgreement", "chromeSurface", "notes", "confidence",
   ],
 } as const;
 export async function prepareCardPhoto(image: File) {
@@ -46,13 +48,14 @@ const INSTRUCTIONS = [
   "Transcribe the explicit product year/season into printedReleaseYear and the year beside the copyright or manufacturer fine print into copyrightYear. Use null if unreadable or absent.",
   "Use the printed product year/season when present. If only the copyright year is readable, use it as the photo-supported year, never a year from player statistics, biography, draft date, or a familiar card design. If no year evidence is readable, leave year null.",
   "Read year, exact set/product (brandSet), manufacturer, player, printed cardNumber, subset/insert, parallel color/finish, visible rookie logo, autograph, relic, serial stamp, and handwritten inscription.",
-  "If both photos show the same side, or the names or card details conflict, lower confidence below 0.7 and explain the mismatch.",
+  "Set frontBackAgreement to same_card only when the visible player and card evidence agree. Use different_card when sides disagree or repeat the same side, and unreadable when essential text remains illegible. For either result lower confidence below 0.7 and explain.",
   "Read both photographs. Use visible text direction and EXIF to mentally rotate each card upright before reading; images may arrive in landscape, portrait or upside-down orientation. If either remains unreadable, lower confidence and flag that side in notes.",
   "Identify small foil / numbering on the BACK. serialNumber must contain the full physically visible XX/YY or XXX/YYYY; if no full number can be read, use null.",
   "Do not mix the printed card number (#94) with the foil serial stamp (09/99) or a slab certification number.",
   "ZERO AUTOGRAPH ASSUMPTION. isAutograph can be true ONLY if a physical signature is visible or this exact card face explicitly designates an autograph. Explain that fact in autographEvidence. Printed player names aren't autographs.",
   "isRelic true only when the card visibly has a memorabilia/jersey/patch piece or explicitly says memorabilia. Record the physical evidence in relicEvidence.",
   "Use the explicit value Base for a physically supported standard base card. Do not infer a parallel from a jersey/team color or say Base when a special finish is evident. If exact parallel is uncertain, describe it conservatively in notes and use parallel null.",
+  "For Panini Prizm, record the visible back PRIZM mark in printedFinish when it actually appears in the finish-label area. The main Prizm brand logo does not count. Look for colored foil, silver rainbow reflection, short repeating seismic lines, large angular Ice shards or fine White Sparkle. Classify chromeSurface for Prizm as well. Generic Prizm or Base is never a substitute for a named finish if these clues are present.",
   "For Topps Chrome, zoom in on the reverse and copy the literal REFRACTOR label or named finish into printedFinish. Use null when it is absent or cannot be read. Independently classify chromeSurface as plain, smooth_reflective, patterned, or unknown. A repeated chrome pattern, etched or looping foil lines, lattice, a pebbled football-leather area, or regular color shift is evidence against Base. Glare can obscure the finish. If in doubt use unknown and leave parallel null. Read the printed number and serial from the back.",
   "A year later than the stats on a card is normal. Only describe something as a custom or fantasy card if the card explicitly says so.",
   "An insert name such as Top Tier belongs in subset, not parallel. For a visibly standard insert, use Base for the parallel. Keep it null if the photos leave the finish uncertain.",
@@ -116,6 +119,25 @@ export function parseOBBFBVisionJson(raw: string): DirectCardIdentity {
     identity.notes = identity.notes?.split(/(?<=[.!?])\s+/).filter(sentence =>
       !/\b(?:fantasy|mockup|mock-up|custom|fictional|future-dated|futuristic|concept card)\b/i.test(sentence)
     ).join(" ") || null;
+  }
+  const paniniPrizm = /\bprizm\b/i.test(identity.brandSet || "") &&
+    /\bpanini\b/i.test([identity.manufacturer, identity.brandSet, identity.notes].join(" "));
+  const plainFinish = /^(?:base(?: set)?|prizm|panini prizm)$/i.test(identity.parallel || "");
+  if (paniniPrizm && plainFinish && (
+    /^(?:prizm|panini prizm)$/i.test(identity.parallel || "") ||
+    /\bprizm\b/i.test(typeof fields.printedFinish === "string" ? fields.printedFinish : "") ||
+    /\bback (?:is )?(?:marked|labeled|labelled) (?:as )?["']?prizm\b/i.test(identity.notes || "") ||
+    fields.chromeSurface !== "plain" ||
+    /\b(?:white seismic|white sparkle|silver prizm|cracked ice|ice prizm|geometric shards|rainbow foil|colored refractor)\b/i.test(identity.notes || "")
+  )) {
+    identity.parallel = null;
+    identity.confidence = Math.min(identity.confidence, 0.69);
+    identity.notes = ["Base is unconfirmed. Compare the visible Prizm finish with exact-card references.", identity.notes].filter(Boolean).join(" ");
+  }
+  if (fields.frontBackAgreement === "different_card" || fields.frontBackAgreement === "unreadable") {
+    identity.confidence = Math.min(identity.confidence, 0.69);
+    identity.notes = [fields.frontBackAgreement === "different_card" ? "The front and back do not match."
+      : "The front and back could not both be read.", identity.notes].filter(Boolean).join(" ");
   }
   // This set has multiple blue finishes. Plain Blue is numbered /199.
   if (identity.year === "2026" && /\bwnba\b/i.test(identity.brandSet || "") &&
@@ -386,7 +408,7 @@ async function cloudflareDirectVision(frontNormalized: string, backNormalized: s
     messages: [{
       role: "user",
       content: [
-        { type: "text", text: INSTRUCTIONS + "\nReturn a single JSON object with fields year, printedReleaseYear, copyrightYear, brandSet, manufacturer, player, cardNumber, parallel, subset, serialNumber, isRookie, isAutograph, isRelic, inscription, autographEvidence, relicEvidence, serialEvidence, printedFinish, chromeSurface, notes, confidence. No Markdown." },
+        { type: "text", text: INSTRUCTIONS + "\nReturn a single JSON object with fields year, printedReleaseYear, copyrightYear, brandSet, manufacturer, player, cardNumber, parallel, subset, serialNumber, isRookie, isAutograph, isRelic, inscription, autographEvidence, relicEvidence, serialEvidence, printedFinish, frontBackAgreement, chromeSurface, notes, confidence. No Markdown." },
         { type: "text", text: "FRONT CARD PHOTO" },
         { type: "image_url", image_url: { url: frontNormalized } },
         { type: "text", text: "BACK CARD PHOTO" },
@@ -439,8 +461,12 @@ async function openAIDirectVision(frontNormalized: string, backNormalized: strin
   return { identity: parseOBBFBVisionJson(String(payload.choices?.[0]?.message?.content || "")), model };
 }
 
-export async function identifyOBBFBVision(front: File, back: File): Promise<VisionReceipt> {
-  const [frontNormalized, backNormalized] = await Promise.all([prepareCardPhoto(front), prepareCardPhoto(back)]);
+export async function identifyOBBFBVision(front: File, back: File, scanId?: string): Promise<VisionReceipt> {
+  const forVision = async (file: File, side: "front" | "back") => {
+    const upright = scanId ? await fetchInstaCompAiLocalScanImage({ scanId, side, upright: true, timeoutMs: 9_000 }).catch(() => null) : null;
+    return prepareCardPhoto(upright || file);
+  };
+  const [frontNormalized, backNormalized] = await Promise.all([forVision(front, "front"), forVision(back, "back")]);
   const failures: string[] = [];
   const geminiKey = process.env.GEMINI_API_KEY?.trim() || process.env.GOOGLE_GEMINI_API_KEY?.trim();
   const providers = [
@@ -464,7 +490,8 @@ export async function identifyOBBFBVision(front: File, back: File): Promise<Visi
         continue;
       }
       let identity = identified.identity;
-      if (needsWnbaBlueComparison(identity)) {
+      const unreadablePair = /^(?:The front and back do not match|The front and back could not both be read)\./.test(identity.notes || "");
+      if (!unreadablePair && needsWnbaBlueComparison(identity)) {
         try {
           if (!geminiKey) throw new Error("Comparison vision unavailable.");
           identity = await compareWnbaBlueFinish(identity, frontNormalized, backNormalized, geminiKey);
@@ -475,7 +502,7 @@ export async function identifyOBBFBVision(front: File, back: File): Promise<Visi
           identity = { ...identity, parallel: null, confidence: 0.69,
             notes: [reason, identity.notes].filter(Boolean).join(" ").slice(0, 500) };
         }
-      } else if (needsWebFinishComparison(identity) || needsChromeWebComparison(identity)) {
+      } else if (!unreadablePair && (needsWebFinishComparison(identity) || needsChromeWebComparison(identity))) {
         try {
           if (!geminiKey) throw new Error("Comparison vision unavailable.");
           identity = await compareWebFinish(identity, frontNormalized, backNormalized, geminiKey);

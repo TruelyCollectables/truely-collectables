@@ -134,7 +134,7 @@ export async function POST(request: NextRequest) {
     let visionError: string | null = null;
     let model: string | null = null;
     try {
-      const receipt = await identifyOBBFBVision(front, back);
+      const receipt = await identifyOBBFBVision(front, back, archived.scan_id);
       identity = receipt.identity; model = receipt.model;
     } catch (error) {
       visionError = error instanceof Error ? error.message.slice(0, 240) : "Direct vision unavailable.";

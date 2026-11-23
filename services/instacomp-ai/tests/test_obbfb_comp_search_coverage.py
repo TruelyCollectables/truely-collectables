@@ -126,3 +126,40 @@ def test_chrome_base_rejects_labeled_parallel_and_leather_border():
     assert market._strong_exact_title(title, identity)[0]
     assert not market._strong_exact_title(title + " Leather Border", identity)[0]
     assert not market._strong_exact_title(title + " Parallel", identity)[0]
+
+
+@pytest.mark.asyncio
+async def test_orientation_rechecks_candidate_against_upright_text(monkeypatch, tmp_path):
+    from types import SimpleNamespace
+
+    import app as service_package
+    from fastapi.responses import FileResponse
+
+    source = tmp_path / "card.jpg"
+    source.write_bytes(b"source")
+
+    async def archive(_scan_id, _side):
+        return FileResponse(source, media_type="image/jpeg")
+
+    def normalize(content, _max_bytes, rotation):
+        assert content == b"source"
+        return SimpleNamespace(content=str(rotation).encode(), media_type="image/jpeg")
+
+    def recognize(image, *, side):
+        assert side == "back"
+        word = "Topps Chrome" if image == b"90" else "unreadable"
+        return [SimpleNamespace(text=word)], []
+
+    service = SimpleNamespace(archived_scan_image=archive, validate_and_normalize_image=normalize,
+        settings=SimpleNamespace(max_image_bytes=100),
+        image_orientation_reader=SimpleNamespace(
+            detect_upright_rotation=lambda *_args, **_kwargs: (270, .99, []), recognize=recognize))
+    monkeypatch.setattr(service_package, "main", service, raising=False)
+    application = FastAPI()
+    application.include_router(market.build_market_comp_router(lambda: None))
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=application), base_url="http://test") as client:
+        response = await client.get("/v1/obbfb-market-comp/upright-scan/scan-1/back")
+    assert response.status_code == 200
+    assert response.headers["x-scan-vision-rotation"] == "90"
+    assert response.content == b"90"
+    assert source.read_bytes() == b"source"

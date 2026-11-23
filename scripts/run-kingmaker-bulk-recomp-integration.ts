@@ -50,6 +50,12 @@ async function run() {
   globalThis.fetch = async (input, init) => {
     const url = new URL(String(input));
     if (url.hostname === "i.ebayimg.com") assert.fail("Mac reference photos should arrive inline");
+    if (url.pathname.startsWith(`/v1/obbfb-market-comp/upright-scan/${scanId}/`)) {
+      assert.equal(init?.method, "GET");
+      const bytes = new Uint8Array(1100);
+      bytes.set([255, 216, 255, url.pathname.endsWith("/front") ? 1 : 2]);
+      return new Response(bytes, { headers: { "Content-Type": "image/jpeg" } });
+    }
     if (url.pathname.startsWith(`/v1/scans/${scanId}/images/`)) {
       const bytes = new Uint8Array(1100);
       bytes.set([255, 216, 255, url.pathname.endsWith("/front") ? 1 : 2]);
@@ -185,6 +191,15 @@ async function run() {
     assert.equal(parseOBBFBVisionJson(JSON.stringify({ ...chrome, chromeSurface: "patterned" })).parallel, null);
     assert.equal(parseOBBFBVisionJson(JSON.stringify({ ...chrome, chromeSurface: "plain", printedFinish: "REFRACTOR" })).parallel, null);
     assert.equal(parseOBBFBVisionJson(JSON.stringify({ ...chrome, chromeSurface: "plain", printedFinish: null })).parallel, "Base");
+    const prism = { ...chrome, manufacturer: "Panini", brandSet: "WNBA Prizm Basketball", player: "Paige Bueckers" };
+    for (const reading of [
+      { ...prism, chromeSurface: "plain", parallel: "Prizm" },
+      { ...prism, chromeSurface: "plain", printedFinish: "PRIZM" },
+      { ...prism, chromeSurface: "patterned", notes: "White Seismic repeating foil" },
+      { ...prism, chromeSurface: "smooth_reflective", notes: "Silver Prizm rainbow foil" },
+    ]) assert.equal(parseOBBFBVisionJson(JSON.stringify(reading)).parallel, null);
+    assert.ok(parseOBBFBVisionJson(JSON.stringify({ ...prism, parallel: "White Seismic Prizm",
+      frontBackAgreement: "different_card" })).confidence < 0.7);
     const collier = parseOBBFBVisionJson(JSON.stringify({
       ...identity, year: null, printedReleaseYear: null, copyrightYear: null,
       player: "Napheesa Collier", cardNumber: "41", brandSet: "WNBA Prizm Basketball",

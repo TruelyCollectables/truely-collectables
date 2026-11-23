@@ -14,7 +14,7 @@ from typing import Any, Callable
 from urllib.parse import quote, urlparse
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
 
 from .teacher_comp_learning import record_exact_market_history
@@ -873,6 +873,41 @@ def _prizm_reference_finish(title: str) -> str | None:
 
 def build_market_comp_router(require_api_key: Callable[..., None], database_path: Path | None = None) -> APIRouter:
     router = APIRouter(prefix="/v1/obbfb-market-comp", tags=["market-comp"], dependencies=[Depends(require_api_key)])
+
+    @router.get("/upright-scan/{scan_id}/{side}")
+    async def upright_scan(scan_id: str, side: str):
+        from . import main as service
+
+        archived = await service.archived_scan_image(scan_id, side)
+        source = await asyncio.to_thread(Path(archived.path).read_bytes)
+        try:
+            rotation, confidence, _evidence = await asyncio.to_thread(
+                service.image_orientation_reader.detect_upright_rotation, source, side=side
+            )
+            if rotation in {90, 180, 270} and confidence >= 0.75:
+                def witness(angle):
+                    image = service.validate_and_normalize_image(
+                        source, service.settings.max_image_bytes, rotation=angle
+                    )
+                    observations, _errors = service.image_orientation_reader.recognize(image.content, side=side)
+                    anchors = {word.lower() for observation in observations for word in re.findall(
+                        r"\b(?:topps|chrome|panini|prizm|select|rookie|refractor|quarterback|copyright|season|college)\b",
+                        observation.text, re.I,
+                    )}
+                    return len(anchors), angle, image
+
+                checks = await asyncio.gather(*(asyncio.to_thread(witness, angle)
+                    for angle in {0, rotation, (rotation + 180) % 360}))
+                checks.sort(key=lambda result: result[0], reverse=True)
+                count, angle, image = checks[0]
+                if angle and count >= 2 and count > checks[1][0]:
+                    return Response(image.content, media_type=image.media_type, headers={
+                        "Cache-Control": "private, no-store", "X-Scan-Vision-Rotation": str(angle),
+                    })
+        except Exception:
+            # The archived source stays available if orientation cannot be established.
+            pass
+        return archived
 
     @router.post("/recovery")
     async def recovery(request: dict[str, Any]):

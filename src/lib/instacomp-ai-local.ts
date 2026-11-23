@@ -628,10 +628,14 @@ export async function fetchInstaCompAiLocalScanImage(params: {
   scanId: string;
   side: "front" | "back";
   timeoutMs?: number;
+  upright?: boolean;
 }) {
   const scanId = safeScanId(params.scanId);
+  const path = params.upright
+    ? `/v1/obbfb-market-comp/upright-scan/${encodeURIComponent(scanId)}/${params.side}`
+    : `/v1/scans/${encodeURIComponent(scanId)}/images/${params.side}`;
   const response = await fetch(
-    `${baseUrl()}/v1/scans/${encodeURIComponent(scanId)}/images/${params.side}`,
+    `${baseUrl()}${path}`,
     {
       method: "GET",
       headers: requestHeaders(),
