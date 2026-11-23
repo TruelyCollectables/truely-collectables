@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 import httpx
 import pytest
 from fastapi import FastAPI
@@ -69,6 +71,14 @@ async def test_parallel_photo_search_requires_exact_card_and_explicit_finish(mon
              "url": "https://www.ebay.com/itm/333333333333", "image_url": "https://i.ebayimg.com/images/g/three/s-l500.jpg"},
         ], {"status": "live"}
 
+    @asynccontextmanager
+    async def image_stream(self, method, url):
+        assert method == "GET"
+        assert url.endswith("/one/s-l500.jpg")
+        yield httpx.Response(200, headers={"Content-Type": "image/jpeg"},
+                             content=b"\xff\xd8\xff", request=httpx.Request(method, url))
+
+    monkeypatch.setattr(httpx.AsyncClient, "stream", image_stream)
     monkeypatch.setattr(market, "_search_ebay_active", active)
     app = FastAPI()
     app.include_router(market.build_market_comp_router(lambda: None))
@@ -77,7 +87,9 @@ async def test_parallel_photo_search_requires_exact_card_and_explicit_finish(mon
             "year": "2026", "product": "Prizm WNBA Basketball", "player": "Nancy Lieberman", "cardNumber": "104",
         }})
     assert response.status_code == 200
-    assert [(r["id"], r["parallel"]) for r in response.json()["photos"]] == [("ebay:111111111111", "Ice Prizm")]
+    photos = response.json()["photos"]
+    assert [(r["id"], r["parallel"]) for r in photos] == [("ebay:111111111111", "Ice Prizm")]
+    assert photos[0]["dataUrl"] == "data:image/jpeg;base64,/9j/"
 
 @pytest.mark.asyncio
 async def test_recovery_is_owner_scoped_and_completion_hides_scan(tmp_path):

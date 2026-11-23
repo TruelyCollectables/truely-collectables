@@ -275,10 +275,13 @@ async function compareWebFinish(identity: DirectCardIdentity, front: string, bac
     ref && typeof ref.id === "string" && /^ebay:\d{9,15}$/.test(ref.id) &&
     webFinishes.has(ref.parallel) && typeof ref.imageUrl === "string" &&
     /^https:\/\/i\.ebayimg\.com\/images\//i.test(ref.imageUrl)
-  ).slice(0, 10) as Array<{ id: string; parallel: string; imageUrl: string }>;
+  ).slice(0, 10) as Array<{ id: string; parallel: string; imageUrl: string; dataUrl?: string }>;
   const photos = (await Promise.all(refs.map(async ref => {
     try {
-      const photo = await referencePhoto(await fetch(ref.imageUrl, { redirect: "error", signal: AbortSignal.timeout(5_000) }));
+      const inline = typeof ref.dataUrl === "string" && ref.dataUrl.length <= 512_045 &&
+        /^data:image\/(?:jpeg|png|webp);base64,[A-Za-z0-9+/]+=*$/.test(ref.dataUrl);
+      const photo = inline ? geminiImage(ref.dataUrl!)
+        : await referencePhoto(await fetch(ref.imageUrl, { redirect: "error", signal: AbortSignal.timeout(5_000) }));
       return { ...ref, photo };
     } catch { return null; }
   }))).filter(ref => ref !== null);
@@ -437,9 +440,12 @@ export async function identifyOBBFBVision(front: File, back: File): Promise<Visi
         try {
           if (!geminiKey) throw new Error("Comparison vision unavailable.");
           identity = await compareWebFinish(identity, frontNormalized, backNormalized, geminiKey);
-        } catch {
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : "";
+          const safeDetail = /^(?:No exact-card reference photos were available\.|Reference photos did not confirm one exact finish\.|Reference lookup HTTP \d+|Gemini HTTP \d+|Gemini response incomplete\.)$/.test(detail)
+            ? detail : "Exact-card web photos did not confirm the finish.";
           identity = { ...identity, parallel: null, confidence: 0.69,
-            notes: ["Exact-card web photos did not confirm the finish.", identity.notes].filter(Boolean).join(" ").slice(0, 500) };
+            notes: [safeDetail, identity.notes].filter(Boolean).join(" ").slice(0, 500) };
         }
       }
       if (identitySufficient(identity) && !identity.parallel) {
