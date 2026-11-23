@@ -188,6 +188,8 @@ def _parallel_patterns(parallel: str) -> list[re.Pattern[str]]:
         aliases.update({"orange ice", "orange cracked ice", "ice orange"})
     if value in {"pink ice", "pink ice prizm", "pink cracked ice"}:
         aliases.update({"pink ice", "pink cracked ice"})
+    if value in {"raywave", "raywave refractor", "ray wave", "ray wave refractor"}:
+        aliases.update({"raywave", "ray wave"})
     if value in {"ice", "ice prizm", "ice prizms"}:
         aliases.update({"ice", "cracked ice"})
     patterns = []

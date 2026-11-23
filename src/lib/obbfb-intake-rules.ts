@@ -198,6 +198,7 @@ export function marketVariantMismatch(title: string, identity: DirectCardIdentit
   }
   const setWords = new Set(normalize([identity.brandSet, identity.subset, identity.player].filter(Boolean).join(" ")).split(" "));
   const expectedWords = new Set(finish.split(" "));
+  if (isChrome && /^raywave\b/.test(chromeFinish)) expectedWords.add("wave");
   if (/\bwnba\b/.test(normalize(identity.brandSet || "")) &&
       /\bprizm\b/.test(normalize(identity.brandSet || "")) &&
       /\blogo\b/i.test(title) && !expectedWords.has("logo") && !setWords.has("logo")) {

@@ -148,3 +148,10 @@ const toppsComps = select365DayComps([
   { ...sale(2.27), title: "2026 Topps Chrome Caleb Downs #328 RC Cowboys" },
 ], toppsBase, now);
 assert.deepEqual(toppsComps.accepted.map(row => row.price), [2.27]);
+
+const rayWave = { ...toppsBase, player: "Khalil Shakir", cardNumber: "33", parallel: "RayWave Refractor" };
+const rayWaveComps = select365DayComps([
+  { ...sale(2.5), title: "2026 Topps Chrome Khalil Shakir #33 Ray Wave Refractor" },
+  { ...sale(8), title: "2026 Topps Chrome Khalil Shakir #33 Wave Refractor" },
+], rayWave, now);
+assert.deepEqual(rayWaveComps.accepted.map(row => row.price), [2.5]);
