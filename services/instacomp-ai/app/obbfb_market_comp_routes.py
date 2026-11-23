@@ -318,9 +318,10 @@ def _chrome_script(url: str, javascript: str, wait_seconds: int) -> str:
     return f'''tell application "Google Chrome"
   if (count windows) = 0 then make new window
   set w to window 1
-  set oldIndex to active tab index of w
-  set t to make new tab at end of tabs of w with properties {{URL:{json.dumps(url)}}}
-  set active tab index of w to (count tabs of w)
+  set operatorTabIndex to active tab index of w
+  set t to make new tab at end of tabs of w with properties {{URL:"about:blank"}}
+  set active tab index of w to operatorTabIndex
+  set URL of t to {json.dumps(url)}
   delay {wait_seconds}
   try
     set resultText to execute t javascript {json.dumps(javascript)}
@@ -328,11 +329,9 @@ def _chrome_script(url: str, javascript: str, wait_seconds: int) -> str:
     try
       close t
     end try
-    if oldIndex ≤ (count tabs of w) then set active tab index of w to oldIndex
     error errMsg number errNum
   end try
   close t
-  if oldIndex ≤ (count tabs of w) then set active tab index of w to oldIndex
   return resultText
 end tell'''
 
@@ -360,6 +359,8 @@ async def _chrome_json(url: str, javascript: str, wait_seconds: int = 4) -> dict
     probe = f"{payload.get('title', '')} {payload.get('body', '')}"[:5000]
     if _CHALLENGE_RE.search(probe):
         raise RuntimeError("marketplace_challenge_detected")
+    if re.search(r"error page \| ebay|something went wrong on our end", probe, re.I):
+        raise RuntimeError("eBay returned a temporary error page")
     return payload
 
 
@@ -380,9 +381,10 @@ def _chrome_price_guide_script(url: str) -> str:
     return f'''tell application "Google Chrome"
   if (count windows) = 0 then make new window
   set w to window 1
-  set oldIndex to active tab index of w
-  set t to make new tab at end of tabs of w with properties {{URL:{json.dumps(url)}}}
-  set active tab index of w to (count tabs of w)
+  set operatorTabIndex to active tab index of w
+  set t to make new tab at end of tabs of w with properties {{URL:"about:blank"}}
+  set active tab index of w to operatorTabIndex
+  set URL of t to {json.dumps(url)}
   delay 4
   try
     set clickResult to execute t javascript {json.dumps(_EBAY_PRICE_GUIDE_CLICK_JS)}
@@ -402,11 +404,9 @@ def _chrome_price_guide_script(url: str) -> str:
     try
       close t
     end try
-    if oldIndex ≤ (count tabs of w) then set active tab index of w to oldIndex
     error errMsg number errNum
   end try
   close t
-  if oldIndex ≤ (count tabs of w) then set active tab index of w to oldIndex
   return resultText
 end tell'''
 
@@ -525,9 +525,10 @@ def _chrome_130point_script(query: str) -> str:
     return f'''tell application "Google Chrome"
   if (count windows) = 0 then make new window
   set w to window 1
-  set oldIndex to active tab index of w
-  set t to make new tab at end of tabs of w with properties {{URL:"https://130point.com/search?new=sold"}}
-  set active tab index of w to (count tabs of w)
+  set operatorTabIndex to active tab index of w
+  set t to make new tab at end of tabs of w with properties {{URL:"about:blank"}}
+  set active tab index of w to operatorTabIndex
+  set URL of t to "https://130point.com/search?new=sold"
   delay 3
   try
     set clickResult to execute t javascript {json.dumps(setter)}
@@ -538,11 +539,9 @@ def _chrome_130point_script(query: str) -> str:
     try
       close t
     end try
-    if oldIndex ≤ (count tabs of w) then set active tab index of w to oldIndex
     error errMsg number errNum
   end try
   close t
-  if oldIndex ≤ (count tabs of w) then set active tab index of w to oldIndex
   return resultText
 end tell'''
 
