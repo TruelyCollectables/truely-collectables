@@ -261,6 +261,22 @@ async function run() {
     assert.equal(result.evidence.length, 2);
     assert.equal(researchCalls, 1);
     geminiStatus = 200;
+    const stagedUpload = new FormData();
+    stagedUpload.set("front", front);
+    stagedUpload.set("back", back);
+    stagedUpload.set("phase", "archive");
+    const archivedReceipt = await (await intake(new NextRequest("https://truelycollectables.com/api/kingmaker/obbfb-intake", {
+      method: "POST", headers: { cookie }, body: stagedUpload,
+    }))).json();
+    assert.equal(archivedReceipt.stage, "archived");
+    assert.equal(archivedReceipt.scanId, scanId);
+    assert.equal(created, 0);
+    archived = 0;
+    const hockeySeason = parseOBBFBVisionJson(JSON.stringify({ ...identity,
+      year: "2024-25", printedReleaseYear: "2024-25", brandSet: "2024-25 Series 1 Hockey", frontBackAgreement: "same_card",
+    }), "2026-27");
+    assert.equal(hockeySeason.year, "2026-27");
+    assert.equal(hockeySeason.brandSet, "Upper Deck Series 1 Hockey");
     const scanPair = () => {
       const form = new FormData();
       form.set("front", front);

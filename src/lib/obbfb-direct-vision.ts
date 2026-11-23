@@ -1,7 +1,7 @@
 import "server-only";
 
 import { fetchInstaCompAiLocalScanImage } from "./instacomp-ai-local";
-import { searchMacParallelPhotos } from "./kingmaker-mac-scan-server";
+import { readMacPrintedHockeySeason, searchMacParallelPhotos } from "./kingmaker-mac-scan-server";
 import { readValidatedInstaCompImage } from "./instacomp-image-safety";
 import { identitySufficient, normalizeDirectIdentity, type DirectCardIdentity } from "./obbfb-intake-rules";
 
@@ -67,7 +67,7 @@ const INSTRUCTIONS = [
 
 // Deterministic JSON parser shared by cloud-hosted vision providers. Do not
 // replace missing visible evidence with guesses when a model omits fields.
-export function parseOBBFBVisionJson(raw: string): DirectCardIdentity {
+export function parseOBBFBVisionJson(raw: string, printedHockeySeason: string | null = null): DirectCardIdentity {
   const cleaned = raw.trim().replace(/^`{3}(?:json)?\s*/i, "").replace(/\s*`{3}$/, "");
   const start = cleaned.indexOf("{");
   const end = cleaned.lastIndexOf("}");
@@ -91,7 +91,13 @@ export function parseOBBFBVisionJson(raw: string): DirectCardIdentity {
     ? printed.replace("–", "-") : /^(?:19|20)\d{2}$/.test(copyright) ? copyright
       : quotedYears.length === 1 ? quotedYears[0] : null;
   const setYear = identity.brandSet?.match(/^(?:19|20)\d{2}(?:[-–](?:\d{2}|(?:19|20)\d{2}))?(?=\s)/)?.[0];
-  if (!supportedYear || (identity.year && identity.year.replace("–", "-") !== supportedYear) ||
+  const hockeyBackConfirmed = printedHockeySeason && fields.frontBackAgreement === "same_card"
+    && /\bhockey\b/i.test(identity.brandSet || "") && /\bseries (?:1|one)\b/i.test(identity.brandSet || "");
+  if (hockeyBackConfirmed) {
+    identity.year = printedHockeySeason;
+    identity.brandSet = "Upper Deck Series 1 Hockey";
+    identity.manufacturer = "Upper Deck";
+  } else if (!supportedYear || (identity.year && identity.year.replace("–", "-") !== supportedYear) ||
       (setYear && setYear.replace("–", "-") !== supportedYear)) {
     identity.year = null;
     identity.confidence = Math.min(identity.confidence, 0.69);
@@ -193,13 +199,13 @@ async function geminiVision(parts: Array<{ text: string } | ReturnType<typeof ge
   return { raw: raw || "", model };
 }
 
-async function geminiDirectVision(front: string, back: string, key: string) {
+async function geminiDirectVision(front: string, back: string, key: string, printedHockeySeason: string | null) {
   const result = await geminiVision([
-    { text: INSTRUCTIONS },
+    { text: INSTRUCTIONS + "\nFor Upper Deck hockey, zoom in on the back footer and read the full season before the words UPPER DECK SERIES 1 HOCKEY. The player stats and older design cues can show earlier seasons. Outburst, Dazzlers color, Speckle, Clear Cut, and Canvas Black & White are distinct finishes." },
     { text: "FRONT CARD PHOTO" }, geminiImage(front),
     { text: "BACK CARD PHOTO" }, geminiImage(back),
   ], schema, key);
-  return { identity: parseOBBFBVisionJson(result.raw), model: result.model };
+  return { identity: parseOBBFBVisionJson(result.raw, printedHockeySeason), model: result.model };
 }
 
 const wnbaBlueReferences = [
@@ -472,11 +478,14 @@ export async function identifyOBBFBVision(front: File, back: File, scanId?: stri
     const upright = scanId ? await fetchInstaCompAiLocalScanImage({ scanId, side, upright: true, timeoutMs: 9_000 }).catch(() => null) : null;
     return prepareCardPhoto(upright || file);
   };
-  const [frontNormalized, backNormalized] = await Promise.all([forVision(front, "front"), forVision(back, "back")]);
+  const [frontNormalized, backNormalized, printedHockeySeason] = await Promise.all([
+    forVision(front, "front"), forVision(back, "back"),
+    scanId ? readMacPrintedHockeySeason(scanId).catch(() => null) : null,
+  ]);
   const failures: string[] = [];
   const geminiKey = process.env.GEMINI_API_KEY?.trim() || process.env.GOOGLE_GEMINI_API_KEY?.trim();
   const providers = [
-    ...(geminiKey ? [{ name: "Gemini", run: () => geminiDirectVision(frontNormalized, backNormalized, geminiKey) }] : []),
+    ...(geminiKey ? [{ name: "Gemini", run: () => geminiDirectVision(frontNormalized, backNormalized, geminiKey, printedHockeySeason) }] : []),
     ...["@cf/qwen/qwen3.8-27b", "@cf/google/gemma-4-26b-a4b-it"].map(model => ({
       name: model,
       run: () => cloudflareDirectVision(frontNormalized, backNormalized, model),

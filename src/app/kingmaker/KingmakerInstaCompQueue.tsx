@@ -73,6 +73,7 @@ type QueueCard = {
   frontPreview: string;
   backPreview: string | null;
   status: QueueStatus;
+  processingStage?: string;
   result: IntakeResult | null;
   error: string | null;
   durationMs: number | null;
@@ -84,7 +85,6 @@ type QueueCard = {
   merging?: boolean;
 };
 
-const CONCURRENCY = 1;
 
 function numberFrom(value: unknown): number | null {
   const parsed = Number(value);
@@ -139,7 +139,7 @@ function identityRows(result: IntakeResult | null) {
 
 function statusText(card: QueueCard) {
   if (card.status === "queued") return "Queued";
-  if (card.status === "working") return "OBBFB direct vision + verified 365-day sold comps";
+  if (card.status === "working") return card.processingStage || "Processing card";
   if (card.status === "pending" && card.result?.intakeEngine === "obbfb_direct_vision_v1") {
     if (card.result.pricing?.status === "comped") {
       return card.result.pricing.suggestedPrice === 0
@@ -183,6 +183,8 @@ export default function KingmakerInstaCompQueue() {
   // batches already use concurrency=1, but two overlapping drops used to create
   // two independent queues and therefore two simultaneous Mac scans.
   const queueTailRef = useRef<Promise<void>>(Promise.resolve());
+  const compTailRef = useRef<Promise<void>>(Promise.resolve());
+  const archiveTailRef = useRef<Promise<void>>(Promise.resolve());
 
   const totals = useMemo(
     () => ({
@@ -201,32 +203,59 @@ export default function KingmakerInstaCompQueue() {
     );
   }
 
+  async function submitIntake(card: QueueCard, scanId: string | null | undefined, phase: "archive" | "identify" | "comps") {
+    const session = await getFreshAccountSession(5 * 60, false);
+    const body = new FormData();
+    if (!scanId) {
+      if (!card.front || !card.back) throw new Error("Both the front and back are required.");
+      body.append("front", card.front, card.front.name);
+      body.append("back", card.back, card.back.name);
+      body.append("phase", phase);
+    }
+    const response = await fetch("/api/kingmaker/instacomp-scan-intake-v2", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${session.access_token}`, ...(scanId ? { "Content-Type": "application/json" } : {}) },
+      body: scanId ? JSON.stringify({ scanId, phase }) : body,
+      signal: AbortSignal.timeout(phase === "comps" ? 190_000 : 115_000),
+    });
+    return { response, result: await response.json().catch(() => ({})) as IntakeResult };
+  }
+
+  async function archiveCard(card: QueueCard): Promise<QueueCard> {
+    if (!card.front || !card.back || card.result?.scanId) return card;
+    patch(card.id, { status: "working", processingStage: "Saving photos", error: null });
+    try {
+      const { result } = await submitIntake(card, null, "archive");
+      if (result.stage === "archived") {
+        patch(card.id, { status: "queued", result });
+        return { ...card, status: "queued", result };
+      }
+      if (result.code?.startsWith("DUPLICATE")) {
+        patch(card.id, { status: "review", result, error: result.error || null });
+      } else {
+        patch(card.id, { status: "error", error: result.error || "Photos could not be saved. Retry this pair from the loaded images." });
+      }
+      return { ...card, result, status: "error" };
+    } catch (error) {
+      patch(card.id, { status: "error", error: error instanceof Error ? error.message : "Photos could not be saved." });
+      return { ...card, status: "error" };
+    }
+  }
+
   async function processCard(card: QueueCard) {
     if (!card.front || !card.back) {
       patch(card.id, {
         status: "error",
-        error: `${card.front ? "Back" : "Front"} image missing. Front and back are required before a Pending Listing is created.`,
+        error: `${card.front ? "Back" : "Front"} image missing. Both sides are required.`,
       });
       return;
     }
-
     const startedAt = Date.now();
-    patch(card.id, { status: "working", error: null });
-    try {
-      const session = await getFreshAccountSession(5 * 60, false);
-      if (!session?.access_token) throw new Error("Seller login is required before scanning cards.");
-      const scanId = card.result?.photosArchived ? card.result.scanId : null;
-      const body = new FormData();
-      if (!scanId) {
-        body.append("front", card.front, card.front.name);
-        body.append("back", card.back, card.back.name);
+    patch(card.id, { status: "working", processingStage: "Identifying", error: null });
+    function finish(response: Response, result: IntakeResult) {
+      if (!response.ok && !result.error) {
+        result.error = `InstaComp returned HTTP ${response.status}. Retry from the saved photos.`;
       }
-      const response = await fetch("/api/kingmaker/instacomp-scan-intake-v2", {
-        method: "POST",
-        headers: { Authorization: `Bearer ${session.access_token}`, ...(scanId ? { "Content-Type": "application/json" } : {}) },
-        body: scanId ? JSON.stringify({ scanId }) : body,
-      });
-      const result = (await response.json().catch(() => ({}))) as IntakeResult;
       const hasDraft = Boolean(result.inventoryItemId);
       if (!response.ok && !hasDraft && !result.photosArchived) {
         if (result.duplicate?.inventoryItemId) {
@@ -258,7 +287,7 @@ export default function KingmakerInstaCompQueue() {
       }
       patch(card.id, {
         status:
-          result.success === true && result.identityComplete === true
+          response.ok && hasDraft && result.success === true && result.identityComplete === true
             ? "pending"
             : "review",
         result,
@@ -267,27 +296,46 @@ export default function KingmakerInstaCompQueue() {
         backPreview: nextBackPreview,
         error: result.error || null,
       });
-    } catch (error) {
+    }
+
+    function fail(error: unknown) {
       patch(card.id, {
         status: "error",
         durationMs: Date.now() - startedAt,
         error: error instanceof Error ? error.message : "InstaComp intake failed.",
       });
     }
-  }
 
-  async function runQueue(queue: QueueCard[]) {
-    await runInstaCompBatchQueue({
-      items: queue,
-      concurrency: CONCURRENCY,
-      worker: processCard,
-    });
+    try {
+      const archived = card.result?.scanId ? card : await archiveCard(card);
+      const scanId = archived.result?.scanId;
+      if (!scanId || (!card.result?.scanId && archived.status === "error")) return;
+      const { response, result } = await submitIntake(archived, scanId, "identify");
+      if (result.stage !== "identified") {
+        finish(response, { ...archived.result, ...result });
+        return;
+      }
+      const checkpoint = { ...archived.result, ...result };
+      patch(card.id, { status: "working", processingStage: "Waiting for sold comps", result: checkpoint });
+      compTailRef.current = compTailRef.current.then(async () => {
+        patch(card.id, { processingStage: "Finding sold comps" });
+        const comps = await submitIntake(archived, scanId, "comps");
+        finish(comps.response, { ...checkpoint, ...comps.result });
+      }).catch(fail);
+    } catch (error) {
+      fail(error);
+    }
   }
 
   function enqueueQueue(queue: QueueCard[]) {
-    const next = queueTailRef.current
-      .catch(() => undefined)
-      .then(() => runQueue(queue));
+    const archived = archiveTailRef.current.then(() =>
+      runInstaCompBatchQueue({ items: queue, concurrency: 1, worker: archiveCard }));
+    archiveTailRef.current = archived.then(() => undefined, () => undefined);
+    const next = queueTailRef.current.catch(() => undefined).then(async () => {
+      for (const outcome of await archived) {
+        if (outcome.status === "fulfilled" && outcome.value.status !== "error") await processCard(outcome.value);
+      }
+    });
     queueTailRef.current = next;
     return next;
   }

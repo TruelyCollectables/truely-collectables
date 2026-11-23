@@ -203,6 +203,15 @@ export async function macRecoveryScans(action: "remember" | "list" | "get" | "co
   return Array.isArray(body.scans) ? body.scans : [];
 }
 
+export async function readMacPrintedHockeySeason(scanId: string): Promise<string | null> {
+  const response = await fetch(`${macBaseUrl()}/v1/obbfb-market-comp/printed-hockey-season/${encodeURIComponent(scanId)}`, {
+    headers: macHeaders(), cache: "no-store", signal: AbortSignal.timeout(7_000),
+  });
+  if (!response.ok) return null;
+  const { season } = await response.json() as { season?: string };
+  return season && /^20\d{2}-\d{2}$/.test(season) ? season : null;
+}
+
 export async function searchMacParallelPhotos(identity: JsonRecord): Promise<unknown> {
   const response = await fetch(`${macBaseUrl()}/v1/obbfb-market-comp/parallel-photos`, {
     method: "POST",

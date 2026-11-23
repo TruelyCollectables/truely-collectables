@@ -181,7 +181,7 @@ export function marketVariantMismatch(title: string, identity: DirectCardIdentit
       /\b(?:lot|bundle|pick your|choose your|you pick|complete your set|multi[- ]?card|[x×]\s*\d+|\d+\s*[x×]\b)\b/i.test(title)) {
     return "multi_card_or_variant_listing";
   }
-  const variantMarkers = /\b(?:wnba logo|logo prizm|image variation|rookie variation|variation|snakes?kin|silver|green|red|blue|purple|pink|orange|gold|black|white|ice|velocity|seismic|wave|shimmer|flash|mojo|pandora|refractor|holo|hyper|scope|disco|choice|sparkle|cracked|checkerboard|mosaic|pulsar|swirl|lattice|cherry blossom|lotus flower|premium box set)\b/gi;
+  const variantMarkers = /\b(?:outburst|speckle|ud exclusives|high gloss|clear cut|black (?:and )?white|wnba logo|logo prizm|image variation|rookie variation|variation|snakes?kin|silver|green|red|blue|purple|pink|orange|gold|black|white|ice|velocity|seismic|wave|shimmer|flash|mojo|pandora|refractor|holo|hyper|scope|disco|choice|sparkle|cracked|checkerboard|mosaic|pulsar|swirl|lattice|cherry blossom|lotus flower|premium box set)\b/gi;
   const normalize = (value: string) => value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
   const finish = normalize(identity.parallel || "");
   if (!finish) return "target_parallel_unverified";
@@ -215,7 +215,8 @@ export function marketVariantMismatch(title: string, identity: DirectCardIdentit
     .some(marker => marker.split(" ").some(word => !expectedWords.has(word) && !setWords.has(word)));
   if (unexpected) return "sold_parallel_mismatch";
   const requiredWords = (isChrome ? chromeFinish : finish).split(" ").filter(word =>
-    !/^(?:base|set|card|parallel|variant|prizm|prizms|prism|cracked|\d+)$/.test(word)
+    !/^(?:base|set|card|parallel|variant|prizm|prizms|prism|cracked|\d+)$/.test(word) &&
+    !(word === "silver" && /^(?:outburst silver|silver outburst)$/.test(finish))
   );
   const titleWords = new Set((isChrome ? chromeTitle : normalize(title)).split(" "));
   return requiredWords.every(word => titleWords.has(word)) ? null : "sold_parallel_unconfirmed";
