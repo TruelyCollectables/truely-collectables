@@ -58,7 +58,7 @@ export default async function OBBFBRecoveryPage() {
       ) : null}
       <RecoveryHeldScans scans={held.map(scan => ({
         id: scan.scan_id, title: scan.title || "Archived card",
-        front: kingmakerScanImageUrl(scan.scan_id, "front"), back: kingmakerScanImageUrl(scan.scan_id, "back"),
+        front: `${kingmakerScanImageUrl(scan.scan_id, "front")}&view=upright`, back: kingmakerScanImageUrl(scan.scan_id, "back"),
       }))} />
       <RecoveryDrafts drafts={archived.map((row) => {
         const info = record(record(row.metadata).instacomp);

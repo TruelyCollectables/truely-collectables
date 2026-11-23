@@ -23,11 +23,10 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const file = await fetchInstaCompAiLocalScanImage({
-      scanId,
-      side: side as "front" | "back",
-      timeoutMs: 10_000,
-    });
+    const input = { scanId, side, timeoutMs: 10_000 } as const;
+    const file = request.nextUrl.searchParams.get("view") === "upright"
+      ? await fetchInstaCompAiLocalScanImage({ ...input, upright: "manual" }).catch(() => fetchInstaCompAiLocalScanImage(input))
+      : await fetchInstaCompAiLocalScanImage(input);
     return new NextResponse(await file.arrayBuffer(), {
       status: 200,
       headers: {
