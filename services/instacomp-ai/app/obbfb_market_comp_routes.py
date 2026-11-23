@@ -6,6 +6,7 @@ import os
 import json
 import re
 import sqlite3
+from io import BytesIO
 import statistics
 import subprocess
 from datetime import datetime, timezone
@@ -16,6 +17,7 @@ from urllib.parse import quote, urlparse
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, Field
+from PIL import Image, ImageOps
 
 from .teacher_comp_learning import record_exact_market_history
 
@@ -34,7 +36,7 @@ _SERIAL_RE = re.compile(r"(?<!\d)(?:(\d{1,6})\s*)?/\s*(\d{1,6})(?!\d)")
 _PARALLEL_WORDS = {
     "silver", "green", "red", "blue", "purple", "pink", "orange", "gold", "black", "white",
     "ice", "velocity", "seismic", "wave", "shimmer", "flash", "mojo", "pandora", "refractor",
-    "holo", "hyper", "scope", "disco", "choice", "sparkle", "cracked", "prizm", "prizms",
+    "holo", "hyper", "scope", "disco", "choice", "sparkle", "cracked", "prizm", "prizms", "outburst", "speckle", "exclusives",
 }
 
 
@@ -189,6 +191,8 @@ def _parallel_patterns(parallel: str) -> list[re.Pattern[str]]:
         return []
     if value in {"red white and blue refractor", "red white blue refractor", "rwb refractor"}:
         return [re.compile(r"\b(?:rwb|red[\s,&+/_-]+white[\s,&+/_-]+(?:and[\s,&+/_-]+)?blue)\b", re.I)]
+    if value in {"outburst silver", "silver outburst"}:
+        return [re.compile(r"\boutburst\b", re.I)]
     aliases = {value.replace(" prizm", "").replace(" prism", "").strip()}
     if value in {"orange ice", "orange ice prizm", "orange cracked ice", "orange cracked ice prizm"}:
         aliases.update({"orange ice", "orange cracked ice", "ice orange"})
@@ -232,7 +236,16 @@ def _strong_exact_title(title: str, identity: dict[str, Any]) -> tuple[bool, lis
     for token in _norm(re.sub(r"['’]", "", identity["player"])).split():
         if token and token not in player_title.split():
             reasons.append(f"missing_player_token:{token}")
-    if identity["year"] and identity["year"] not in title:
+    required_year = identity["year"]
+    if season := re.fullmatch(r"(20\d{2})-(\d{2})", required_year):
+        start, end = season.groups()
+        printed_season = re.search(r"\b(20\d{2})\s*[-–/]\s*(\d{2}|20\d{2})\b", title)
+        if printed_season:
+            if printed_season[1] != start or printed_season[2][-2:] != end:
+                reasons.append("year_mismatch")
+        elif not re.search(rf"\b(?:{start}|{start[-2:]}\s*[-–/]\s*{end})\b", title):
+            reasons.append("year_mismatch")
+    elif required_year and required_year not in title:
         reasons.append("year_mismatch")
     number_pattern = _card_number_pattern(identity["card_number"])
     if number_pattern and not number_pattern.search(title):
@@ -259,7 +272,7 @@ def _strong_exact_title(title: str, identity: dict[str, Any]) -> tuple[bool, lis
         title_words = set(normalized.split())
         suspicious = title_words.intersection(_PARALLEL_WORDS - {"prizm", "prizms"})
         other_finish = re.search(
-            r"\b(?:logo|variation|snakes?kin|checkerboard|pulsar|mosaic|swirl|lattice|cherry blossom|lotus flower)\b",
+            r"\b(?:logo|variation|snakes?kin|checkerboard|pulsar|mosaic|swirl|lattice|cherry blossom|lotus flower|high gloss|clear cut|black (?:and )?white)\b",
             normalized,
         )
         if suspicious or other_finish:
@@ -936,6 +949,25 @@ def build_market_comp_router(require_api_key: Callable[..., None], database_path
         if applied is None:
             raise HTTPException(status_code=404, detail="Saved scan not found")
         return {"rotation": applied}
+
+    @router.get("/card-back-footer/{scan_id}")
+    async def card_back_footer(scan_id: str):
+        from . import main as service
+
+        archived = await service.archived_scan_image(scan_id, "back")
+
+        def crop_footer():
+            with Image.open(archived.path) as source:
+                image = ImageOps.exif_transpose(source).convert("RGB")
+                footer = image.crop((0, int(image.height * 0.62), image.width, image.height))
+                factor = min(3, max(1, 1400 / footer.width))
+                footer = footer.resize((round(footer.width * factor), round(footer.height * factor)), Image.Resampling.LANCZOS)
+                buffer = BytesIO()
+                footer.save(buffer, format="JPEG", quality=95)
+                return buffer.getvalue()
+
+        return Response(await asyncio.to_thread(crop_footer), media_type="image/jpeg",
+                        headers={"Cache-Control": "private, no-store"})
 
     @router.get("/upright-scan/{scan_id}/{side}")
     async def upright_scan(scan_id: str, side: str, manual_only: bool = False):

@@ -101,6 +101,7 @@ export async function POST(request: NextRequest) {
     let front: File | undefined;
     let back: File | undefined;
     let identifyOnly = false;
+    let archiveOnly = false;
     let savedIdentity: DirectCardIdentity | null = null;
     if (request.headers.get("content-type")?.includes("application/json")) {
       const input = record(await request.json().catch(() => null));
@@ -119,6 +120,7 @@ export async function POST(request: NextRequest) {
       ]);
     } else {
       const form = await request.formData();
+      archiveOnly = form.get("phase") === "archive";
       front = validateImage(form.get("front"), "front");
       back = validateImage(form.get("back"), "back");
       const [frontSha, backSha] = await Promise.all([sha256File(front), sha256File(back)]);
@@ -135,6 +137,14 @@ export async function POST(request: NextRequest) {
     if (already) {
       await macRecoveryScans("complete", account.id, archived.scan_id).catch(() => {});
       return existingScan(already, account.id);
+    }
+
+    if (archiveOnly) {
+      return respond({
+        success: true, stage: "archived", photosArchived: true, scanId: archived.scan_id,
+        normalizedImages: { frontImageUrl: kingmakerScanImageUrl(archived.scan_id, "front"),
+          backImageUrl: kingmakerScanImageUrl(archived.scan_id, "back") },
+      }, 202);
     }
 
     let identity = savedIdentity;
@@ -157,7 +167,7 @@ export async function POST(request: NextRequest) {
       await macRecoveryScans("remember", account.id, archived.scan_id, title, { identity, model });
     }
     if (identifyOnly && identityComplete && !blockers.length) {
-      return respond({ success: true, stage: "identified", title, ai: identity });
+      return respond({ success: true, stage: "identified", photosArchived: true, scanId: archived.scan_id, title, identityComplete: true, ai: identity, model });
     }
 
     if (!identityComplete || !identity || blockers.length) {

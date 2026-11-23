@@ -193,6 +193,11 @@ export default forwardRef<OBBFBOperatorHandle, Props>(function OBBFBOperatorForm
   const hasToppsChecklist = String(values.year) === "2026" && /\btopps\b/i.test(`${values.manufacturer || ""} ${values.brandSet || ""}`)
     && /\bchrome\b/i.test(String(values.brandSet)) && /\bfootball\b/i.test(String(values.brandSet));
 
+  const hasUpperDeckChecklist = String(values.year) === "2026-27"
+    && /\bseries (?:1|one)\b/i.test(String(values.brandSet))
+    && /\bhockey\b/i.test(String(values.brandSet))
+    && /\bupper deck\b/i.test(`${values.manufacturer || ""} ${values.brandSet || ""}`);
+
   return (
     <section className="mt-4 space-y-3 rounded-xl border border-emerald-700/60 bg-slate-950 p-4">
       <h3 className="text-lg font-black text-emerald-300">OBBFB — Verify & lock this physical card</h3>
@@ -211,6 +216,10 @@ export default forwardRef<OBBFBOperatorHandle, Props>(function OBBFBOperatorForm
         <div className="flex flex-wrap gap-3 text-sm text-sky-200">
           <a href={`https://www.ebay.com/sch/i.html?_nkw=${encodeURIComponent(referenceQuery)}`}
             target="_blank" rel="noreferrer" className="underline">Compare card photos on eBay</a>
+          {hasUpperDeckChecklist ? (
+            <a href="https://upperdeck.com/2026-27-upper-deck-series-one/" target="_blank" rel="noreferrer"
+              className="underline">Official Upper Deck product and variants</a>
+          ) : null}
           {hasToppsChecklist ? (
             <a href="https://www.topps.com/pages/topps-chrome-football" target="_blank" rel="noreferrer"
               className="underline">Official Topps checklist</a>
