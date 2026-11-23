@@ -165,3 +165,24 @@ async def test_orientation_rechecks_candidate_against_upright_text(monkeypatch, 
     assert response.headers["x-scan-vision-rotation"] == "90"
     assert response.content == b"90"
     assert source.read_bytes() == b"source"
+
+
+@pytest.mark.asyncio
+async def test_second_130point_search_adds_sales_and_deduplicates(monkeypatch):
+    title = "2026 Topps Chrome Trevor Etienne #40 RWB Refractor"
+    identity = market._canonical_identity({
+        "year": "2026", "product": "Topps Chrome Football", "manufacturer": "Topps",
+        "player": "Trevor Etienne", "cardNumber": "40", "parallel": "Red White and Blue Refractor",
+    })
+    assert market._strong_exact_title(title, identity)[0]
+    assert market._strong_exact_title(title.replace("RWB", "Red, White & Blue"), identity)[0]
+    assert not market._strong_exact_title(title.replace("RWB", "Blue"), identity)[0]
+
+    async def point(query):
+        ids = ["111111111111"] if query == "full" else ["111111111111", "222222222222"]
+        return [{"url": f"https://www.ebay.com/itm/{item}"} for item in ids], {"status": "live"}
+
+    monkeypatch.setattr(market, "_search_130point", point)
+    rows, coverage = await market._search_130point_queries(["full", "compact"])
+    assert len(rows) == 2
+    assert [attempt["query"] for attempt in coverage["attempts"]] == ["full", "compact"]

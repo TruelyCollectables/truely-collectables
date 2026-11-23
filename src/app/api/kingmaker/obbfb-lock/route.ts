@@ -80,9 +80,6 @@ export async function POST(request: NextRequest) {
     }
     const refreshed = validStored?.status === "comped" ? null : await researchOBBFBComps(identity, title);
     const comps = refreshed || validStored!;
-    if (comps.status !== "comped" || !comps.accepted.length) {
-      return NextResponse.json({ error: "Verified sold comps for this exact identity are required before saving and locking the card." }, { status: 422 });
-    }
     const now = new Date().toISOString();
     const verifiedIdentity = { ...identity, confidence: 1 };
     const nextMetadata = {

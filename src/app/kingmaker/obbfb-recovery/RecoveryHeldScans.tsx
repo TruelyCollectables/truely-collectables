@@ -128,7 +128,7 @@ export default function RecoveryHeldScans({ scans }: { scans: HeldScan[] }) {
               </h3>
               {(result?.identified || scan.identified) && !result?.moved ? (
                 <p className="text-sm text-emerald-300">
-                  Identified{result?.finish || scan.finish ? ` · ${result?.finish || scan.finish}` : ""} · Awaiting verified sold comps
+                  Identified{result?.finish || scan.finish ? ` · ${result?.finish || scan.finish}` : ""} · Ready for pricing check
                 </p>
               ) : null}
               {result?.moved ? (

@@ -187,9 +187,11 @@ export function marketVariantMismatch(title: string, identity: DirectCardIdentit
   if (!finish) return "target_parallel_unverified";
   const isChrome = /\bchrome\b/.test(normalize(identity.brandSet || "")) &&
     /\btopps\b/.test(normalize([identity.manufacturer, identity.brandSet].join(" ")));
-  const chromeVariant = /\b(?:parallel|etch(?:ed)?|leather|ray\s*wave|x[ -]?fractor|negative|geometric|lightboard|camo|first day|short print|ssp)\b/i;
-  const chromeFinish = normalize(finish).replace(/\bray wave\b/g, "raywave").replace(/\bx fractor\b/g, "xfractor");
-  const chromeTitle = normalize(title).replace(/\bray wave\b/g, "raywave").replace(/\bx fractor\b/g, "xfractor");
+  const chromeVariant = /\b(?:parallel|etch(?:ed)?|leather|ray\s*wave|x[ -]?fractor|negative|geometric|lightboard|camo|first day|neon(?: burst| explosion)?|short print|ssp)\b/i;
+  const chromeWords = (value: string) => normalize(value)
+    .replace(/\b(?:rwb|red white(?: and)? blue)\b/g, "red white blue");
+  const chromeFinish = chromeWords(finish).replace(/\bray wave\b/g, "raywave").replace(/\bx fractor\b/g, "xfractor");
+  const chromeTitle = chromeWords(title).replace(/\bray wave\b/g, "raywave").replace(/\bx fractor\b/g, "xfractor");
   if (isChrome && /^(?:base|base set|refractor)$/.test(chromeFinish) && chromeVariant.test(title)) {
     return "sold_parallel_mismatch";
   }
@@ -197,7 +199,7 @@ export function marketVariantMismatch(title: string, identity: DirectCardIdentit
     return "sold_parallel_mismatch";
   }
   const setWords = new Set(normalize([identity.brandSet, identity.subset, identity.player].filter(Boolean).join(" ")).split(" "));
-  const expectedWords = new Set(finish.split(" "));
+  const expectedWords = new Set((isChrome ? chromeFinish : finish).split(" "));
   if (isChrome && /^raywave\b/.test(chromeFinish)) expectedWords.add("wave");
   if (/\bwnba\b/.test(normalize(identity.brandSet || "")) &&
       /\bprizm\b/.test(normalize(identity.brandSet || "")) &&
@@ -209,7 +211,7 @@ export function marketVariantMismatch(title: string, identity: DirectCardIdentit
     expectedWords.add("wnba");
     expectedWords.add("prizm");
   }
-  const unexpected = Array.from(title.matchAll(variantMarkers), match => normalize(match[0]))
+  const unexpected = Array.from((isChrome ? chromeTitle : title).matchAll(variantMarkers), match => normalize(match[0]))
     .some(marker => marker.split(" ").some(word => !expectedWords.has(word) && !setWords.has(word)));
   if (unexpected) return "sold_parallel_mismatch";
   const requiredWords = (isChrome ? chromeFinish : finish).split(" ").filter(word =>
