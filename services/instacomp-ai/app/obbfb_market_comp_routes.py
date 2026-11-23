@@ -909,7 +909,23 @@ def build_market_comp_router(require_api_key: Callable[..., None], database_path
                 if candidate["imageUrl"] not in seen_images:
                     photos.append(candidate)
                     seen_images.add(candidate["imageUrl"])
-        return {"photos": photos}
+        async with httpx.AsyncClient(timeout=5, follow_redirects=False) as client:
+            async def attach_photo(reference):
+                try:
+                    async with client.stream("GET", reference["imageUrl"]) as response:
+                        response.raise_for_status()
+                        mime = response.headers.get("Content-Type", "").split(";")[0].lower()
+                        if mime not in {"image/jpeg", "image/png", "image/webp"}:
+                            return reference
+                        data = bytearray()
+                        async for chunk in response.aiter_bytes():
+                            data.extend(chunk)
+                            if len(data) > 384_000:
+                                return reference
+                    return {**reference, "dataUrl": f"data:{mime};base64," + base64.b64encode(data).decode()} if data else reference
+                except httpx.HTTPError:
+                    return reference
+            return {"photos": await asyncio.gather(*(attach_photo(photo) for photo in photos))}
 
     @router.post("/search")
     async def search_market_comps(request: MarketCompRequest):

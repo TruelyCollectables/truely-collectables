@@ -49,7 +49,7 @@ async function run() {
   const original = globalThis.fetch;
   globalThis.fetch = async (input, init) => {
     const url = new URL(String(input));
-    if (url.hostname === "i.ebayimg.com") return new Response(new Uint8Array([255, 216, 255, 3]));
+    if (url.hostname === "i.ebayimg.com") assert.fail("Mac reference photos should arrive inline");
     if (url.pathname.startsWith(`/v1/scans/${scanId}/images/`)) {
       const bytes = new Uint8Array(1100);
       bytes.set([255, 216, 255, url.pathname.endsWith("/front") ? 1 : 2]);
@@ -73,8 +73,8 @@ async function run() {
     if (url.pathname === "/v1/obbfb-market-comp/parallel-photos") {
       assert.equal(body.identity.cardNumber, "57");
       return Response.json({ photos: [
-        { id: "ebay:111111111111", parallel: "Ice Prizm", imageUrl: "https://i.ebayimg.com/images/ice.jpg" },
-        { id: "ebay:222222222222", parallel: "Silver Prizm", imageUrl: "https://i.ebayimg.com/images/silver.jpg" },
+        { id: "ebay:111111111111", parallel: "Ice Prizm", imageUrl: "https://i.ebayimg.com/images/ice.jpg", dataUrl: "data:image/jpeg;base64,/9j/" },
+        { id: "ebay:222222222222", parallel: "Silver Prizm", imageUrl: "https://i.ebayimg.com/images/silver.jpg", dataUrl: "data:image/jpeg;base64,/9j/" },
       ] });
     }
     if (url.hostname === "generativelanguage.googleapis.com") {

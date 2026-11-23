@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 
 type HeldScan = { id: string; title: string; front: string; back: string };
-type Result = { title?: string; error?: string; moved?: boolean; href?: string };
+type Result = { title?: string; error?: string; notes?: string; moved?: boolean; href?: string };
 
 export default function RecoveryHeldScans({ scans }: { scans: HeldScan[] }) {
   const [results, setResults] = useState<Record<string, Result>>({});
@@ -24,6 +24,7 @@ export default function RecoveryHeldScans({ scans }: { scans: HeldScan[] }) {
         && payload.code !== "DUPLICATE_RECOVERABLE";
       setResults(previous => ({ ...previous, [scan.id]: {
         title: payload.title, moved, href: payload.reviewHref,
+        notes: typeof payload.ai?.notes === "string" ? payload.ai.notes : undefined,
         error: moved ? undefined : payload.error || `Retry did not complete (HTTP ${response.status}).`,
       } }));
     } catch {
@@ -58,6 +59,7 @@ export default function RecoveryHeldScans({ scans }: { scans: HeldScan[] }) {
                   {busy === scan.id ? "Checking identification and sold comps…" : "Retry identification and comps"}
                 </button>
               )}
+              {result?.notes && !result.moved ? <p className="text-sm text-slate-300">{result.notes}</p> : null}
               {result?.error ? <p role="status" className="text-sm text-amber-200">{result.error}</p> : null}
             </div>
           </article>
