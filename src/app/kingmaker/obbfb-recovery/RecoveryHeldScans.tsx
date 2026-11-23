@@ -4,7 +4,15 @@ import Link from "next/link";
 import { useRef, useState } from "react";
 
 type HeldScan = { id: string; title: string; front: string; back: string };
-type Result = { title?: string; error?: string; notes?: string; moved?: boolean; href?: string };
+type Result = { title?: string; error?: string; notes?: string; moved?: boolean; needsMerge?: boolean };
+
+function object(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function displayText(value: unknown) {
+  return typeof value === "string" ? value.trim().slice(0, 600) || undefined : undefined;
+}
 
 async function retryScan(scanId: string): Promise<Result> {
   try {
@@ -13,14 +21,15 @@ async function retryScan(scanId: string): Promise<Result> {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ scanId }),
     });
-    const payload = await response.json().catch(() => ({}));
-    const moved = response.ok && payload.success === true && Boolean(payload.inventoryItemId);
+    const payload = object(await response.json().catch(() => null));
+    const moved = response.ok && payload.success === true && Boolean(displayText(payload.inventoryItemId));
+    const error = displayText(payload.error) || displayText(object(payload.error).message) || displayText(payload.detail);
     return {
-      title: payload.title,
+      title: displayText(payload.title),
       moved,
-      href: payload.code === "DUPLICATE_RECOVERABLE" ? undefined : payload.reviewHref,
-      notes: typeof payload.ai?.notes === "string" ? payload.ai.notes : undefined,
-      error: moved ? undefined : payload.error || `Retry did not complete (HTTP ${response.status}).`,
+      needsMerge: payload.code === "NEED_TO_MERGE" || payload.stage === "need_to_merge",
+      notes: displayText(object(payload.ai).notes),
+      error: moved ? undefined : error || `Retry did not complete (HTTP ${response.status}).`,
     };
   } catch {
     return { error: "Retry could not reach Kingmaker. The saved photos are still here." };
@@ -108,8 +117,9 @@ export default function RecoveryHeldScans({ scans }: { scans: HeldScan[] }) {
                 {result?.title || scan.title}
               </h3>
               {result?.moved ? (
-                <Link href={result.href || "/kingmaker/listings?folder=pending"} className="text-emerald-300">
-                  {result.href?.includes("need-to-merge") ? "Open Need to Merge" : "Open Resale Pending"}
+                <Link href={result.needsMerge ? "/kingmaker/need-to-merge" : "/kingmaker/listings?folder=pending"}
+                  prefetch={false} className="text-emerald-300">
+                  {result.needsMerge ? "Open Need to Merge" : "Open Resale Pending"}
                 </Link>
               ) : (
                 <button type="button" disabled={workingId !== null} onClick={() => void retry([scan])}
