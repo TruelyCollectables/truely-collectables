@@ -1,43 +1,94 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 type HeldScan = { id: string; title: string; front: string; back: string };
 type Result = { title?: string; error?: string; notes?: string; moved?: boolean; href?: string };
 
+async function retryScan(scanId: string): Promise<Result> {
+  try {
+    const response = await fetch("/api/kingmaker/obbfb-intake", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scanId }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    const moved = response.ok && payload.success === true && Boolean(payload.inventoryItemId);
+    return {
+      title: payload.title,
+      moved,
+      href: payload.code === "DUPLICATE_RECOVERABLE" ? undefined : payload.reviewHref,
+      notes: typeof payload.ai?.notes === "string" ? payload.ai.notes : undefined,
+      error: moved ? undefined : payload.error || `Retry did not complete (HTTP ${response.status}).`,
+    };
+  } catch {
+    return { error: "Retry could not reach Kingmaker. The saved photos are still here." };
+  }
+}
+
 export default function RecoveryHeldScans({ scans }: { scans: HeldScan[] }) {
   const [results, setResults] = useState<Record<string, Result>>({});
-  const [busy, setBusy] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(() => new Set());
+  const [workingId, setWorkingId] = useState<string | null>(null);
+  const [message, setMessage] = useState("");
+  const running = useRef(false);
+  const waiting = scans.filter(scan => !results[scan.id]?.moved);
+  const selectedScans = waiting.filter(scan => selected.has(scan.id));
+  const allSelected = waiting.length > 0 && selectedScans.length === waiting.length;
 
-  async function retry(scan: HeldScan) {
-    if (busy) return;
-    setBusy(scan.id);
+  function toggle(scanId: string) {
+    setSelected(previous => {
+      const next = new Set(previous);
+      if (next.has(scanId)) next.delete(scanId);
+      else next.add(scanId);
+      return next;
+    });
+  }
+
+  async function retry(queue: HeldScan[]) {
+    if (running.current || !queue.length) return;
+    running.current = true;
+    let moved = 0;
     try {
-      const response = await fetch("/api/kingmaker/obbfb-intake", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scanId: scan.id }),
-      });
-      const payload = await response.json().catch(() => ({}));
-      const moved = response.ok && payload.success === true && Boolean(payload.inventoryItemId)
-        && payload.code !== "DUPLICATE_RECOVERABLE";
-      setResults(previous => ({ ...previous, [scan.id]: {
-        title: payload.title, moved, href: payload.reviewHref,
-        notes: typeof payload.ai?.notes === "string" ? payload.ai.notes : undefined,
-        error: moved ? undefined : payload.error || `Retry did not complete (HTTP ${response.status}).`,
-      } }));
-    } catch {
-      setResults(previous => ({ ...previous, [scan.id]: { error: "Retry could not reach Kingmaker. The saved photos are still here." } }));
+      for (const [index, scan] of queue.entries()) {
+        setWorkingId(scan.id);
+        setMessage(`Checking ${index + 1} of ${queue.length}. ${moved} moved to inventory.`);
+        const result = await retryScan(scan.id);
+        setResults(previous => ({ ...previous, [scan.id]: result }));
+        if (result.moved) {
+          moved++;
+          setSelected(previous => {
+            const next = new Set(previous);
+            next.delete(scan.id);
+            return next;
+          });
+        }
+      }
+      setMessage(`Checked ${queue.length}. ${moved} moved to inventory. ${queue.length - moved} still in recovery.`);
     } finally {
-      setBusy(null);
+      running.current = false;
+      setWorkingId(null);
     }
   }
 
   if (!scans.length) return null;
   return (
     <section className="mt-6 space-y-3" aria-label="Scans held before inventory">
-      <h2 className="text-xl font-bold">{scans.filter(scan => !results[scan.id]?.moved).length} scans waiting for inventory</h2>
+      <h2 className="text-xl font-bold">{waiting.length} scans waiting for inventory</h2>
+      <div className="flex flex-wrap items-center gap-3">
+        <button type="button" disabled={workingId !== null || !waiting.length}
+          onClick={() => setSelected(new Set(allSelected ? [] : waiting.map(scan => scan.id)))}
+          className="rounded-lg border border-slate-600 px-3 py-2 text-sm font-semibold disabled:opacity-60">
+          {allSelected ? "Clear selection" : "Select All"}
+        </button>
+        <button type="button" disabled={workingId !== null || !selectedScans.length}
+          onClick={() => void retry(selectedScans)}
+          className="rounded-lg bg-sky-500 px-3 py-2 text-sm font-bold text-slate-950 disabled:opacity-60">
+          Retry Selected ({selectedScans.length})
+        </button>
+        <p role="status" className="text-sm text-slate-300">{message}</p>
+      </div>
       {scans.map(scan => {
         const result = results[scan.id];
         return (
@@ -48,15 +99,22 @@ export default function RecoveryHeldScans({ scans }: { scans: HeldScan[] }) {
                 className="h-36 w-24 rounded-md bg-slate-950 object-contain" />
             ))}
             <div className="min-w-56 flex-1 space-y-3">
-              <h3 className="font-bold">{result?.title || scan.title}</h3>
+              <h3 className="flex items-center gap-2 font-bold">
+                {!result?.moved ? (
+                  <input type="checkbox" checked={selected.has(scan.id)} disabled={workingId !== null}
+                    aria-label={`Select ${result?.title || scan.title}`} onChange={() => toggle(scan.id)}
+                    className="accent-sky-500" />
+                ) : null}
+                {result?.title || scan.title}
+              </h3>
               {result?.moved ? (
                 <Link href={result.href || "/kingmaker/listings?folder=pending"} className="text-emerald-300">
                   {result.href?.includes("need-to-merge") ? "Open Need to Merge" : "Open Resale Pending"}
                 </Link>
               ) : (
-                <button type="button" disabled={busy !== null} onClick={() => void retry(scan)}
+                <button type="button" disabled={workingId !== null} onClick={() => void retry([scan])}
                   className="rounded-lg border border-sky-500 px-3 py-2 font-semibold text-sky-200 disabled:opacity-60">
-                  {busy === scan.id ? "Checking identification and sold comps…" : "Retry identification and comps"}
+                  {workingId === scan.id ? "Checking identification and sold comps…" : "Retry identification and comps"}
                 </button>
               )}
               {result?.notes && !result.moved ? <p className="text-sm text-slate-300">{result.notes}</p> : null}
