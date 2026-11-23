@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
-import OBBFBOperatorForm, { type MarketEvidence, type OBBFBOperatorHandle } from "../OBBFBOperatorForm";
+import OBBFBOperatorForm, { type MarketEvidence, type OBBFBOperatorHandle } from "../../OBBFBOperatorForm";
 
 type Draft = {
   id: string;
@@ -17,7 +17,7 @@ type Draft = {
   marketEvidence: MarketEvidence;
 };
 
-export default function RecoveryDrafts({ drafts }: { drafts: Draft[] }) {
+export default function PendingScanReview({ drafts }: { drafts: Draft[] }) {
   const forms = useRef(new Map<string, OBBFBOperatorHandle>());
   const running = useRef(false);
   const [busy, setBusy] = useState(false);
@@ -60,7 +60,7 @@ export default function RecoveryDrafts({ drafts }: { drafts: Draft[] }) {
           {message || "Check each card you’ve verified, then lock them together."}
         </p>
       </div>
-      <fieldset disabled={busy} aria-label="Saved scans" className="mt-6 min-w-0 space-y-6">
+      <fieldset disabled={busy} aria-label="Scans awaiting seller review" className="mt-6 min-w-0 space-y-6">
         {drafts.map(draft => (
           <article key={draft.id} className="rounded-2xl border border-slate-700 bg-slate-900 p-5">
             <h2 className="text-xl font-black">{draft.title}</h2>
