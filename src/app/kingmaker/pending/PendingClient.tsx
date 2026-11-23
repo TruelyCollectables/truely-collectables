@@ -2751,6 +2751,11 @@ export default function KingmakerPendingPage({
           </section>
         )}
         <div className="flex flex-wrap items-end justify-between gap-3">
+          {folder === "pending" ? (
+            <Link href="/kingmaker/pending/review" className="order-last rounded-lg bg-emerald-800 px-4 py-2 font-bold text-white">
+              Review scans and pricing
+            </Link>
+          ) : null}
           <Link href="/kingmaker/bulk-recomp" className="order-last rounded-lg bg-emerald-800 px-4 py-2 font-bold text-white">
             Bulk Re-Comp
           </Link>
