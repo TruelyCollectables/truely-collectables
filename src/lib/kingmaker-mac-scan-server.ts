@@ -184,13 +184,16 @@ export type MacRecoveryScan = {
   back_sha256: string;
   image_pair_sha256: string;
   title: string | null;
+  identity?: JsonRecord | null;
+  model?: string | null;
+  seller_corrected?: number | null;
 };
 
-export async function macRecoveryScans(action: "remember" | "list" | "get" | "complete", owner: string, scanId?: string, title?: string) {
+export async function macRecoveryScans(action: "remember" | "list" | "get" | "complete", owner: string, scanId?: string, title?: string, evidence?: { identity: object; model: string | null; sellerCorrected?: boolean }) {
   const response = await fetch(`${macBaseUrl()}/v1/obbfb-market-comp/recovery`, {
     method: "POST",
     headers: macHeaders(true),
-    body: JSON.stringify({ action, owner, scanId, title }),
+    body: JSON.stringify({ action, owner, scanId, title, ...evidence }),
     cache: "no-store",
     signal: AbortSignal.timeout(12_000),
   });

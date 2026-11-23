@@ -3,8 +3,8 @@
 import Link from "next/link";
 import { useRef, useState } from "react";
 
-type HeldScan = { id: string; title: string; front: string; back: string };
-type Result = { title?: string; error?: string; notes?: string; moved?: boolean; needsMerge?: boolean };
+type HeldScan = { id: string; title: string; front: string; back: string; identified: boolean; finish?: string | null };
+type Result = { identified?: boolean; finish?: string; title?: string; error?: string; notes?: string; moved?: boolean; needsMerge?: boolean };
 
 function object(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -14,22 +14,25 @@ function displayText(value: unknown) {
   return typeof value === "string" ? value.trim().slice(0, 600) || undefined : undefined;
 }
 
-async function retryScan(scanId: string): Promise<Result> {
+async function retryScan(scanId: string, phase: "identify" | "comps"): Promise<Result> {
   try {
     const response = await fetch("/api/kingmaker/obbfb-intake", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ scanId }),
+      body: JSON.stringify({ scanId, phase }),
+      signal: AbortSignal.timeout(190_000),
     });
     const payload = object(await response.json().catch(() => null));
     const moved = response.ok && payload.success === true && Boolean(displayText(payload.inventoryItemId));
     const error = displayText(payload.error) || displayText(object(payload.error).message) || displayText(payload.detail);
+    const identified = payload.stage === "identified" || payload.identityComplete === true;
     return {
+      identified, finish: displayText(object(payload.ai).parallel),
       title: displayText(payload.title),
       moved,
       needsMerge: payload.code === "NEED_TO_MERGE" || payload.stage === "need_to_merge",
       notes: displayText(object(payload.ai).notes),
-      error: moved ? undefined : error || `Retry did not complete (HTTP ${response.status}).`,
+      error: moved || payload.stage === "identified" ? undefined : error || `Retry did not complete (HTTP ${response.status}).`,
     };
   } catch {
     return { error: "Retry could not reach Kingmaker. The saved photos are still here." };
@@ -63,7 +66,14 @@ export default function RecoveryHeldScans({ scans }: { scans: HeldScan[] }) {
       for (const [index, scan] of queue.entries()) {
         setWorkingId(scan.id);
         setMessage(`Checking ${index + 1} of ${queue.length}. ${moved} moved to inventory.`);
-        const result = await retryScan(scan.id);
+        let result: Result = { identified: scan.identified || results[scan.id]?.identified };
+        if (!result.identified) result = await retryScan(scan.id, "identify");
+        if (result.identified && !result.moved) {
+          const identified = result;
+          setResults(previous => ({ ...previous, [scan.id]: identified }));
+          const comp = await retryScan(scan.id, "comps");
+          result = { ...comp, identified: true, finish: comp.finish || result.finish, title: comp.title || result.title };
+        }
         setResults(previous => ({ ...previous, [scan.id]: result }));
         if (result.moved) {
           moved++;
@@ -116,6 +126,11 @@ export default function RecoveryHeldScans({ scans }: { scans: HeldScan[] }) {
                 ) : null}
                 {result?.title || scan.title}
               </h3>
+              {(result?.identified || scan.identified) && !result?.moved ? (
+                <p className="text-sm text-emerald-300">
+                  Identified{result?.finish || scan.finish ? ` · ${result?.finish || scan.finish}` : ""} · Awaiting verified sold comps
+                </p>
+              ) : null}
               {result?.moved ? (
                 <Link href={result.needsMerge ? "/kingmaker/need-to-merge" : "/kingmaker/listings?folder=pending"}
                   prefetch={false} className="text-emerald-300">
@@ -124,7 +139,7 @@ export default function RecoveryHeldScans({ scans }: { scans: HeldScan[] }) {
               ) : (
                 <button type="button" disabled={workingId !== null} onClick={() => void retry([scan])}
                   className="rounded-lg border border-sky-500 px-3 py-2 font-semibold text-sky-200 disabled:opacity-60">
-                  {workingId === scan.id ? "Checking identification and sold comps…" : "Retry identification and comps"}
+                  {workingId === scan.id ? "Checking identification and sold comps…" : result?.identified || scan.identified ? "Retry sold comps" : "Retry identification and comps"}
                 </button>
               )}
               {result?.notes && !result.moved ? <p className="text-sm text-slate-300">{result.notes}</p> : null}
