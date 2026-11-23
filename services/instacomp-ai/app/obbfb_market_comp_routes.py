@@ -959,7 +959,11 @@ def build_market_comp_router(require_api_key: Callable[..., None], database_path
         finishes = _CHROME_REFERENCE_FINISHES if chrome else _PRIZM_REFERENCE_FINISHES
         candidates: dict[str, dict] = {}
         async with _BROWSER_LOCK:
-            suffixes = (" Base", " Refractor", " RayWave", " Etch") if chrome else (" Ice", " White Sparkle", " Silver Prizm")
+            notes = _norm(request.identity.get("notes"))
+            chrome_target = " Football Leather" if re.search(r"\b(?:leather|pebbled|pigskin)\b", notes) else " Etch"
+            suffixes = (" Base", " Refractor", " RayWave", chrome_target) if chrome else (
+                " Ice", " White Seismic", " White Sparkle", " Silver Prizm",
+            )
             for suffix in suffixes:
                 rows, _coverage = await _search_ebay_active(query + suffix)
                 for row in rows:
