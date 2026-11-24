@@ -20,6 +20,7 @@ type WorkerLike = {
 type WorkerCache = {
   match(request: Request): Promise<Response | undefined>;
   put(request: Request, response: Response): Promise<void>;
+  delete(request: Request): Promise<boolean>;
 };
 
 const appWorker = worker as WorkerLike;
@@ -67,6 +68,9 @@ function cacheKey(request: Request) {
     "gclid",
   ]) {
     url.searchParams.delete(key);
+  }
+  if (url.pathname.startsWith("/product/")) {
+    url.searchParams.set("__edge_product_cache_version", "2");
   }
   return new Request(url.toString(), { method: "GET" });
 }
@@ -144,6 +148,10 @@ async function refreshSnapshot(
   cache: WorkerCache,
 ) {
   const response = await renderAppWithHardTimeout(request, env, ctx);
+  if (response.status === 404 || response.status === 410) {
+    await cache.delete(cacheKey(request));
+    return;
+  }
   if (!canSnapshot(response)) return;
   await cache.put(cacheKey(request), responseForStorage(response.clone()));
 }
@@ -169,17 +177,18 @@ function edgeHealthResponse() {
   );
 }
 
-function emergencyBrowseResponse() {
+function emergencyBrowseResponse(status = 503) {
   return new Response(
     `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Truely Collectables</title><style>body{font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;margin:0;background:#f6f2e8;color:#111318}main{max-width:820px;margin:0 auto;padding:48px 24px}h1{font-size:42px;margin:0 0 18px}.box{background:white;border:1px solid #d8d2c4;border-radius:18px;padding:24px;box-shadow:0 10px 30px rgba(0,0,0,.06)}.strong{font-size:20px;font-weight:800}.actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:22px}a{display:inline-block;padding:12px 16px;border-radius:10px;background:#111318;color:white;text-decoration:none;font-weight:800}a.secondary{background:#ece7db;color:#111318}</style></head><body><main><h1>Truely Collectables</h1><div class="box"><p class="strong">The live inventory connection is temporarily unavailable.</p><p>Our storefront edge is still online. We will not guess inventory or accept a checkout against stale quantity data.</p><p>You can retry the shop, or contact us directly while the live catalog reconnects.</p><div class="actions"><a href="/shop">Retry the shop</a><a class="secondary" href="mailto:sales@truelycollectables.com">Email sales</a></div></div></main></body></html>`,
     {
-      status: 200,
+      status,
       headers: {
         "content-type": "text/html; charset=utf-8",
         "cache-control": "private, no-store, max-age=0",
         "x-truely-origin": "cloudflare-worker",
         "x-truely-edge-snapshot": "MISS",
         "x-truely-edge-fallback": "EMERGENCY",
+        ...(status === 503 ? { "retry-after": "120" } : {}),
         "x-truely-edge-version": EDGE_FAILSAFE_VERSION,
       },
     },
@@ -202,7 +211,7 @@ export default {
     }
 
     if (request.method === "GET" && url.pathname === "/__emergency-store") {
-      return emergencyBrowseResponse();
+      return emergencyBrowseResponse(200);
     }
 
     if (!isPublicBrowseRequest(request)) {
