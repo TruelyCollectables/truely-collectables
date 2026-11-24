@@ -75,7 +75,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   }
 
   const productRoutes = products
-    .filter((product) => product.quantity > 0 && product.status === "active")
+    .filter((product) => product.quantity > 0 && product.status === "active" && Boolean(product.imageUrl))
     .map((product) => {
       const image = absoluteUrl(origin, product.imageUrl);
 
