@@ -181,6 +181,10 @@ type PendingCard = {
       listedProductIds: number[];
     } | null;
     pricingStatus: string;
+    lastCompedAt?: string | null;
+    pricingCheckedAt?: string | null;
+    sellerPriceOverride?: boolean;
+    manualIdentityLocked?: boolean;
     serialNumber?: string | null;
     identitySummary?: string | null;
     identityReadout?: string | null;
@@ -828,6 +832,24 @@ export default function KingmakerPendingPage({
   const router = useRouter();
   const [queue, setQueue] = useState<PendingQueue>(initialQueue);
   const [folder, setFolder] = useState<ListingFolder>(initialFolder);
+  const [recompSport, setRecompSport] = useState<string>("all");
+  const [recompPlayer, setRecompPlayer] = useState<string>("");
+  const [recompNumberedOnly, setRecompNumberedOnly] = useState<boolean>(false);
+  const [recompAutoOnly, setRecompAutoOnly] = useState<boolean>(false);
+  const [recompRelicOnly, setRecompRelicOnly] = useState<boolean>(false);
+  const [recompParallel, setRecompParallel] = useState<string>("");
+  const [recompStaleness, setRecompStaleness] = useState<"all" | "zero_comps" | "stale_30d">("all");
+  const [recompApplyNewPrice, setRecompApplyNewPrice] = useState<boolean>(false);
+  const [recompRunning, setRecompRunning] = useState<boolean>(false);
+  const [acceptingRecompId, setAcceptingRecompId] = useState<string | null>(null);
+  const [recompResults, setRecompResults] = useState<Record<string, {
+    currentPrice: number;
+    suggestedPrice: number | null;
+    delta: number | null;
+    compCount: number;
+    priceModified: boolean;
+    flag?: string | null;
+  }>>({});
 
   const refreshPriceGuide = useCallback(async (
     card: PendingCard,
@@ -1714,6 +1736,12 @@ export default function KingmakerPendingPage({
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "Could not save listing price.");
+      setChannelPriceEdits((current) => {
+        if (!current[card.inventoryItemId]) return current;
+        const next = { ...current };
+        delete next[card.inventoryItemId];
+        return next;
+      });
       setNotice(
         `${money(price)} saved${Number(data.updatedCount || 1) > 1 ? ` across ${data.updatedCount} exact-card matches` : ""}.`,
       );
@@ -2120,14 +2148,21 @@ export default function KingmakerPendingPage({
     const selected = cards.filter((card) => selectedIds.has(card.inventoryItemId));
     const seenGroups = new Set<string>();
     const priceable = selected.filter((card) => {
-      if (Number(card.instaComp.suggestedPrice || 0) <= 0) return false;
+      const baseValue = Number(
+        card.instaComp.suggestedPrice ||
+          card.price ||
+          card.instaComp.listingPrice ||
+          card.instaComp.channelPricing?.ebayPrice ||
+          0,
+      );
+      if (baseValue <= 0) return false;
       const key = card.instaComp.pricingGroupKey || card.inventoryItemId;
       if (seenGroups.has(key)) return false;
       seenGroups.add(key);
       return true;
     });
     if (!priceable.length) {
-      setPageError("None of the selected cards has an accepted InstaComp comp price yet.");
+      setPageError("None of the selected cards has an InstaComp or current price to adjust.");
       return;
     }
     setBusyId("bulk");
@@ -2137,7 +2172,14 @@ export default function KingmakerPendingPage({
       const session = await getFreshAccountSession(5 * 60, false);
       if (!session?.access_token) throw new Error("Seller login is required.");
       await runWithConcurrency(priceable, BULK_PRICE_CONCURRENCY, async (card) => {
-        const price = compAdjustedPrice(card.instaComp.suggestedPrice, adjustmentPercent);
+        const baseValue = Number(
+          card.instaComp.suggestedPrice ||
+            card.price ||
+            card.instaComp.listingPrice ||
+            card.instaComp.channelPricing?.ebayPrice ||
+            0,
+        );
+        const price = compAdjustedPrice(baseValue, adjustmentPercent);
         if (!price) throw new Error(`${card.title}: InstaComp price is unavailable.`);
         const response = await fetch("/api/account/seller/instacomp-scan/price", {
           method: "POST",
@@ -2151,6 +2193,13 @@ export default function KingmakerPendingPage({
         });
         const data = await response.json().catch(() => ({}));
         if (!response.ok) throw new Error(`${card.title}: ${data.error || "bulk price failed"}`);
+      });
+      setChannelPriceEdits((current) => {
+        const next = { ...current };
+        for (const card of priceable) {
+          delete next[card.inventoryItemId];
+        }
+        return next;
       });
       setNotice(`Comp-based prices saved for ${priceable.length} selected exact-card group${priceable.length === 1 ? "" : "s"}.`);
       await load(queue || queueFromLocation());
@@ -2440,14 +2489,152 @@ export default function KingmakerPendingPage({
     }
   }
 
+  async function runInstaReComp() {
+    const targets = visibleCards.filter((card) => selectedIds.has(card.inventoryItemId));
+    if (!targets.length) {
+      setPageError("Select one or more listings before running InstaReComp.");
+      return;
+    }
+    setRecompRunning(true);
+    setPageError("");
+    setNotice(
+      `Running InstaReComp 365-day sweep on ${targets.length} listing${targets.length === 1 ? "" : "s"}${recompApplyNewPrice ? " (Apply New Price ON)" : " (price-locked preview)"}…`,
+    );
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      if (!session?.access_token) throw new Error("Seller login is required.");
+      const response = await fetch("/api/listings/instarecomp", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          listingIds: targets.map((c) => c.inventoryItemId),
+          applyNewPrice: recompApplyNewPrice,
+        }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data?.ok !== true) {
+        throw new Error(String(data?.error || data?.detail || "InstaReComp failed."));
+      }
+      const nextResults: typeof recompResults = { ...recompResults };
+      for (const row of Array.isArray(data.results) ? data.results : []) {
+        if (row?.listingId && row?.ok) {
+          nextResults[String(row.listingId)] = {
+            currentPrice: Number(row.currentPrice || 0),
+            suggestedPrice: row.suggestedPrice !== null && row.suggestedPrice !== undefined ? Number(row.suggestedPrice) : null,
+            delta: row.delta !== null && row.delta !== undefined ? Number(row.delta) : null,
+            compCount: Number(row.compCount || 0),
+            priceModified: row.priceModified === true,
+            flag: row.flag || null,
+          };
+        }
+      }
+      setRecompResults(nextResults);
+      const summary = data.summary || {};
+      setNotice(
+        `InstaReComp complete: ${Number(summary.updatedCount || targets.length)} updated, ${Number(summary.priceUpdatedCount || 0)} prices applied, ${Number(summary.zeroCompCount || 0)} with 0 comps.`,
+      );
+      await load(queue, folderFromLocation());
+    } catch (error) {
+      setPageError(message(error));
+    } finally {
+      setRecompRunning(false);
+    }
+  }
+
+  async function acceptReCompPrice(card: PendingCard, suggestedPrice: number) {
+    setAcceptingRecompId(card.inventoryItemId);
+    setPageError("");
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      if (!session?.access_token) throw new Error("Seller login is required.");
+      const response = await fetch(
+        `/api/listings/${encodeURIComponent(card.inventoryItemId)}/accept-recomp-price`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ suggestedPrice }),
+        },
+      );
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data?.ok !== true) {
+        throw new Error(String(data?.error || data?.detail || "Could not accept suggested price."));
+      }
+      setRecompResults((prev) => ({
+        ...prev,
+        [card.inventoryItemId]: {
+          currentPrice: Number(data.currentPrice || suggestedPrice),
+          suggestedPrice,
+          delta: 0,
+          compCount: prev[card.inventoryItemId]?.compCount ?? Number(card.instaComp.reliableSoldCompCount || 1),
+          priceModified: true,
+          flag: null,
+        },
+      }));
+      setNotice(`${card.title}: accepted ${money(suggestedPrice)} and locked operator price across channels.`);
+      await load(queue, folderFromLocation());
+    } catch (error) {
+      setPageError(message(error));
+    } finally {
+      setAcceptingRecompId(null);
+    }
+  }
+
   const pendingReceiptCount = Object.values(purchaseMatches).filter((purchase) => purchase?.status === "pending_purchase").length;
-  const visibleCards = folder === "receipt"
+  const baseFolderCards = folder === "receipt"
     ? cards.filter((card) =>
         physicalMembersForCard(card).some(
           (member) => purchaseMatches[member.inventoryItemId]?.status === "pending_purchase",
         ),
       )
     : cards;
+  const visibleCards = baseFolderCards.filter((card) => {
+    const ident = card.instaComp.identity || {};
+    if (recompSport !== "all") {
+      const cardSport = String(ident.sport || "").trim().toLowerCase();
+      if (recompSport === "other") {
+        if (["basketball", "football", "baseball", "hockey", "soccer"].includes(cardSport)) return false;
+      } else if (cardSport !== recompSport) {
+        return false;
+      }
+    }
+    if (recompPlayer.trim()) {
+      const q = recompPlayer.trim().toLowerCase();
+      const haystack = `${ident.player || ""} ${card.title || ""}`.toLowerCase();
+      if (!haystack.includes(q)) return false;
+    }
+    if (recompNumberedOnly) {
+      const serial = String(ident.serialNumber || card.instaComp.serialNumber || "").trim();
+      const hasPrintRun = Boolean(serial) || /\/\d{1,5}\b/.test(card.title || "");
+      if (!hasPrintRun) return false;
+    }
+    if (recompAutoOnly && ident.isAuto !== true && !/\bauto(?:graph)?\b/i.test(card.title || "")) {
+      return false;
+    }
+    if (recompRelicOnly && ident.isRelic !== true && !/\b(?:relic|patch|jersey|memorabilia)\b/i.test(card.title || "")) {
+      return false;
+    }
+    if (recompParallel.trim()) {
+      const pq = recompParallel.trim().toLowerCase();
+      const parallelHay = `${ident.parallel || ""} ${ident.variation || ""} ${card.title || ""}`.toLowerCase();
+      if (!parallelHay.includes(pq)) return false;
+    }
+    if (recompStaleness === "zero_comps") {
+      if (Number(card.instaComp.reliableSoldCompCount || 0) > 0) return false;
+    } else if (recompStaleness === "stale_30d") {
+      const lastAt = card.instaComp.lastCompedAt || card.instaComp.pricingCheckedAt || card.instaComp.priceGuideCheckedAt;
+      if (lastAt) {
+        const ageDays = (Date.now() - new Date(lastAt).getTime()) / (1000 * 60 * 60 * 24);
+        if (Number.isFinite(ageDays) && ageDays <= 30) return false;
+      }
+    }
+    return true;
+  });
   const renderedCards = visibleCards.slice(0, renderLimit);
 
   return (
@@ -2630,6 +2817,155 @@ export default function KingmakerPendingPage({
 
         {cards.length ? (
           <section className="mt-6 rounded-2xl border-2 border-neutral-900 bg-white p-4 shadow-[5px_5px_0_#111]" aria-label="Bulk listing tools">
+            <div className="mb-4 rounded-xl border-2 border-violet-900 bg-violet-50 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-black text-violet-950">InstaReComp · 365-Day Comp Refresh</h2>
+                  <p className="text-xs font-semibold text-violet-900">
+                    Filter listed cards by attributes, select rows, and refresh 365-day sold comps. Locked prices stay untouched unless Apply New Price is toggled ON.
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-3">
+                  <label className="flex cursor-pointer items-center gap-2 rounded-lg border-2 border-violet-900 bg-white px-3 py-2 text-xs font-black text-violet-950">
+                    <input
+                      type="checkbox"
+                      checked={visibleCards.length > 0 && visibleCards.every((c) => selectedIds.has(c.inventoryItemId))}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedIds(new Set(visibleCards.map((c) => c.inventoryItemId)));
+                        } else {
+                          setSelectedIds(new Set());
+                        }
+                      }}
+                      className="h-4 w-4 accent-violet-700"
+                    />
+                    Select All (Filtered · {visibleCards.length})
+                  </label>
+                  <label className="flex cursor-pointer items-center gap-2 rounded-lg border-2 border-amber-700 bg-white px-3 py-2 text-xs font-black text-amber-950">
+                    <input
+                      type="checkbox"
+                      checked={recompApplyNewPrice}
+                      onChange={(e) => setRecompApplyNewPrice(e.target.checked)}
+                      className="h-4 w-4 accent-amber-600"
+                    />
+                    Apply New Price (+25% / .99)
+                  </label>
+                  <button
+                    type="button"
+                    disabled={!selectedIds.size || recompRunning || Boolean(busyId)}
+                    onClick={() => void runInstaReComp()}
+                    className="rounded-xl bg-violet-700 px-4 py-2 text-sm font-black text-white disabled:opacity-40"
+                  >
+                    {recompRunning ? `InstaReComping (${selectedIds.size})…` : `InstaReComp (${selectedIds.size})`}
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-3 grid gap-3 md:grid-cols-4">
+                <label className="text-xs font-black uppercase text-violet-950">
+                  Sport
+                  <select
+                    value={recompSport}
+                    onChange={(e) => setRecompSport(e.target.value)}
+                    className="mt-1 w-full rounded-lg border-2 border-violet-300 bg-white p-2 text-sm font-bold text-neutral-950"
+                  >
+                    <option value="all">All Sports</option>
+                    <option value="basketball">Basketball</option>
+                    <option value="football">Football</option>
+                    <option value="baseball">Baseball</option>
+                    <option value="hockey">Hockey</option>
+                    <option value="soccer">Soccer</option>
+                    <option value="other">Other</option>
+                  </select>
+                </label>
+                <label className="text-xs font-black uppercase text-violet-950">
+                  Player
+                  <input
+                    type="text"
+                    value={recompPlayer}
+                    onChange={(e) => setRecompPlayer(e.target.value)}
+                    placeholder="Filter by player name…"
+                    className="mt-1 w-full rounded-lg border-2 border-violet-300 bg-white p-2 text-sm font-bold text-neutral-950"
+                  />
+                </label>
+                <label className="text-xs font-black uppercase text-violet-950">
+                  Parallel / Color
+                  <input
+                    type="text"
+                    value={recompParallel}
+                    onChange={(e) => setRecompParallel(e.target.value)}
+                    placeholder="Blue, Silver Prizm, Gold…"
+                    className="mt-1 w-full rounded-lg border-2 border-violet-300 bg-white p-2 text-sm font-bold text-neutral-950"
+                  />
+                </label>
+                <label className="text-xs font-black uppercase text-violet-950">
+                  Comp Staleness
+                  <select
+                    value={recompStaleness}
+                    onChange={(e) => setRecompStaleness(e.target.value as "all" | "zero_comps" | "stale_30d")}
+                    className="mt-1 w-full rounded-lg border-2 border-violet-300 bg-white p-2 text-sm font-bold text-neutral-950"
+                  >
+                    <option value="all">All Comps</option>
+                    <option value="zero_comps">0 Comps</option>
+                    <option value="stale_30d">&gt; 30 Days Since Comp</option>
+                  </select>
+                </label>
+              </div>
+
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <span className="text-xs font-black uppercase text-violet-950">Attributes:</span>
+                <button
+                  type="button"
+                  onClick={() => setRecompNumberedOnly((v) => !v)}
+                  className={`rounded-full border-2 px-3 py-1 text-xs font-black ${recompNumberedOnly ? "border-violet-900 bg-violet-800 text-white" : "border-violet-300 bg-white text-violet-950"}`}
+                >
+                  Serial Numbered (#/)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRecompAutoOnly((v) => !v)}
+                  className={`rounded-full border-2 px-3 py-1 text-xs font-black ${recompAutoOnly ? "border-violet-900 bg-violet-800 text-white" : "border-violet-300 bg-white text-violet-950"}`}
+                >
+                  Auto
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setRecompRelicOnly((v) => !v)}
+                  className={`rounded-full border-2 px-3 py-1 text-xs font-black ${recompRelicOnly ? "border-violet-900 bg-violet-800 text-white" : "border-violet-300 bg-white text-violet-950"}`}
+                >
+                  Relic
+                </button>
+                <span className="ml-2 text-xs font-black uppercase text-violet-950">Quick Parallel:</span>
+                {(["Blue", "Silver Prizm", "Gold", "Red", "Refractor"] as const).map((chip) => (
+                  <button
+                    key={chip}
+                    type="button"
+                    onClick={() => setRecompParallel((cur) => (cur.toLowerCase() === chip.toLowerCase() ? "" : chip))}
+                    className={`rounded-full border px-2.5 py-1 text-xs font-black ${recompParallel.toLowerCase() === chip.toLowerCase() ? "border-neutral-950 bg-neutral-950 text-white" : "border-violet-300 bg-white text-violet-950"}`}
+                  >
+                    {chip}
+                  </button>
+                ))}
+                {(recompSport !== "all" || recompPlayer || recompParallel || recompNumberedOnly || recompAutoOnly || recompRelicOnly || recompStaleness !== "all") ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setRecompSport("all");
+                      setRecompPlayer("");
+                      setRecompParallel("");
+                      setRecompNumberedOnly(false);
+                      setRecompAutoOnly(false);
+                      setRecompRelicOnly(false);
+                      setRecompStaleness("all");
+                    }}
+                    className="ml-auto rounded-lg border border-neutral-400 bg-white px-2.5 py-1 text-xs font-black text-neutral-800"
+                  >
+                    Reset InstaReComp Filters
+                  </button>
+                ) : null}
+              </div>
+            </div>
+
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
                 <h2 className="text-xl font-black">Bulk edit</h2>
@@ -3058,6 +3394,37 @@ export default function KingmakerPendingPage({
                     <span className={`rounded-full px-3 py-1 text-xs font-black ${pairReady ? "bg-emerald-300 text-emerald-950" : "bg-red-300 text-red-950"}`}>
                       {pairReady ? "FRONT + BACK READY" : "SIDE MISSING"}
                     </span>
+                    {(() => {
+                      const recomp = recompResults[card.inventoryItemId];
+                      const listed = Number(card.price || card.instaComp.listingPrice || 0);
+                      const recompSuggested = recomp ? recomp.suggestedPrice : (card.instaComp.suggestedPrice ? Number(card.instaComp.suggestedPrice) : null);
+                      const recompCompCount = recomp ? recomp.compCount : Number(card.instaComp.reliableSoldCompCount || 0);
+                      if (!recomp && (!recompSuggested || recompSuggested === listed)) return null;
+                      if (recomp?.flag || recompCompCount === 0 || !recompSuggested) {
+                        return (
+                          <span className="rounded-full border-2 border-amber-300 bg-amber-200 px-3 py-1 text-xs font-black text-amber-950">
+                            {recomp?.flag || "0 Comps — Seller Price Required"}
+                          </span>
+                        );
+                      }
+                      const delta = Math.round((recompSuggested - listed) * 100) / 100;
+                      const deltaStr = `${delta >= 0 ? "+" : "-"}${money(Math.abs(delta))}`;
+                      return (
+                        <span className="inline-flex items-center gap-2 rounded-full border-2 border-violet-300 bg-violet-200 px-3 py-1 text-xs font-black text-violet-950">
+                          <span>Listed: {money(listed)} | Suggested: {money(recompSuggested)} ({deltaStr})</span>
+                          {!recomp?.priceModified && Math.abs(delta) >= 0.01 ? (
+                            <button
+                              type="button"
+                              disabled={acceptingRecompId === card.inventoryItemId || Boolean(busyId)}
+                              onClick={() => void acceptReCompPrice(card, recompSuggested)}
+                              className="rounded-full bg-violet-900 px-2.5 py-0.5 text-[11px] font-black text-white hover:bg-violet-800 disabled:opacity-40"
+                            >
+                              {acceptingRecompId === card.inventoryItemId ? "Saving…" : "Accept"}
+                            </button>
+                          ) : null}
+                        </span>
+                      );
+                    })()}
                     {websiteCurrent ? (
                       <span className="rounded-full border-2 border-emerald-200 bg-emerald-300 px-3 py-1 text-xs font-black text-emerald-950">
                         CURRENT WEBSITE INVENTORY · QTY {currentWebsiteInventory?.quantity || 0}

@@ -1710,6 +1710,14 @@ export async function GET(request: Request) {
             ),
           ),
           pricingCheckedAt: textValue(instaComp.pricingCheckedAt),
+          lastCompedAt:
+            textValue(instaComp.lastCompedAt) ||
+            textValue(instaComp.pricingCheckedAt),
+          sellerPriceOverride:
+            instaComp.sellerPriceOverride === true ||
+            sellerReview.sellerPriceOverride === true ||
+            recordValue(dualMarketplace.pricing).sellerPriceOverride === true,
+          manualIdentityLocked,
           listingPrice: optionalPrice(instaComp.listingPrice),
           listingPriceSource: textValue(instaComp.listingPriceSource),
           channelPricing: {
