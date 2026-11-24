@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import ProductImageGallery from "../../components/ProductImageGallery";
 import { cache } from "react";
@@ -151,23 +152,7 @@ export default async function ProductPage({
   const product = await getProduct(id);
 
   if (!isPublicProduct(product)) {
-    return (
-      <main className="p-8 max-w-6xl mx-auto">
-        <h1 className="text-3xl font-bold mb-4">Product Not Found</h1>
-
-        <p className="mb-2">
-          Product ID checked: <strong>{id}</strong>
-        </p>
-
-        <p className="mb-6">
-          This item may have been removed or no longer exists.
-        </p>
-
-        <Link href="/shop" className="inline-block border rounded px-4 py-2">
-          Back to Shop
-        </Link>
-      </main>
-    );
+    notFound();
   }
 
   const quantity = Number(product.quantity || 0);
