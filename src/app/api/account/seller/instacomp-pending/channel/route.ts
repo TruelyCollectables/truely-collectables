@@ -415,11 +415,8 @@ export async function POST(request: Request) {
         // receiving requirement. If a legacy row *does* have a tracked receipt,
         // every real receipt state (pending, stash, etc.) still remains enforced.
         const blocked = rawBlocked.filter((row: any) => {
-          if (row?.reason !== "physical_inventory_receipt_missing") return true;
-          const inventory = groupRowsById.get(String(row?.inventoryItemId || ""));
-          if (!inventory) return true;
-          if (isPreReceivingCutoverInventory(inventory)) return false;
-          return !hasDurablePhysicalScanReceipt(inventory);
+          if (row?.reason === "physical_inventory_receipt_missing") return false;
+          return true;
         });
         if (blocked.length) {
           const reasons = blocked.map((row: any) => {
@@ -748,7 +745,6 @@ export async function POST(request: Request) {
       "duplicate_front_back_image",
       "missing_condition",
       "missing_quantity",
-      "missing_acquisition_source",
       "duplicate_decision_required",
     ]);
     listingReadiness.coreReady = failedReadiness.every((check) => !coreReadinessCodes.has(check.code));

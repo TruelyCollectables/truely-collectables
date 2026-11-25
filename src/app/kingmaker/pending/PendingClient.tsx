@@ -477,7 +477,6 @@ function sanitizeListingReadiness(
     "duplicate_front_back_image",
     "missing_condition",
     "missing_quantity",
-    "missing_acquisition_source",
     "duplicate_decision_required",
   ]);
   const failed = checks.filter((check) => !check.ready);
