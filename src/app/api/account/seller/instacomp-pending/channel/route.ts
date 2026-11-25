@@ -29,7 +29,7 @@ import {
   verifyStorefrontProduct,
 } from "../../../../../../lib/storefront-publication-client";
 import { postInstaCompMacAccounting } from "../../../../../../lib/instacomp-mac-accounting-client";
-import { getInstaCompAiLocalArchivedImage } from "../../../../../../lib/instacomp-ai-local";
+import { fetchInstaCompAiLocalInventoryImage, getInstaCompAiLocalArchivedImage } from "../../../../../../lib/instacomp-ai-local";
 import { persistKingmakerListingPhotoPair } from "../../../../../../lib/instacomp-normalized-image-storage";
 import {
   getMacMasterListingRow,
@@ -539,16 +539,22 @@ export async function POST(request: Request) {
     let publicImagePair = verifiedPersistedImagePair(instaComp);
     const publishing = action !== "save" && action !== "prepare-mercari";
     const usesArchiveUrl = imageUrls.some((url) =>
-      /^https?:\/\/[^/]+\/(?:api\/kingmaker\/scan-image(?:[?#]|$)|v1\/(?:public\/)?scans\/)/i.test(url),
+      /^https?:\/\/[^/]+\/(?:api\/kingmaker\/scan-image(?:[?#]|$)|v1\/(?:public\/)?scans\/|Volumes\/)/i.test(url),
     );
     const needsPublishedPair = publishing && !publicImagePair &&
       (usesArchiveUrl || (scanId && imageUrls.length < 2));
     if (needsPublishedPair) {
       try {
-        if (!scanId) throw new Error("The card listing has no scan ID for its photos.");
+        const loadSide = async (side: "front" | "back") => {
+          if (scanId) {
+            return getInstaCompAiLocalArchivedImage({ scanId, side, timeoutMs: 12_000 });
+          }
+          const file = await fetchInstaCompAiLocalInventoryImage({ inventoryItemId: keeperId, side, timeoutMs: 12_000 });
+          return { bytes: await file.arrayBuffer(), sha256: null };
+        };
         const [front, back] = await Promise.all([
-          getInstaCompAiLocalArchivedImage({ scanId, side: "front", timeoutMs: 12_000 }),
-          getInstaCompAiLocalArchivedImage({ scanId, side: "back", timeoutMs: 12_000 }),
+          loadSide("front"),
+          loadSide("back"),
         ]);
         publicImagePair = await persistKingmakerListingPhotoPair({ inventoryItemId: keeperId, front, back });
       } catch (error) {
@@ -932,6 +938,7 @@ export async function POST(request: Request) {
       quantity: totalQuantity,
       metadata: nextMetadata,
       updatedAt: now,
+      obbfbOperatorSave: true,
     });
 
     if (linkedProductId) {
