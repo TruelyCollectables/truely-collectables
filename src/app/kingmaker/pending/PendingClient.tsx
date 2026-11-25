@@ -821,7 +821,7 @@ export default function KingmakerPendingPage({
   initialFolder?: ListingFolder;
   initialCards?: PendingCard[];
   initialLoaded?: boolean;
-  initialQueueCounts?: { listings: number; list?: number; verification: number; redo_pending_resale: number };
+  initialQueueCounts?: { listings: number; list: number; verification: number; redo_pending_resale: number };
   initialFolderCounts?: Record<CountedListingFolder, number>;
 }) {
   const [cards, setCards] = useState<PendingCard[]>(() =>
@@ -2902,7 +2902,7 @@ export default function KingmakerPendingPage({
 
         {!loading && !cards.length && !pageError ? (
           <div className="mt-6 rounded-2xl border border-neutral-300 bg-white p-8 text-center">
-            {queueCounts[queue] > 0 ? (
+            {(queueCounts[queue] ?? 0) > 0 ? (
               <>
                 <p className="text-xl font-black">Queue data is refreshing</p>
                 <p className="mt-2 text-neutral-600">
