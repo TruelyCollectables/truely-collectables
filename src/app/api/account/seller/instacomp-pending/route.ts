@@ -718,7 +718,7 @@ export async function GET(request: Request) {
     const requestedFolder = requestUrl.searchParams.get("folder");
     const requestedFocus = String(requestUrl.searchParams.get("focus") || "").trim();
     const queue: InstaCompPendingQueue =
-      requestedQueue === "redo_pending_resale" ? "redo_pending_resale" : requestedQueue === "missing_picture" ? "missing_picture" : requestedQueue === "verification" ? "verification" : "listings";
+      requestedQueue === "list" ? "list" : requestedQueue === "redo_pending_resale" ? "redo_pending_resale" : requestedQueue === "missing_picture" ? "missing_picture" : requestedQueue === "verification" ? "verification" : "listings";
     const folder: InstaCompListingFolder =
       requestedFolder === "need_pricing" ||
       requestedFolder === "website" ||
@@ -847,7 +847,7 @@ export async function GET(request: Request) {
       // Review-only REDO records remain visible even after identity/pricing reset
       // or when Mac master_listing_projection holds them in redo_pending_resale.
       // Publication is still gated downstream; this is display membership only.
-      if ((queue === "redo_pending_resale" || queueHint === "redo_pending_resale") && row.status === "draft") return true;
+      if (queue === "list" || queueHint === "list" || queueHint === "pending_listings" || ((queue === "redo_pending_resale" || queueHint === "redo_pending_resale") && row.status === "draft")) return true;
       const hasScanPairReceipt = Boolean(textValue(instaComp.imagePairSha256));
       const hasStoredImageHint =
         textValue(row.frontImageUrl) ||
@@ -947,6 +947,10 @@ export async function GET(request: Request) {
           row.status === "active" ||
           instaCompPendingQueueFromMetadata(row.metadata) === "listings",
       ).length,
+      list: scopedInstaCompRows.filter(
+        (row: any) =>
+          instaCompPendingQueueFromMetadata(row.metadata) === "list",
+      ).length,
       verification: scopedInstaCompRows.filter(
         (row: any) =>
           row.status === "draft" &&
@@ -966,6 +970,7 @@ export async function GET(request: Request) {
       useMacListingProjection && macProjection?.queueCounts
         ? {
             listings: Number(macProjection.queueCounts.listings || 0),
+            list: Number((macProjection.queueCounts as Record<string, unknown>).list || computedQueueCounts.list || 0),
             verification: Number(macProjection.queueCounts.verification || 0),
             missing_picture: Number(macProjection.queueCounts.missing_picture || 0),
             redo_pending_resale: Number(macProjection.queueCounts.redo_pending_resale || computedQueueCounts.redo_pending_resale || 0),
@@ -1047,6 +1052,9 @@ export async function GET(request: Request) {
       ? scopedInstaCompRows.filter((row: any) => String(row.id) === requestedFocus)
       : scopedInstaCompRows.filter((row: any) => {
           const rowQueue = instaCompPendingQueueFromMetadata(row.metadata);
+          if (queue === "list") {
+            return row.status !== "archived" && row.status !== "sold";
+          }
           if (queue === "redo_pending_resale") {
             // Mac master_list already filtered pending_queue='redo_pending_resale'.
             // Do not drop rows whose metadata.listingWorkflow.queue was updated.

@@ -1,5 +1,5 @@
 import { hasVerifiedCsvAuthority } from "./kingmaker-verified-csv";
-export type InstaCompPendingQueue = "listings" | "verification" | "missing_picture" | "redo_pending_resale";
+export type InstaCompPendingQueue = "listings" | "list" | "verification" | "missing_picture" | "redo_pending_resale";
 
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -20,6 +20,7 @@ export function instaCompPendingQueueFromMetadata(
   // A reset identity is still a physical card in the seller REDO review queue.
   // Queue visibility never grants permission to publish.
   if (workflow.queue === "redo_pending_resale") return "redo_pending_resale";
+  if (workflow.queue === "list") return "list";
   // Explicitly restored resale-review cards stay in the seller review queue.
   // Per-card identity/orientation blockers still prevent publication.
   if (workflow.queue === "pending_listings" || workflow.label === "Resale Pending") {
