@@ -1250,12 +1250,20 @@ export async function GET(request: Request) {
         (Array.isArray(metadata.ebay_image_urls)
           ? textValue(metadata.ebay_image_urls[0])
           : null);
-      const displayFrontUrl =
+      const rawFrontUrl =
         storedPair.frontImageUrl ||
         product?.image_url ||
         metadataFrontUrl ||
         null;
-      const displayBackUrl = storedPair.backImageUrl || metadataBackUrl || null;
+      const rawBackUrl = storedPair.backImageUrl || metadataBackUrl || null;
+      const displayFrontUrl =
+        rawFrontUrl && rawFrontUrl.startsWith("/Volumes/")
+          ? `/api/kingmaker/scan-image?inventoryItemId=${encodeURIComponent(String(row.id))}&side=front`
+          : rawFrontUrl;
+      const displayBackUrl =
+        rawBackUrl && rawBackUrl.startsWith("/Volumes/")
+          ? `/api/kingmaker/scan-image?inventoryItemId=${encodeURIComponent(String(row.id))}&side=back`
+          : rawBackUrl;
       const rawTitle = textValue(row.title);
       const manualListingTitle =
         instaComp.manualListingTitleLocked === true

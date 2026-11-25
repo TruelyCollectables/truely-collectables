@@ -859,7 +859,8 @@ export default function KingmakerPendingPage({
   const marketWorkerRunningRef = useRef(false);
   const skipInitialCardsReloadRef = useRef(initialLoaded);
   const purchaseMatchSignatureRef = useRef("");
-  const [renderLimit, setRenderLimit] = useState(24);
+  const [pageSize, setPageSize] = useState<number>(0);
+  const [renderLimit, setRenderLimit] = useState(Number.MAX_SAFE_INTEGER);
   const router = useRouter();
   const [queue, setQueue] = useState<PendingQueue>(initialQueue === "list" || initialQueue === "verification" || initialQueue === "redo_pending_resale" ? initialQueue : "listings");
   const [folder, setFolder] = useState<ListingFolder>(initialFolder);
@@ -1149,8 +1150,8 @@ export default function KingmakerPendingPage({
   ]);
 
   useEffect(() => {
-    setRenderLimit(24);
-  }, [queue, folder]);
+    setRenderLimit(pageSize > 0 ? pageSize : Number.MAX_SAFE_INTEGER);
+  }, [queue, folder, pageSize]);
 
   useEffect(() => {
     if (priceGuideWorkerRunningRef.current) return;
@@ -2895,6 +2896,27 @@ export default function KingmakerPendingPage({
               {sport}
             </button>
           ))}
+          <div className="ml-auto flex flex-wrap items-center gap-1.5" aria-label="Cards per page">
+            <span className="text-xs font-black uppercase tracking-wider text-neutral-600">Show:</span>
+            {([10, 25, 50, 100, 200, 500, 0] as const).map((size) => (
+              <button
+                key={size}
+                type="button"
+                onClick={() => {
+                  setPageSize(size);
+                  setRenderLimit(size > 0 ? size : Number.MAX_SAFE_INTEGER);
+                }}
+                aria-pressed={pageSize === size}
+                className={`rounded-full border px-2.5 py-1 text-xs font-black ${
+                  pageSize === size
+                    ? "border-neutral-950 bg-neutral-950 text-white"
+                    : "border-neutral-400 bg-white text-neutral-800 hover:border-neutral-800"
+                }`}
+              >
+                {size === 0 ? "All" : size}
+              </button>
+            ))}
+          </div>
         </div>
 
         {pageError ? <div className="mt-5 rounded-xl border-2 border-red-700 bg-red-50 p-4 font-bold text-red-900">{pageError}</div> : null}
@@ -4022,13 +4044,23 @@ export default function KingmakerPendingPage({
             );
           })}
           {renderedCards.length < visibleCards.length ? (
-            <div className="flex justify-center py-4">
+            <div className="flex justify-center gap-3 py-4">
               <button
                 type="button"
-                onClick={() => setRenderLimit((value) => value + 24)}
+                onClick={() => setRenderLimit((value) => value + (pageSize > 0 ? pageSize : 24))}
                 className="rounded-xl border-2 border-neutral-900 bg-white px-5 py-3 text-sm font-black shadow-[4px_4px_0_#111]"
               >
-                Load 24 more · {visibleCards.length - renderedCards.length} remaining
+                Load {pageSize > 0 ? pageSize : 24} more · {visibleCards.length - renderedCards.length} remaining
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setPageSize(0);
+                  setRenderLimit(Number.MAX_SAFE_INTEGER);
+                }}
+                className="rounded-xl border-2 border-emerald-800 bg-emerald-700 px-5 py-3 text-sm font-black text-white shadow-[4px_4px_0_#111]"
+              >
+                Show All ({visibleCards.length})
               </button>
             </div>
           ) : null}

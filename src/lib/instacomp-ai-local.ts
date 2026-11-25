@@ -664,6 +664,45 @@ export async function fetchInstaCompAiLocalScanImage(params: {
   });
 }
 
+export async function fetchInstaCompAiLocalInventoryImage(params: {
+  inventoryItemId: string;
+  side: "front" | "back";
+  timeoutMs?: number;
+}) {
+  const itemId = String(params.inventoryItemId || "").trim();
+  if (!itemId || itemId.length > 120) {
+    throw new Error("Invalid inventoryItemId.");
+  }
+  const response = await fetch(
+    `${baseUrl()}/v1/obbfb-inventory/image?inventory_item_id=${encodeURIComponent(itemId)}&side=${params.side}`,
+    {
+      method: "GET",
+      headers: requestHeaders(),
+      cache: "no-store",
+      signal: AbortSignal.timeout(params.timeoutMs ?? 30_000),
+    },
+  );
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw new Error(
+      `InstaComp Mac inventory image returned HTTP ${response.status}${
+        detail ? `: ${detail.slice(0, 240)}` : ""
+      }.`,
+    );
+  }
+  const contentType = String(response.headers.get("content-type") || "").toLowerCase();
+  if (!contentType.startsWith("image/")) {
+    throw new Error("InstaComp Mac inventory image returned a non-image response.");
+  }
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  if (bytes.length < 1_000 || bytes.length > 20 * 1024 * 1024) {
+    throw new Error("InstaComp Mac inventory image returned an invalid image size.");
+  }
+  return new File([bytes], `${itemId}-${params.side}.jpg`, {
+    type: contentType || "image/jpeg",
+  });
+}
+
 export async function analyzeWithInstaCompAiLocalSecondary(params: {
   front: Blob;
   back?: Blob | null;

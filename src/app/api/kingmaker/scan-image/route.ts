@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthenticatedAccountFromRequest } from "../../../../lib/kingmaker-local-auth";
-import { fetchInstaCompAiLocalScanImage } from "../../../../lib/instacomp-ai-local";
+import {
+  fetchInstaCompAiLocalInventoryImage,
+  fetchInstaCompAiLocalScanImage,
+} from "../../../../lib/instacomp-ai-local";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,21 +15,29 @@ export async function GET(request: NextRequest) {
   }
 
   const scanId = String(request.nextUrl.searchParams.get("scanId") || "").trim();
+  const inventoryItemId = String(request.nextUrl.searchParams.get("inventoryItemId") || "").trim();
   const side = String(request.nextUrl.searchParams.get("side") || "")
     .trim()
     .toLowerCase();
-  if (!scanId || (side !== "front" && side !== "back")) {
+  if ((!scanId && !inventoryItemId) || (side !== "front" && side !== "back")) {
     return NextResponse.json(
-      { error: "scanId and side=front|back are required." },
+      { error: "scanId or inventoryItemId and side=front|back are required." },
       { status: 400 },
     );
   }
 
   try {
-    const input = { scanId, side, timeoutMs: 10_000 } as const;
-    const file = request.nextUrl.searchParams.get("view") === "upright"
-      ? await fetchInstaCompAiLocalScanImage({ ...input, upright: "manual" }).catch(() => fetchInstaCompAiLocalScanImage(input))
-      : await fetchInstaCompAiLocalScanImage(input);
+    const file = scanId
+      ? request.nextUrl.searchParams.get("view") === "upright"
+        ? await fetchInstaCompAiLocalScanImage({ scanId, side, timeoutMs: 10_000, upright: "manual" }).catch(() =>
+            fetchInstaCompAiLocalScanImage({ scanId, side, timeoutMs: 10_000 }),
+          )
+        : await fetchInstaCompAiLocalScanImage({ scanId, side, timeoutMs: 10_000 })
+      : await fetchInstaCompAiLocalInventoryImage({
+          inventoryItemId,
+          side,
+          timeoutMs: 10_000,
+        });
     return new NextResponse(await file.arrayBuffer(), {
       status: 200,
       headers: {
