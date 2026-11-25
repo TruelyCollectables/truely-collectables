@@ -175,6 +175,8 @@ app.include_router(
 )
 app.include_router(build_registry_router(require_api_key, registry_store))
 app.include_router(build_market_comp_router(require_api_key, database_path))
+from .research_queue import install as install_research_queue
+install_research_queue(app, require_api_key, settings.resolve_local_path(settings.data_database_path) / "kingmaker_research.sqlite3", settings.resolve_local_path(settings.data_database_path) / "kingmaker_commercial_inventory.sqlite3")
 app.include_router(build_obbfb_market_comp_router(require_api_key, database_path))
 app.include_router(
     build_kingmaker_accounting_router(

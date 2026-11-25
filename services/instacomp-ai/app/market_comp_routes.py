@@ -280,40 +280,38 @@ def _date_iso(value: str) -> str | None:
     return None
 
 
-def _chrome_script(url: str, javascript: str, wait_seconds: int) -> str:
-    return f'''tell application "Google Chrome"
-  if (count windows) = 0 then make new window
-  set w to window 1
-  set oldIndex to active tab index of w
-  set t to make new tab at end of tabs of w with properties {{URL:{json.dumps(url)}}}
-  set active tab index of w to (count tabs of w)
-  delay {wait_seconds}
-  try
-    set resultText to execute t javascript {json.dumps(javascript)}
-  on error errMsg number errNum
-    try
-      close t
-    end try
-    if oldIndex ≤ (count tabs of w) then set active tab index of w to oldIndex
-    error errMsg number errNum
-  end try
-  close t
-  if oldIndex ≤ (count tabs of w) then set active tab index of w to oldIndex
-  return resultText
-end tell'''
+def _chrome_script(url: str, javascript: str, wait_seconds: int) -> dict:
+    return {"url": url, "javascript": javascript, "wait": wait_seconds}
 
 
-def _run_osascript(script: str, timeout: int = _CHROME_TIMEOUT_SECONDS) -> str:
-    completed = subprocess.run(
-        ["/usr/bin/osascript", "-e", script],
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        check=False,
-    )
-    if completed.returncode != 0:
-        raise RuntimeError((completed.stderr or completed.stdout or "Chrome automation failed").strip()[:500])
-    return completed.stdout.strip()
+def _run_osascript(script: dict, timeout: int = _CHROME_TIMEOUT_SECONDS) -> str:
+    # Compatibility name for existing callers; no AppleScript or desktop access.
+    from .isolated_browser import BrowserTask, capture
+    if not isinstance(script,dict):
+        raise RuntimeError("Desktop browser access is forbidden")
+    if script.get("point130"):
+        with BrowserTask() as task:
+            task.navigate(script["url"])
+            task.request("wait",seconds=3)
+            if task.js(script["setter"])!="CLICKED":
+                raise RuntimeError("130point search control unavailable; no interactive fallback")
+            task.request("wait",seconds=5)
+            return task.js(_130POINT_RESULT_JS)
+    if not script.get("price_guide"):
+        return capture(script["url"], script["javascript"], script.get("wait", 0))
+    with BrowserTask() as task:
+        task.navigate(script["url"])
+        task.request("wait", seconds=4)
+        clicked = task.js(_EBAY_PRICE_GUIDE_CLICK_JS)
+        if clicked != "CLICKED":
+            return clicked
+        task.request("wait", seconds=3)
+        period = task.js(_EBAY_PRICE_GUIDE_OPEN_PERIOD_JS)
+        if period == "PERIOD_MENU_OPENED":
+            task.request("wait", seconds=1)
+            task.js(_EBAY_PRICE_GUIDE_SELECT_ONE_YEAR_JS)
+        task.request("wait", seconds=3)
+        return task.js(_EBAY_PRICE_GUIDE_READ_JS)
 
 
 async def _chrome_json(url: str, javascript: str, wait_seconds: int = 4) -> dict[str, Any]:
@@ -326,6 +324,8 @@ async def _chrome_json(url: str, javascript: str, wait_seconds: int = 4) -> dict
     probe = f"{payload.get('title', '')} {payload.get('body', '')}"[:5000]
     if _CHALLENGE_RE.search(probe):
         raise RuntimeError("marketplace_challenge_detected")
+    if re.search(r"error page \| ebay|something went wrong on our end|access denied|service unavailable", probe, re.I):
+        raise RuntimeError("Marketplace returned a provider error page; no sales searched")
     return payload
 
 
@@ -342,39 +342,8 @@ _EBAY_PRICE_GUIDE_SELECT_ONE_YEAR_JS = r'''(()=>{const t=(v)=>(v||'').replace(/\
 _EBAY_PRICE_GUIDE_READ_JS = r'''(()=>{const ds=Array.from(document.querySelectorAll('[role=dialog],dialog'));const d=ds.find(x=>/Median sold price/i.test(x.innerText||''));if(!d)return JSON.stringify({ok:false,error:'price_guide_dialog_not_found',title:document.title,url:location.href});const lines=(d.innerText||'').replace(/\r/g,'').split('\n').map(x=>x.trim()).filter(Boolean);const money=(v)=>{const m=String(v||'').match(/\$([0-9][0-9,]*(?:\.\d{1,2})?)/);return m?Number(m[1].replace(/,/g,'')):null};const after=(label)=>{const i=lines.findIndex(x=>x.toLowerCase()===label.toLowerCase());return i>=0?lines[i+1]||null:null};const median=money(after('Median sold price'));const last=money(after('Last sold'));const li=lines.findIndex(x=>x.toLowerCase()==='last sold');const lastDate=li>=0?(lines[li+2]||null):null;const range=Array.from(String(after('Sold price range')||'').matchAll(/\$([0-9][0-9,]*(?:\.\d{1,2})?)/g)).map(m=>Number(m[1].replace(/,/g,'')));const sellers=Number(String(after('Number of sellers')||'').replace(/[^0-9]/g,''))||null;const listings=Number(String(after('Number of listings')||'').replace(/[^0-9]/g,''))||null;const period=Array.from(d.querySelectorAll('button')).map(b=>(b.innerText||b.textContent||'').trim()).find(x=>/^(7 days|1 month|3 months|6 months|1 year|2 years)$/i.test(x))||null;const title=lines.find((x,i)=>i>0&&x.length>20&&(/#/.test(x)||/Panini|Topps|Upper Deck|Bowman|Donruss|Prizm|Select/i.test(x)))||lines[1]||null;const grade=lines.find(x=>/^(Ungraded|PSA|BGS|SGC|CGC|CSG|HGA|TAG)\b/i.test(x))||null;const aria=Array.from(d.querySelectorAll('[aria-label]')).map(e=>e.getAttribute('aria-label')||'');const parseSeries=(name)=>aria.map(a=>{if(!a.toLowerCase().startsWith(name.toLowerCase()+','))return null;const parts=a.split(',').map(x=>x.trim());if(parts.length<3)return null;const timestamp=Number(parts[parts.length-2]);const value=Number(parts[parts.length-1]);return Number.isFinite(timestamp)&&Number.isFinite(value)?{timestamp,value}:null}).filter(Boolean);const qty=parseSeries('Quantity sold');const weekly=parseSeries('Median sold price (by week)');const soldCount=qty.reduce((n,p)=>n+p.value,0);const bodyLines=(document.body?.innerText||'').replace(/\r/g,'').split('\n').map(x=>x.trim()).filter(Boolean);const specificsStart=bodyLines.findIndex(x=>x.toLowerCase()==='item specifics');const specificsEnd=bodyLines.findIndex((x,k)=>k>specificsStart&&x.toLowerCase()==='item description from the seller');const itemSpecificsText=specificsStart>=0?bodyLines.slice(specificsStart+1,specificsEnd>specificsStart?specificsEnd:specificsStart+100).join(' '):'';const recent=[];let i=lines.findIndex(x=>x.toLowerCase()==='recent sales');if(i>=0){i++;if((lines[i]||'').toLowerCase()==='most recent')i++;while(i<lines.length&&recent.length<30){if(/^see more$/i.test(lines[i]))break;const saleTitle=lines[i++];const condition=lines[i]||null;if(condition)i++;const itemPrice=money(lines[i]||'');if(itemPrice===null)continue;i++;let shippingPrice=null;if(/free shipping/i.test(lines[i]||'')){shippingPrice=0;i++;}else if(/^\+\s*\$/.test(lines[i]||'')){shippingPrice=money(lines[i]);i++;}const format=lines[i]||null;if(format)i++;if(/^Qty\b/i.test(lines[i]||''))i++;const date=lines[i]||null;if(date)i++;recent.push({title:saleTitle,condition,itemPrice,shippingPrice,format,date});}}return JSON.stringify({ok:true,listingUrl:location.href,listingTitle:document.title,cardTitle:title,itemSpecificsText,grade,period,medianSoldPrice:median,lastSoldPrice:last,lastSoldDate:lastDate,soldPriceLow:range[0]??null,soldPriceHigh:range[1]??null,sellerCount:sellers,listingCount:listings,soldCount,weeklyMedianSeries:weekly,quantitySoldSeries:qty,recentSales:recent,capturedAt:new Date().toISOString()})})()'''
 
 
-def _chrome_price_guide_script(url: str) -> str:
-    return f'''tell application "Google Chrome"
-  if (count windows) = 0 then make new window
-  set w to window 1
-  set oldIndex to active tab index of w
-  set t to make new tab at end of tabs of w with properties {{URL:{json.dumps(url)}}}
-  set active tab index of w to (count tabs of w)
-  delay 4
-  try
-    set clickResult to execute t javascript {json.dumps(_EBAY_PRICE_GUIDE_CLICK_JS)}
-    if clickResult is not "CLICKED" then
-      set resultText to clickResult
-    else
-      delay 3
-      set periodResult to execute t javascript {json.dumps(_EBAY_PRICE_GUIDE_OPEN_PERIOD_JS)}
-      if periodResult is "PERIOD_MENU_OPENED" then
-        delay 1
-        set periodResult to execute t javascript {json.dumps(_EBAY_PRICE_GUIDE_SELECT_ONE_YEAR_JS)}
-      end if
-      delay 3
-      set resultText to execute t javascript {json.dumps(_EBAY_PRICE_GUIDE_READ_JS)}
-    end if
-  on error errMsg number errNum
-    try
-      close t
-    end try
-    if oldIndex ≤ (count tabs of w) then set active tab index of w to oldIndex
-    error errMsg number errNum
-  end try
-  close t
-  if oldIndex ≤ (count tabs of w) then set active tab index of w to oldIndex
-  return resultText
-end tell'''
+def _chrome_price_guide_script(url: str) -> dict:
+    return {"url": url, "price_guide": True}
 
 
 async def _search_ebay_price_guide(listing_url: str, identity: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any]]:
@@ -486,31 +455,9 @@ _MERCARI_JS = r'''(()=>{const body=(document.body?.innerText||'');const seen=new
 _130POINT_RESULT_JS = r'''(()=>{const body=(document.body?.innerText||'');const seen=new Set();const rows=[];for(const a of document.querySelectorAll('a[href]')){const m=a.href.match(/\/itm\/(?:[^/]+\/)?(\d{9,15})/i);const text=(a.innerText||'').trim();if(!m||seen.has(m[1])||!/USD/.test(text)||!/\b\d{2}\s+[A-Z][a-z]{2}\s+\d{2}\s+\d{2}:\d{2}:\d{2}\b/.test(text))continue;seen.add(m[1]);const img=(a.querySelector('img')?.src||a.closest('li,article,div')?.querySelector('img')?.src||null);rows.push({url:`https://www.ebay.com/itm/${m[1]}`,text,imageUrl:img});if(rows.length>=100)break}return JSON.stringify({title:document.title,url:location.href,body:body.slice(0,5000),rows})})()'''
 
 
-def _chrome_130point_script(query: str) -> str:
+def _chrome_130point_script(query: str) -> dict:
     setter = f'''(()=>{{const input=[...document.querySelectorAll('input')].find(e=>e.placeholder==='Search by player, set, year, etc');if(!input)return 'NO_INPUT';const set=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;set.call(input,{json.dumps(query)});input.dispatchEvent(new Event('input',{{bubbles:true}}));input.dispatchEvent(new Event('change',{{bubbles:true}}));const button=[...document.querySelectorAll('button')].find(e=>e.getAttribute('aria-label')==='Search');if(!button)return 'NO_BUTTON';button.click();return 'CLICKED';}})()'''
-    return f'''tell application "Google Chrome"
-  if (count windows) = 0 then make new window
-  set w to window 1
-  set oldIndex to active tab index of w
-  set t to make new tab at end of tabs of w with properties {{URL:"https://130point.com/search?new=sold"}}
-  set active tab index of w to (count tabs of w)
-  delay 3
-  try
-    set clickResult to execute t javascript {json.dumps(setter)}
-    if clickResult is not "CLICKED" then error "130point search control unavailable"
-    delay 5
-    set resultText to execute t javascript {json.dumps(_130POINT_RESULT_JS)}
-  on error errMsg number errNum
-    try
-      close t
-    end try
-    if oldIndex ≤ (count tabs of w) then set active tab index of w to oldIndex
-    error errMsg number errNum
-  end try
-  close t
-  if oldIndex ≤ (count tabs of w) then set active tab index of w to oldIndex
-  return resultText
-end tell'''
+    return {"url":"https://130point.com/search?new=sold","point130":True,"setter":setter}
 
 
 async def _search_ebay(query: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -740,6 +687,8 @@ def build_market_comp_router(require_api_key: Callable[..., None], database_path
 
     @router.post("/search")
     async def search_market_comps(request: MarketCompRequest):
+        if request.include_price_guide:
+            raise HTTPException(status_code=503, detail="Run historical Price Guide from Market Research Center.")
         identity = _canonical_identity(request.identity)
         missing = [field for field in ("year", "player", "card_number") if not identity[field]]
         if missing:
