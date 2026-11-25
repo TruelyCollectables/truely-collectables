@@ -13,6 +13,7 @@ from .market_comp_routes import (
     _canonical_identity, _search_ebay_ladder, _query_ladder,
     _strong_exact_title, _BROWSER_LOCK, _search_ebay_price_guide_candidates, _search_ebay, _search_ebay_active, _item_id,
 )
+from .research_sources import archive_sales, licensed_sales, licensed_configured
 TZ = ZoneInfo("America/Denver")
 UNSWORTH = Path("/Volumes/Fanxiang S101 2TB/Projects/Unsworth")
 WORKER_STATUS = UNSWORTH / "workers" / "market-research.json"
@@ -36,6 +37,7 @@ class Command(BaseModel):
     year: str = Field(default="", max_length=20)
     product: str = Field(default="", max_length=100)
     stale_days: int = Field(default=30, ge=1, le=365)
+    source: Literal["ebay_live","seller_hub_archive","licensed_api"] = "ebay_live"
     mode: Literal["research_only","recommend"] = "research_only"
     cadence: Literal["manual","daily","nightly","weekly","monthly","custom"] = "manual"
     hour: int = Field(default=2, ge=0, le=23)
@@ -211,6 +213,10 @@ class Queue:
     def command(self,q):
         cfg=q.model_dump(exclude={"action","id","run_id"});a=q.action
         if a in ("create","edit","preview"):
+            if q.source!="ebay_live" and q.mode!="research_only":raise HTTPException(400,"Alternate sources are research-only")
+            if q.source!="ebay_live" and q.kind=="price_guide":raise HTTPException(400,"Historical eBay Price Guide requires its own live provider")
+            if q.source=="seller_hub_archive" and q.cadence!="manual":raise HTTPException(400,"Archived evidence is not a recurring fresh research source")
+            if q.source=="licensed_api" and not licensed_configured():raise HTTPException(409,"Licensed API not configured")
             if q.maximum<q.minimum:raise HTTPException(400,"Invalid price range")
             if q.scope=="selected" and not q.selected_ids:raise HTTPException(400,"Select at least one card")
             if q.cadence in ("weekly","custom") and (not q.weekdays or any(d<0 or d>6 for d in q.weekdays)):raise HTTPException(400,"Select valid weekdays")
@@ -326,23 +332,33 @@ class Queue:
                 if not row:return
                 c.execute("UPDATE research_items SET state='running' WHERE run=? AND id=?",(row["run"],row["id"]))
             p=json.loads(row["payload"]);cfg=normalized_config(json.loads(row["config"]));failure=None
+            archive_rows=[];archive_coverage=None
             try:
-                async with _BROWSER_LOCK:
-                    rows,coverage=await (search or self.provider)(_query_ladder(p["identity"],p["title"]),p["identity"])
-                    if coverage.get("status") not in ("live","no_matches") or any(a.get("status") not in ("live","no_matches") for a in coverage.get("attempts",[])):raise RuntimeError("Provider unavailable: "+str(coverage.get("status"))+" — "+str(coverage.get("message") or ""))
+                if cfg["source"]=="seller_hub_archive":
+                    rows,coverage=await asyncio.to_thread(archive_sales,p,cfg["days"],_strong_exact_title)
                     guide=None;guide_coverage=None
-                    if cfg["kind"]=="price_guide":
-                        exact=[r for r in rows if _strong_exact_title(r["title"],p["identity"])[0]]
-                        if not exact:
+                    if coverage["status"]=="archive_unavailable":raise RuntimeError(coverage["message"])
+                elif cfg["source"]=="licensed_api":
+                    rows,coverage=await licensed_sales(p["identity"],cfg["days"],_strong_exact_title)
+                    guide=None;guide_coverage=None
+                    if coverage["status"] not in ("live","no_matches"):raise RuntimeError(coverage["message"])
+                else:
+                    async with _BROWSER_LOCK:
+                        rows,coverage=await (search or self.provider)(_query_ladder(p["identity"],p["title"]),p["identity"])
+                        if coverage.get("status") not in ("live","no_matches") or any(a.get("status") not in ("live","no_matches") for a in coverage.get("attempts",[])):raise RuntimeError("Provider unavailable: "+str(coverage.get("status"))+" — "+str(coverage.get("message") or ""))
+                        guide=None;guide_coverage=None
+                        if cfg["kind"]=="price_guide":
+                            exact=[r for r in rows if _strong_exact_title(r["title"],p["identity"])[0]]
+                            if not exact:
+                                from .scan_priority import scan_priority_active
+                                if scan_priority_active():raise DeferredResearch("Foreground scan priority")
+                                active,ac=await _search_ebay_active(_query_ladder(p["identity"],p["title"])[0])
+                                if ac.get("status") not in ("live","no_matches"):raise RuntimeError("Price Guide listing lookup unavailable: "+str(ac.get("message") or ac.get("status")))
+                                exact=[r for r in active if _strong_exact_title(r["title"],p["identity"])[0]]
                             from .scan_priority import scan_priority_active
                             if scan_priority_active():raise DeferredResearch("Foreground scan priority")
-                            active,ac=await _search_ebay_active(_query_ladder(p["identity"],p["title"])[0])
-                            if ac.get("status") not in ("live","no_matches"):raise RuntimeError("Price Guide listing lookup unavailable: "+str(ac.get("message") or ac.get("status")))
-                            exact=[r for r in active if _strong_exact_title(r["title"],p["identity"])[0]]
-                        from .scan_priority import scan_priority_active
-                        if scan_priority_active():raise DeferredResearch("Foreground scan priority")
-                        guide,guide_coverage=await _search_ebay_price_guide_candidates(exact,p["identity"],max_attempts=1)
-                        if guide_coverage.get("status") in ("error","challenge"):raise RuntimeError("Price Guide unavailable: "+str(guide_coverage.get("message")))
+                            guide,guide_coverage=await _search_ebay_price_guide_candidates(exact,p["identity"],max_attempts=1)
+                            if guide_coverage.get("status") in ("error","challenge"):raise RuntimeError("Price Guide unavailable: "+str(guide_coverage.get("message")))
                 cutoff=datetime.now(timezone.utc).date()-timedelta(days=cfg["days"]);sold=[];evidence_seen=set()
                 for r in rows:
                     if not _strong_exact_title(r["title"],p["identity"])[0] or r.get("shipping_price") is None or r.get("best_offer_unknown") is not False:continue
@@ -354,11 +370,11 @@ class Queue:
                         item=float(r["item_price"]);shipping=float(r["shipping_price"])
                         if math.isfinite(item+shipping) and item>0 and shipping>=0:
                             evidence_seen.add(key)
-                            sold.append({"price":round(item+shipping,2),"item_price":item,"shipping_price":shipping,"date":r["sold_at"],"url":r["url"],"title":r["title"]})
+                            sold.append({"price":round(item+shipping,2),"item_price":item,"shipping_price":shipping,"date":r["sold_at"],"url":r["url"],"title":r["title"],"source":r.get("source","ebay_direct"),"capturedAt":r.get("captured_at")})
                     except (ValueError,TypeError,KeyError):continue
                 median=statistics.median([r["price"] for r in sold]) if sold else None
-                result={"coverage":coverage,"sold":sold,"median":median,"checkedAt":datetime.now(timezone.utc).isoformat(),"lookbackDays":cfg["days"],"coverageComplete":False,"note":"Public eBay sold search does not guarantee the full requested period; no valuation is inferred from missing rows.","priceGuide":guide,"priceGuideCoverage":guide_coverage}
-                if cfg["mode"]=="recommend" and p.get("folder")!="investment" and median is not None and len(sold)>=3:
+                result={"coverage":coverage,"sold":sold,"median":median,"checkedAt":datetime.now(timezone.utc).isoformat(),"lookbackDays":cfg["days"],"coverageComplete":False,"note":coverage.get("message") or "Public eBay sold search does not guarantee the full requested period; no valuation is inferred from missing rows.","priceGuide":guide,"priceGuideCoverage":guide_coverage}
+                if cfg["source"]=="ebay_live" and cfg["mode"]=="recommend" and p.get("folder")!="investment" and median is not None and len(sold)>=3:
                     result["recommendation"]={"price":round(max(2.99,math.floor(median*1.25)+.99),2),"status":"approval_required","currentPrice":p.get("price"),"note":"Recommendation only; never applied by research."}
             except DeferredResearch:
                 with closing(self.db()) as c,c:
@@ -367,6 +383,12 @@ class Queue:
                 return
             except Exception as e:
                 failure=str(e)[:300];result={"error":failure}
+                if cfg["source"]=="ebay_live" and search is None:
+                    archive_rows,archive_coverage=await asyncio.to_thread(archive_sales,p,cfg["days"],_strong_exact_title)
+                    result["archiveCoverage"]=archive_coverage
+                    result["archivedSold"]=[{"price":round(r["item_price"]+r["shipping_price"],2),"item_price":r["item_price"],"shipping_price":r["shipping_price"],"date":r["sold_at"],"url":r["url"],"title":r["title"],"capturedAt":r["captured_at"],"source":"seller_hub_archive"} for r in archive_rows]
+                    result["archivedMedian"]=statistics.median([r["price"] for r in result["archivedSold"]]) if archive_rows else None
+                    result["note"]="Live provider failed. Archived data is separate historical evidence, never current pricing."
             with closing(self.db()) as c,c:
                 c.execute("BEGIN IMMEDIATE");j=c.execute("SELECT state FROM jobs WHERE id=?",(row["job"],)).fetchone();state=j["state"]
                 if state in ("cancelled","deleted"):
