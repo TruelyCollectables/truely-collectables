@@ -1492,7 +1492,6 @@ export async function GET(request: Request) {
       const failedReadiness = listingReadiness.checks.filter((check) => !check.ready);
       const coreReadinessCodes = new Set<string>([
         "identity_not_exact",
-        "price_guide_not_checked_1_year",
         "missing_front_image",
         "missing_back_image",
         "duplicate_front_back_image",
