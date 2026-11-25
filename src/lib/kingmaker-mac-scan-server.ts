@@ -253,7 +253,8 @@ export async function searchMacMarketForIdentity(params: {
       operator_certified_identity: params.operatorCertifiedIdentity === true,
       include_130point: params.include130point === true,
       include_active: true,
-      include_price_guide: true,
+      // Historical Price Guide is explicitly controlled by Market Research.
+      include_price_guide: false,
       include_fanatics: params.includeFanatics === true,
       max_sold: 50,
       max_active: 30,

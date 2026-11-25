@@ -312,7 +312,8 @@ async function requestMacExactMarket(params: {
         research_id: params.researchId,
         operator_certified_identity: params.operatorCertifiedIdentity,
         include_active: true,
-        include_price_guide: true,
+        // Historical Price Guide is explicitly controlled by Market Research.
+      include_price_guide: false,
         max_sold: 50,
         max_active: 30,
       }),

@@ -3533,6 +3533,12 @@ export default function KingmakerPendingPage({
                   </div>
                 </div>
 
+                <div className="border-b border-neutral-200 bg-white px-4 py-3">
+                  <a href={`/kingmaker/research?card=${encodeURIComponent(card.inventoryItemId)}&kind=price_guide`} className="font-bold text-blue-700 underline">
+                    Research this card in Market Research
+                  </a>
+                  <p className="text-xs text-neutral-600">Historical research starts only after you explicitly create and run a job.</p>
+                </div>
                 {card.instaComp.priceGuide ? (
                   <div className="border-b-2 border-neutral-900 bg-sky-50 p-4">
                     <PriceGuidePanel snapshot={card.instaComp.priceGuide} />
