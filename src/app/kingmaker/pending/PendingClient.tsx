@@ -345,7 +345,7 @@ type EditState = {
 };
 
 type LocalStage = "waiting" | "scanning" | "complete" | "review" | "failed" | "locked";
-type PendingQueue = "listings" | "verification" | "redo_pending_resale";
+type PendingQueue = "listings" | "list" | "verification" | "redo_pending_resale";
 type ListingFolder =
   | "receipt"
   | "pending"
@@ -359,7 +359,7 @@ type ListingFolder =
   | "investment";
 type CountedListingFolder = Exclude<ListingFolder, "receipt">;
 type MasterListingsCountSnapshot = {
-  queueCounts: { listings: number; verification: number; redo_pending_resale: number };
+  queueCounts: { listings: number; list?: number; verification: number; redo_pending_resale: number };
   folderCounts: Record<CountedListingFolder, number>;
   savedAt: number;
 };
@@ -406,7 +406,7 @@ type MergeEbayStrategy = "keep_one" | "increase_existing";
 function queueFromLocation(): PendingQueue | null {
   if (typeof window === "undefined") return "listings";
   const queue = new URLSearchParams(window.location.search).get("queue");
-  if (queue === "verification" || queue === "listings" || queue === "redo_pending_resale") return queue;
+  if (queue === "verification" || queue === "listings" || queue === "list" || queue === "redo_pending_resale") return queue;
   return null;
 }
 
@@ -777,7 +777,7 @@ export default function KingmakerPendingPage({
   initialFolder = "pending",
   initialCards = [],
   initialLoaded = false,
-  initialQueueCounts = { listings: 0, verification: 0, redo_pending_resale: 0 },
+  initialQueueCounts = { listings: 0, list: 0, verification: 0, redo_pending_resale: 0 },
   initialFolderCounts = {
     pending: 0,
     website: 0,
@@ -794,7 +794,7 @@ export default function KingmakerPendingPage({
   initialFolder?: ListingFolder;
   initialCards?: PendingCard[];
   initialLoaded?: boolean;
-  initialQueueCounts?: { listings: number; verification: number; redo_pending_resale: number };
+  initialQueueCounts?: { listings: number; list?: number; verification: number; redo_pending_resale: number };
   initialFolderCounts?: Record<CountedListingFolder, number>;
 }) {
   const [cards, setCards] = useState<PendingCard[]>(initialCards);
@@ -941,13 +941,13 @@ export default function KingmakerPendingPage({
     if (initialLoaded) return;
     const cached = readMasterListingsCountCache();
     if (!cached) return;
-    setQueueCounts({ ...cached.queueCounts, redo_pending_resale: Number(cached.queueCounts.redo_pending_resale || 0) });
+    setQueueCounts({ ...cached.queueCounts, list: Number(cached.queueCounts.list || 0), redo_pending_resale: Number(cached.queueCounts.redo_pending_resale || 0) });
     setFolderCounts(cached.folderCounts);
     setCountsLoaded(true);
   }, [initialLoaded]);
 
   const load = useCallback(async (activeQueue: PendingQueue, activeFolder: ListingFolder = folderFromLocation()) => {
-    const requestedFolder = activeQueue === "verification" || activeQueue === "redo_pending_resale" || activeFolder === "receipt" ? "pending" : activeFolder;
+    const requestedFolder = activeQueue === "verification" || activeQueue === "list" || activeQueue === "redo_pending_resale" || activeFolder === "receipt" ? "pending" : activeFolder;
     setLoading(true);
     setPageError("");
     let accessTokenHint: string | null = null;
@@ -1004,6 +1004,7 @@ export default function KingmakerPendingPage({
       setCards(Array.isArray(cardsData.items) ? cardsData.items : []);
       const nextQueueCounts = {
         listings: Math.max(0, Number(cardsData.queueCounts?.listings || 0)),
+        list: Math.max(0, Number(cardsData.queueCounts?.list || 0)),
         verification: Math.max(0, Number(cardsData.queueCounts?.verification || 0)),
         redo_pending_resale: Math.max(0, Number(cardsData.queueCounts?.redo_pending_resale || 0)),
       };
@@ -1030,6 +1031,7 @@ export default function KingmakerPendingPage({
           itemCount: Array.isArray(cardsData.items) ? cardsData.items.length : -1,
           queueCounts: {
             listings: Math.max(0, Number(cardsData.queueCounts?.listings || 0)),
+            list: Math.max(0, Number(cardsData.queueCounts?.list || 0)),
             verification: Math.max(0, Number(cardsData.queueCounts?.verification || 0)),
             redo_pending_resale: Math.max(0, Number(cardsData.queueCounts?.redo_pending_resale || 0)),
           },
@@ -2646,6 +2648,8 @@ export default function KingmakerPendingPage({
             <h1 className="mt-1 text-3xl font-black">
               {queue === "verification"
                 ? "Pending verification"
+                : queue === "list"
+                  ? "LIST — today's cards ready to price & list"
                 : queue === "redo_pending_resale"
                   ? "REDO Resale Pending — seller review"
                 : folder === "receipt"
@@ -2671,6 +2675,8 @@ export default function KingmakerPendingPage({
             <p className="mt-2 max-w-4xl font-semibold text-neutral-700">
               {queue === "verification"
                 ? "Legacy and held cards stay here with every image and inventory link intact until you are ready to verify them."
+                : queue === "list"
+                  ? "Cards added today are locked here with all photos, identity, and comps intact until you list them."
                 : queue === "redo_pending_resale"
                   ? "All recovered physical card drafts remain here with their original scans. Review identity, orientation, comps, and price before moving them to a publishable listing."
                 : folder === "receipt"
@@ -2729,6 +2735,28 @@ export default function KingmakerPendingPage({
               {label} · {value === "receipt" || countsLoaded ? count : "—"}
             </button>
           ))}
+          <button
+            type="button"
+            onClick={() => {
+              setSelectedIds(new Set());
+              setEditingId(null);
+              setFolder("pending");
+              const nextUrl = new URL(window.location.href);
+              nextUrl.searchParams.set("queue", "list");
+              nextUrl.searchParams.set("folder", "pending");
+              nextUrl.searchParams.delete("focus");
+              router.replace(`${nextUrl.pathname}${nextUrl.search}`);
+              setQueue("list");
+            }}
+            aria-pressed={queue === "list"}
+            className={`rounded-xl border-2 px-4 py-3 font-black ${
+              queue === "list"
+                ? "border-emerald-800 bg-emerald-700 text-white"
+                : "border-emerald-700 bg-emerald-50 text-emerald-950"
+            }`}
+          >
+            LIST · {countsLoaded ? (queueCounts.list ?? 0) : "—"}
+          </button>
           <button
             type="button"
             onClick={() => {
@@ -3074,7 +3102,7 @@ export default function KingmakerPendingPage({
                 </span>
               </div>
             ) : null}
-            {queue === "listings" ? (
+            {(queue === "listings" || queue === "list") ? (
               <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-neutral-300 pt-3">
                 <span className="mr-2 text-sm font-black">Selected group actions:</span>
                 <button
@@ -3325,7 +3353,7 @@ export default function KingmakerPendingPage({
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
-                    {queue === "listings" && listingReadiness ? (
+                    {(queue === "listings" || queue === "list") && listingReadiness ? (
                       <span
                         title={
                           listingReady
@@ -3346,7 +3374,7 @@ export default function KingmakerPendingPage({
                           : `NOT READY · ${listingReadiness.blockers.length} BLOCKER${listingReadiness.blockers.length === 1 ? "" : "S"}`}
                       </span>
                     ) : null}
-                    {queue === "listings" && listingReadiness && !listingReady ? (
+                    {(queue === "listings" || queue === "list") && listingReadiness && !listingReady ? (
                       <span className="text-xs font-bold text-red-200">
                         {listingReadiness.checks
                           .filter((check) => !check.ready)
@@ -3768,7 +3796,7 @@ export default function KingmakerPendingPage({
                   ))}
                 </div>
 
-                {queue === "listings" ? (
+                {(queue === "listings" || queue === "list") ? (
                   <div className="border-t-2 border-neutral-900 bg-amber-50 p-4">
                     <div className="flex flex-wrap items-end justify-between gap-3">
                       <div>
@@ -3836,7 +3864,7 @@ export default function KingmakerPendingPage({
                   </div>
                 ) : null}
 
-                {queue === "listings" && folder !== "investment" ? (
+                {(queue === "listings" || queue === "list") && folder !== "investment" ? (
                   <div className="border-t-2 border-neutral-900 bg-sky-50 p-4">
                     <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
@@ -4058,7 +4086,7 @@ export default function KingmakerPendingPage({
                 <div className="flex flex-wrap items-center justify-between gap-3 border-t-2 border-neutral-900 p-4">
                   <p className="text-sm font-bold">Stored image rows: {card.storedImageCount || 0} · commercial listing quantity {groupQuantity}{groupQuantity > 1 ? " from exact raw duplicate scans" : ""} · nothing auto-publishes</p>
                   <div className="flex flex-wrap gap-2">
-                    {queue === "listings" && folder !== "investment" ? (
+                    {(queue === "listings" || queue === "list") && folder !== "investment" ? (
                       <>
                         <button
                           type="button"
