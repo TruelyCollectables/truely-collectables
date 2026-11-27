@@ -581,6 +581,8 @@ function minMoney(rows: CompEvidence[]) {
 const COMP_ADJUSTMENTS = [-25, -20, -15, -10, -5, 0, 5, 10, 15, 20, 25] as const;
 const BULK_PRICE_CONCURRENCY = 5;
 const MARKET_PRICE_CONCURRENCY = 3;
+const AUTO_MARKET_BATCH_SIZE = 3;
+const MARKET_PRICE_CONCURRENCY = 3;
 
 async function runWithConcurrency<T>(
   items: T[],
@@ -852,6 +854,9 @@ export default function KingmakerPendingPage({
   const [notice, setNotice] = useState("");
   const [purchaseMatches, setPurchaseMatches] = useState<Record<string, PurchaseMatchState>>({});
   const skipInitialCardsReloadRef = useRef(initialLoaded);
+  const [marketSweepNonce, setMarketSweepNonce] = useState(0);
+  const marketAttemptedRef = useRef<Set<string>>(new Set());
+  const marketWorkerRunningRef = useRef(false);
   const purchaseMatchSignatureRef = useRef("");
   const [pageSize, setPageSize] = useState<number>(0);
   const [renderLimit, setRenderLimit] = useState(Number.MAX_SAFE_INTEGER);
@@ -868,6 +873,59 @@ export default function KingmakerPendingPage({
   useEffect(() => {
     setSaleChannels(defaultChannelsForFolder(folder));
   }, [folder]);
+
+  useEffect(() => {
+    if (queue !== "listings" || marketWorkerRunningRef.current) return;
+    const eligible = cards
+      .filter(
+        (card) =>
+          card.instaComp.pricingStatus === "identity_complete_pricing_pending" &&
+          hasValidPair(card) &&
+          !marketAttemptedRef.current.has(card.inventoryItemId),
+      )
+      .slice(0, AUTO_MARKET_BATCH_SIZE);
+    if (!eligible.length) return;
+
+    const timer = window.setTimeout(() => {
+      marketWorkerRunningRef.current = true;
+      for (const card of eligible) {
+        marketAttemptedRef.current.add(card.inventoryItemId);
+      }
+      void (async () => {
+        try {
+          const session = await getFreshAccountSession(5 * 60, false);
+          const accessToken = session?.access_token || "";
+          if (!accessToken) return;
+          await runWithConcurrency(
+            eligible,
+            MARKET_PRICE_CONCURRENCY,
+            async (card) => {
+              try {
+                await fetch("/api/account/seller/inventory/instacomp-fast-market", {
+                  method: "POST",
+                  headers: {
+                    "Content-Type": "application/json",
+                    Authorization: `Bearer ${accessToken}`,
+                  },
+                  body: JSON.stringify({ inventoryItemId: card.inventoryItemId }),
+                });
+              } catch {
+                // Manual retry remains available; never spin on one failed card.
+              }
+            },
+          );
+          await load("listings");
+        } catch {
+          // Background pricing must never block Pending Listings.
+        } finally {
+          marketWorkerRunningRef.current = false;
+          setMarketSweepNonce((value) => value + 1);
+        }
+      })();
+    }, 1600);
+
+    return () => window.clearTimeout(timer);
+  }, [cards, load, marketSweepNonce, queue]);
 
   const refreshPriceGuide = useCallback(async (
     card: PendingCard,
