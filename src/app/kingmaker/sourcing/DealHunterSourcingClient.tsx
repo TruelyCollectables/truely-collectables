@@ -377,7 +377,7 @@ export default function DealHunterSourcingClient({
               No active candidates match your current filter.
             </p>
             <p className="mt-2 text-xs text-slate-500">
-              Hit "Trigger Live Deal Hunter Run" above or switch to "All Deals" to see all available opportunities.
+              Hit &ldquo;Trigger Live Deal Hunter Run&rdquo; above or switch to &ldquo;All Deals&rdquo; to see all available opportunities.
             </p>
           </div>
         ) : (

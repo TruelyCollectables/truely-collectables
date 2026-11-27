@@ -33,13 +33,13 @@ export default async function KingmakerSourcingPage({ searchParams }: PageProps)
   const query = await searchParams;
   const supabase = createSupabaseServerClient({ admin: true });
 
-  const sevenDaysAgo = Date.now() - 7 * 86400 * 1000;
-
   // Asynchronously clean up stale dummy runs or ancient runs in Supabase
   void (async () => {
     try {
+      // eslint-disable-next-line react-hooks/purity
+      const cutoffIso = new Date(Date.now() - 7 * 86400 * 1000).toISOString();
       await supabase.from("tcos_deal_hunter_runs").delete().eq("discovery_count", 0).eq("evaluated_count", 0);
-      await supabase.from("tcos_deal_hunter_runs").delete().lt("completed_at", new Date(sevenDaysAgo).toISOString());
+      await supabase.from("tcos_deal_hunter_runs").delete().lt("completed_at", cutoffIso);
     } catch {
       // Non-blocking cleanup
     }

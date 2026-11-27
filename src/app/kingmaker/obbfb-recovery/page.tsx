@@ -9,7 +9,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 export default async function OBBFBRecoveryPage() {
   const account = await getAuthenticatedAccountFromRequest(new Request("https://truelycollectables.com", { headers: await headers() }));
-  let held: MacRecoveryScan[] = [];
+  const held: MacRecoveryScan[] = [];
   let error: string | null = null;
   try {
     const scans = account ? await macRecoveryScans("list", account.id) : [];
