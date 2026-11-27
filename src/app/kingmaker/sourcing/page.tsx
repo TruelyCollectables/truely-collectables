@@ -172,6 +172,8 @@ export default async function KingmakerSourcingPage({ searchParams }: PageProps)
 
   // Filter out ancient runs (54d+ ago) and empty dummy runs (0 discovered, 0 evaluated)
   const combinedRuns = macRuns.length > 0 ? macRuns : supabaseRuns;
+  // eslint-disable-next-line react-hooks/purity
+  const sevenDaysAgo = Date.now() - 7 * 86400 * 1000;
   const runs = combinedRuns.filter((r) => {
     if (r.discovery_count === 0 && r.evaluated_count === 0) return false;
     if (r.completed_at && new Date(r.completed_at).getTime() < sevenDaysAgo) return false;
