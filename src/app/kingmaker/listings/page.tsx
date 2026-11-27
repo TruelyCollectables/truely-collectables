@@ -15,7 +15,7 @@ export default async function KingmakerListingsRedirect({
   const queue = query.queue === "redo_pending_resale" ? "redo_pending_resale" : query.queue === "verification" ? "verification" : "listings";
   const supportedFolders = new Set([
     "pending", "need_pricing", "receipt", "website", "ebay", "mercari", "both",
-    "website_mercari", "ebay_mercari", "all3", "investment",
+    "website_mercari", "ebay_mercari", "all3", "investment", "list_temp",
   ]);
   const folder =
     typeof query.folder === "string" && supportedFolders.has(query.folder)

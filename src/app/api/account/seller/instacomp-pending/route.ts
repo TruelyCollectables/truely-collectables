@@ -53,7 +53,8 @@ type InstaCompListingFolder =
   | "website_mercari"
   | "ebay_mercari"
   | "all3"
-  | "investment";
+  | "investment"
+  | "list_temp";
 
 const LOCAL_CERTIFIED_PRICING_PATH =
   process.env.INSTACOMP_CERTIFIED_PRICING_PATH ||
@@ -359,6 +360,7 @@ function listingFolderFromMetadata(
 ): InstaCompListingFolder {
   const metadata = recordValue(metadataValue);
   const lifecycle = recordValue(metadata.inventory_lifecycle);
+  if (metadata.listTemp === true) return "list_temp";
   if (
     textValue(lifecycle.disposition) === "investment_stash" ||
     textValue(lifecycle.state) === "investment_stash"
@@ -563,6 +565,25 @@ function optionalPrice(value: unknown) {
     : null;
 }
 
+function evidenceMedianPrice(value: unknown) {
+  if (!Array.isArray(value)) return null;
+  const prices = value
+    .map((entry) =>
+      entry && typeof entry === "object" && !Array.isArray(entry)
+        ? optionalPrice((entry as Record<string, unknown>).price)
+        : null,
+    )
+    .filter((price): price is number => price !== null && price > 0)
+    .sort((a, b) => a - b);
+  if (!prices.length) return null;
+  const middle = Math.floor(prices.length / 2);
+  const median =
+    prices.length % 2 === 1
+      ? prices[middle]
+      : (prices[middle - 1] + prices[middle]) / 2;
+  return Math.round(median * 100) / 100;
+}
+
 function evidenceList(value: unknown) {
   if (!Array.isArray(value)) return [];
   return value
@@ -728,7 +749,8 @@ export async function GET(request: Request) {
       requestedFolder === "website_mercari" ||
       requestedFolder === "ebay_mercari" ||
       requestedFolder === "all3" ||
-      requestedFolder === "investment"
+      requestedFolder === "investment" ||
+      requestedFolder === "list_temp"
         ? requestedFolder
         : "pending";
     const macProjection = await loadMacMasterListingProjection({
@@ -1030,6 +1052,7 @@ export async function GET(request: Request) {
       ebay_mercari: commercialFolderCount("ebay_mercari"),
       all3: commercialFolderCount("all3"),
       investment: commercialFolderCount("investment"),
+      list_temp: commercialFolderCount("list_temp"),
     };
     const folderCounts =
       compactKingmaker && macProjection?.folderCounts
@@ -1046,6 +1069,7 @@ export async function GET(request: Request) {
             ebay_mercari: Number(macProjection.folderCounts.ebay_mercari || 0),
             all3: Number(macProjection.folderCounts.all3 || 0),
             investment: Number(macProjection.folderCounts.investment || 0),
+            list_temp: Number(macProjection.folderCounts.list_temp || 0),
           }
         : computedFolderCounts;
     const rows = requestedFocus
@@ -1275,13 +1299,13 @@ export async function GET(request: Request) {
         ? buildInstaCompRegistryExactTitle(primaryIdentity) || null
         : null;
       const generatedTitle =
-        registryExactTitle ||
         buildInstaCompCanonicalTitle(primaryIdentity, { metadata, rawTitle }) ||
         buildInstaCompCanonicalTitle(legacyCardIdentity, { metadata, rawTitle }) ||
         buildInstaCompCanonicalTitle(cardIdentity, { metadata, rawTitle }) ||
         buildInstaCompCanonicalTitle(saleIdentity, { metadata, rawTitle }) ||
         buildInstaCompCanonicalTitle(recordValue(metadata.verified_reference), { metadata, rawTitle }) ||
         buildInstaCompCanonicalTitle(recordValue(metadata.collectible_asset), { metadata, rawTitle }) ||
+        registryExactTitle ||
         null;
       const identitySummary =
         buildIdentitySummary(primaryIdentity) ||
@@ -1333,17 +1357,28 @@ export async function GET(request: Request) {
         : null;
       const linkedWebsiteSellable = isSellableWebsiteProduct(product);
 
-      const suggestedPrice = optionalPrice(
+      const storedSuggestedPrice = optionalPrice(
         localCertifiedPricingAnalysis.instacomp ??
           localCertifiedPricingAnalysis.suggestedPrice ??
           (Object.prototype.hasOwnProperty.call(instaComp, "suggestedPrice")
             ? instaComp.suggestedPrice
             : instaComp.marketPrice),
       );
+      // A small number of legacy records were marked comped and retained sold
+      // evidence, but their suggestedPrice was written as zero. Recover the
+      // usable comp from the sold evidence at read time so Pending never shows
+      // a bogus $0.00 reference or loses an otherwise valid pricing anchor.
+      const soldEvidenceSuggestedPrice =
+        storedSuggestedPrice && storedSuggestedPrice > 0
+          ? null
+          : evidenceMedianPrice(instaComp.soldCompEvidence);
+      const suggestedPrice = storedSuggestedPrice || soldEvidenceSuggestedPrice;
       const pricingStatus =
         (localCertifiedPricing && suggestedPrice !== null
           ? "suggested_from_local_certified_exact_sold_comps"
-          : textValue(instaComp.pricingStatus)) ||
+          : soldEvidenceSuggestedPrice !== null
+            ? "suggested_from_reliable_sold_comps"
+            : textValue(instaComp.pricingStatus)) ||
         (suggestedPrice === null
           ? "not_run"
           : suggestedPrice > 0
@@ -1889,7 +1924,10 @@ export async function GET(request: Request) {
             Number(
               localCertifiedPricingAnalysis.soldCount ??
                 instaComp.reliableSoldCompCount ??
-                0,
+                (soldEvidenceSuggestedPrice !== null &&
+                Array.isArray(instaComp.soldCompEvidence)
+                  ? instaComp.soldCompEvidence.length
+                  : 0),
             ),
           ),
           pricingCheckedAt: textValue(instaComp.pricingCheckedAt),

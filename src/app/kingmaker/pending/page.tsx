@@ -56,7 +56,8 @@ export default async function KingmakerPendingPage({
     rawFolder === "website_mercari" ||
     rawFolder === "ebay_mercari" ||
     rawFolder === "all3" ||
-    rawFolder === "investment"
+    rawFolder === "investment" ||
+    rawFolder === "list_temp"
       ? rawFolder
       : "pending";
   const dataFolder = folder === "receipt" ? "pending" : folder;
@@ -107,6 +108,7 @@ export default async function KingmakerPendingPage({
         ebay_mercari: Math.max(0, Number(data.folderCounts?.ebay_mercari || 0)),
         all3: Math.max(0, Number(data.folderCounts?.all3 || 0)),
         investment: Math.max(0, Number(data.folderCounts?.investment || 0)),
+        list_temp: Math.max(0, Number(data.folderCounts?.list_temp || 0)),
       }}
     />
   );

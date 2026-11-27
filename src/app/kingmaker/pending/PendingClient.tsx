@@ -336,7 +336,8 @@ type ListingFolder =
   | "website_mercari"
   | "ebay_mercari"
   | "all3"
-  | "investment";
+  | "investment"
+  | "list_temp";
 type CountedListingFolder = Exclude<ListingFolder, "receipt">;
 type MasterListingsCountSnapshot = {
   queueCounts: { listings: number; list?: number; verification: number; redo_pending_resale: number };
@@ -401,7 +402,8 @@ function folderFromLocation(): ListingFolder {
     folder === "website_mercari" ||
     folder === "ebay_mercari" ||
     folder === "all3" ||
-    folder === "investment"
+    folder === "investment" ||
+    folder === "list_temp"
       ? folder
       : "pending"
   );
@@ -812,6 +814,7 @@ export default function KingmakerPendingPage({
     ebay_mercari: 0,
     all3: 0,
     investment: 0,
+    list_temp: 0,
   },
 }: {
   initialQueue: PendingQueue;
@@ -1038,6 +1041,7 @@ export default function KingmakerPendingPage({
         ebay_mercari: Math.max(0, Number(cardsData.folderCounts?.ebay_mercari || 0)),
         all3: Math.max(0, Number(cardsData.folderCounts?.all3 || 0)),
         investment: Math.max(0, Number(cardsData.folderCounts?.investment || 0)),
+        list_temp: Math.max(0, Number(cardsData.folderCounts?.list_temp || 0)),
       };
       setQueueCounts(nextQueueCounts);
       setFolderCounts(nextFolderCounts);
@@ -1485,7 +1489,7 @@ export default function KingmakerPendingPage({
     const ebayPrice = Number(ebayRaw);
     const mercariPrice = Number(mercariRaw);
     const cardCondition = String(
-      channelConditionEdits[card.inventoryItemId] ?? card.instaComp.channelPricing?.ebayCardCondition ?? "",
+      channelConditionEdits[card.inventoryItemId] ?? card.instaComp.channelPricing?.ebayCardCondition ?? card.condition ?? "Near Mint or Better",
     ).trim();
     if (!Number.isFinite(websitePrice) || websitePrice <= 0 || !Number.isFinite(ebayPrice) || ebayPrice <= 0 || !Number.isFinite(mercariPrice) || mercariPrice <= 0) {
       setPageError("Enter positive Website, eBay, and Mercari prices. Each marketplace publishes its own exact seller price.");
@@ -1875,7 +1879,7 @@ export default function KingmakerPendingPage({
       const missingRawCondition = targets.filter((card) => {
         if (card.instaComp.gradingCompany) return false;
         const condition = String(
-          channelConditionEdits[card.inventoryItemId] ?? card.instaComp.channelPricing?.ebayCardCondition ?? "",
+          channelConditionEdits[card.inventoryItemId] ?? card.instaComp.channelPricing?.ebayCardCondition ?? card.condition ?? "Near Mint or Better",
         ).trim();
         return !condition;
       });
@@ -1885,6 +1889,30 @@ export default function KingmakerPendingPage({
         );
         return;
       }
+    }
+    // Preflight every selected card before the first network publish call.
+    // This prevents a later missing-price/readiness failure from leaving an
+    // earlier card partially published.
+    const requiresWebsite = action === "publish-website" || action === "publish-website-mercari" || action === "publish-all-3";
+    const requiresEbay = action === "publish-ebay" || action === "publish-all-3";
+    const requiresMercari = action === "publish-mercari" || action === "publish-website-mercari" || action === "publish-all-3";
+    const missingChannelPricing = targets.filter((card) => {
+      const channel = card.instaComp.channelPricing;
+      const edited = channelPriceEdits[card.inventoryItemId];
+      const websitePrice = Number(edited?.website || channel?.websitePrice || 0);
+      const ebayPrice = Number(edited?.ebay || channel?.ebayPrice || 0);
+      const mercariPrice = Number(edited?.mercari || channel?.mercariPrice || channel?.ebayPrice || 0);
+      return (requiresWebsite && websitePrice <= 0) ||
+        (requiresEbay && ebayPrice <= 0) ||
+        (requiresMercari && mercariPrice <= 0);
+    });
+    if (missingChannelPricing.length) {
+      setPageError(
+        "LISTING BLOCKED: " + missingChannelPricing.length + " selected card" +
+        (missingChannelPricing.length === 1 ? " is" : "s are") +
+        " missing a Website, eBay, or Mercari seller price. Complete pricing for the entire selection before publishing so the batch cannot partially publish.",
+      );
+      return;
     }
     const pendingPurchaseTargets = targets.filter((card) =>
       physicalMembersForCard(card).some(
@@ -1949,7 +1977,7 @@ export default function KingmakerPendingPage({
         const ebayPrice = Number(edited?.ebay || channel?.ebayPrice || 0);
         const mercariPrice = Number(edited?.mercari || channel?.mercariPrice || channel?.ebayPrice || 0);
         const cardCondition = String(
-          channelConditionEdits[card.inventoryItemId] ?? channel?.ebayCardCondition ?? "",
+          channelConditionEdits[card.inventoryItemId] ?? channel?.ebayCardCondition ?? card.condition ?? "Near Mint or Better",
         ).trim();
         const response = await fetch("/api/account/seller/instacomp-pending/channel", {
           method: "POST",
@@ -2666,7 +2694,9 @@ export default function KingmakerPendingPage({
                             ? "Listed on eBay + Mercari"
                             : folder === "all3"
                               ? "Listed All 3 Marketplaces"
-                              : "Investment Stash"}
+                              : folder === "list_temp"
+                                ? "LIST TEMP — Unlisted Inventory Review"
+                                : "Investment Stash"}
             </h1>
             <p className="mt-2 max-w-4xl font-semibold text-neutral-700">
               {queue === "list"
@@ -2700,7 +2730,8 @@ export default function KingmakerPendingPage({
 
         <nav className="mt-5 flex flex-wrap gap-2" aria-label="Inventory lifecycle folders">
           {([
-            ["pending", "Resale Pending", folderCounts.pending],
+            ["pending", "LIST", folderCounts.pending],
+            ["list_temp", "LIST TEMP", folderCounts.list_temp],
             ["website", "Website Only", folderCounts.website],
             ["ebay", "eBay Only", folderCounts.ebay],
             ["mercari", "Mercari Only", folderCounts.mercari],
@@ -2837,7 +2868,9 @@ export default function KingmakerPendingPage({
                               ? "No cards listed on eBay + Mercari"
                               : folder === "all3"
                                 ? "No cards listed on all 3 channels"
-                                : "Investment stash is empty"}
+                                : folder === "list_temp"
+                                  ? "LIST TEMP is empty"
+                                  : "Investment stash is empty"}
             </p>
             <p className="mt-2 text-neutral-600">
               {queue === "verification"
@@ -3086,7 +3119,7 @@ export default function KingmakerPendingPage({
             const websitePriceInput = channelEdit?.website ?? (Number(channelPricing?.websitePrice || 0) > 0 ? String(channelPricing?.websitePrice) : "");
             const ebayPriceInput = channelEdit?.ebay ?? (Number(channelPricing?.ebayPrice || 0) > 0 ? String(channelPricing?.ebayPrice) : "");
             const mercariPriceInput = channelEdit?.mercari ?? (Number(channelPricing?.mercariPrice || 0) > 0 ? String(channelPricing?.mercariPrice) : ebayPriceInput);
-            const ebayCardCondition = channelConditionEdits[card.inventoryItemId] ?? channelPricing?.ebayCardCondition ?? "";
+            const ebayCardCondition = channelConditionEdits[card.inventoryItemId] ?? channelPricing?.ebayCardCondition ?? card.condition ?? "Near Mint or Better";
             const ebayCardConditionOptions = channelPricing?.ebayCategoryId === "183454"
               ? ["Near Mint or Better", "Lightly Played (Excellent)", "Moderately Played (Very Good)", "Heavily Played (Poor)"]
               : ["Near Mint or Better", "Excellent", "Very Good", "Poor"];
@@ -3226,7 +3259,7 @@ export default function KingmakerPendingPage({
                     <h2 className="font-black">{card.title}</h2>
                     {card.instaComp.verifiedCsvLocked && <p className="mt-1 text-xs font-bold text-emerald-300">100% VERIFIED CSV · Identity and both images locked · Price and list</p>}
                     <p className="mt-1 text-xs font-semibold text-emerald-200">
-                      Exact Checklist Registry match · no title rewriting
+                      Exact Checklist Registry match
                     </p>
                     <p className="mt-1 break-all text-xs font-mono text-emerald-300">
                       {card.instaComp.cardUuid ? `UUID ${card.instaComp.cardUuid}` : "Permanent UUID missing — review required"}
